@@ -1,14 +1,16 @@
 import { Camera } from '../engine/Camera';
-import type { GameState } from '../state';
+import type { GameState, ScoutState, Facing } from '../state';
 import type { Obstacle } from './Obstacles';
-import type { DiscoveryPoint } from '../types';
-import { TILE_SIZE, ZONE_RECTS, CREEK_WATER, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, zoneAt, isWater, rectContains } from '../data/worldMap';
+import type { DiscoveryPoint, ZoneId } from '../types';
+import { TILE_SIZE, ZONE_RECTS, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, zoneAt, isWater } from '../data/worldMap';
 import { ZONES } from '../data/zones';
 import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, STATIONS, GREENHOUSE_EXIT } from '../data/stations';
 import { PLANTS } from '../data/plants';
 import { FUNGI } from '../data/fungi';
 import { MATERIALS } from '../data/materials';
+import { CREATURES } from '../data/creatures';
 import { TOOL_PICKUPS } from '../data/toolPickups';
+import { ELLEN_APPEARANCE, SCOUT_APPEARANCE } from '../data/character';
 import { daylightFactor, isNight } from '../engine/Clock';
 import { isDiscoveryAvailable } from '../systems/collection';
 import { stageProgress01 } from '../systems/plantGrowth';
@@ -38,6 +40,9 @@ function lerpColor(a: string, b: string, t: number): string {
 }
 
 export class Renderer {
+  private lastEllenX = 0;
+  private lastEllenY = 0;
+
   constructor(private ctx: CanvasRenderingContext2D) {}
 
   clear(color: string) {
@@ -46,7 +51,7 @@ export class Renderer {
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
 
-  renderOutdoor(camera: Camera, state: GameState, obstacles: Obstacle[], now: number) {
+  renderOutdoor(camera: Camera, state: GameState, obstacles: Obstacle[], now: number, crouching = false) {
     const { ctx } = this;
     const zoneHere = zoneAt(Math.floor(state.player.x), Math.floor(state.player.y));
     this.clear(ZONES[zoneHere].tint);
@@ -100,13 +105,36 @@ export class Renderer {
       ctx.fill();
     }
 
+    // The living ecosystem, made visible: small wandering creatures scaled
+    // by the same population numbers driving the simulation underneath.
+    this.drawRoamingCreatures(camera, state, zoneHere, bounds, now);
+
     // Fox
     if (state.fox.visible && !state.player.inGreenhouse) {
       this.drawFox(camera, state.fox.x, state.fox.y, now);
     }
 
-    // Player
-    this.drawPlayer(camera, state.player.x, state.player.y, state.player.facing);
+    // Scout, Ellen's companion, always somewhere nearby.
+    this.drawScout(camera, state.scout, now);
+
+    // Ellen
+    const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
+    this.lastEllenX = state.player.x;
+    this.lastEllenY = state.player.y;
+    this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching);
+
+    // Low foreground vegetation drawn last, so tall grass/reeds partially
+    // overlap the characters' feet instead of characters always reading on
+    // top of everything.
+    for (const o of obstacles) {
+      if (o.kind !== 'flower' && o.kind !== 'reed') continue;
+      if (o.x < bounds.minX - 2 || o.x > bounds.maxX + 2 || o.y < bounds.minY - 2 || o.y > bounds.maxY + 2) continue;
+      const nearFeet = Math.hypot(o.x + 0.5 - state.player.x, o.y + 0.5 - state.player.y) < 0.9;
+      if (nearFeet) this.drawObstacle(camera, o);
+    }
+
+    // Ambient particles: a few, always tasteful, never noise.
+    this.drawAmbientParticles(camera, zoneHere, state.weather.condition, now);
 
     // Weather / lighting overlay
     this.drawWeatherOverlay(camera, state, now);
@@ -158,16 +186,29 @@ export class Renderer {
         ctx.fill();
         ctx.fillStyle = '#4a3423';
         ctx.fillRect(screen.x - tile * 0.05, screen.y - tile * 0.1, tile * 0.1, tile * 0.4);
+        // Two-tone canopy: a darker under-layer for depth, then the lit
+        // clumps on top, so the tree reads as a volume, not a flat blob.
+        const shade = lerpColor('#1f331f', '#2a4526', hash2(o.x + 2, o.y + 5));
+        ctx.fillStyle = shade;
+        ctx.beginPath();
+        ctx.arc(screen.x + jitter * tile * 0.15, screen.y - tile * 0.28, tile * 0.37, 0, Math.PI * 2);
+        ctx.fill();
         const green = lerpColor('#2f4a2c', '#3f6b3a', hash2(o.x + 1, o.y + 1));
         ctx.fillStyle = green;
         ctx.beginPath();
-        ctx.arc(screen.x + jitter * tile * 0.15, screen.y - tile * 0.32, tile * 0.34, 0, Math.PI * 2);
+        ctx.arc(screen.x + jitter * tile * 0.15, screen.y - tile * 0.34, tile * 0.32, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(screen.x - tile * 0.2, screen.y - tile * 0.18, tile * 0.24, 0, Math.PI * 2);
+        ctx.arc(screen.x - tile * 0.2, screen.y - tile * 0.2, tile * 0.23, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(screen.x + tile * 0.22, screen.y - tile * 0.16, tile * 0.22, 0, Math.PI * 2);
+        ctx.arc(screen.x + tile * 0.22, screen.y - tile * 0.18, tile * 0.21, 0, Math.PI * 2);
+        ctx.fill();
+        // sunlit highlight clump
+        const highlight = lerpColor('#4d7a44', '#6a9a5a', hash2(o.x + 9, o.y + 4));
+        ctx.fillStyle = highlight;
+        ctx.beginPath();
+        ctx.arc(screen.x + jitter * tile * 0.1 - tile * 0.08, screen.y - tile * 0.4, tile * 0.14, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
@@ -179,6 +220,11 @@ export class Renderer {
         ctx.fill();
         ctx.beginPath();
         ctx.arc(screen.x - tile * 0.16, screen.y + tile * 0.06, tile * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+        const highlight = lerpColor('#5a8a4c', '#78ac68', hash2(o.x + 4, o.y + 1));
+        ctx.fillStyle = highlight;
+        ctx.beginPath();
+        ctx.arc(screen.x + tile * 0.08, screen.y - tile * 0.1, tile * 0.1, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
@@ -313,27 +359,402 @@ export class Renderer {
     ctx.fill();
   }
 
-  private drawPlayer(camera: Camera, x: number, y: number, facing: string) {
+  private static readonly DIR: Record<Facing, [number, number]> = {
+    up: [0, -1],
+    down: [0, 1],
+    left: [-1, 0],
+    right: [1, 0],
+  };
+
+  /**
+   * Ellen: a field botanist, not a generic sprite — vest, backpack, wide
+   * hat, satchel with a hand lens, and the recurring handmade detail, a
+   * crocheted scarf. `crouching` renders her brief collect/examine pose.
+   */
+  private drawEllen(camera: Camera, x: number, y: number, facing: Facing, now: number, moving: boolean, crouching: boolean) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    const dir = Renderer.DIR[facing];
+    const sideFlip = facing === 'left' ? -1 : 1;
+    const facingBack = facing === 'up';
+
+    const walkPhase = moving ? now * 0.013 : now * 0.003;
+    const walkAmp = moving ? 1 : 0.3;
+    const bob = Math.sin(walkPhase) * tile * 0.02 * walkAmp;
+    const legSwing = moving ? Math.sin(walkPhase * 2) * tile * 0.06 : 0;
+    const squash = crouching ? 0.72 : 1;
+    const lift = crouching ? tile * 0.1 : 0;
+
+    const cx = screen.x;
+    const cy = screen.y + bob + lift;
+
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.24)';
     ctx.beginPath();
-    ctx.ellipse(screen.x, screen.y + tile * 0.22, tile * 0.2, tile * 0.09, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, screen.y + tile * 0.26, tile * 0.19, tile * 0.08, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#3d5a52';
+
+    // backpack, slung opposite the way she's facing
+    const packX = cx - dir[0] * tile * 0.16;
+    const packY = cy - dir[1] * tile * 0.1 - tile * 0.06;
+    ctx.fillStyle = ELLEN_APPEARANCE.backpack;
     ctx.beginPath();
-    ctx.ellipse(screen.x, screen.y, tile * 0.18, tile * 0.24, 0, 0, Math.PI * 2);
+    ctx.ellipse(packX, packY, tile * 0.14, tile * 0.17 * squash, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#f0d9b5';
+    ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
+    ctx.lineWidth = Math.max(1, tile * 0.02);
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y - tile * 0.2, tile * 0.13, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#5fc9b8';
-    const dir = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[facing] ?? [0, 1];
+    ctx.moveTo(packX - tile * 0.12, packY - tile * 0.1);
+    ctx.lineTo(packX + tile * 0.12, packY - tile * 0.1);
+    ctx.stroke();
+
+    // boots, alternating a little while walking
+    ctx.fillStyle = ELLEN_APPEARANCE.boots;
     ctx.beginPath();
-    ctx.arc(screen.x + dir[0] * tile * 0.12, screen.y - tile * 0.2 + dir[1] * tile * 0.06, tile * 0.03, 0, Math.PI * 2);
+    ctx.ellipse(cx - tile * 0.07, screen.y + tile * 0.24 + legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + tile * 0.07, screen.y + tile * 0.24 - legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // pants sliver
+    ctx.fillStyle = ELLEN_APPEARANCE.pants;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + tile * 0.2 * squash, tile * 0.14, tile * 0.1 * squash, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // vest / torso
+    ctx.fillStyle = ELLEN_APPEARANCE.vest;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, tile * 0.17, tile * 0.22 * squash, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
+    ctx.lineWidth = Math.max(1, tile * 0.02);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - tile * 0.2 * squash);
+    ctx.lineTo(cx, cy + tile * 0.18 * squash);
+    ctx.stroke();
+
+    // shirt collar
+    ctx.fillStyle = ELLEN_APPEARANCE.shirt;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - tile * 0.16 * squash, tile * 0.07, tile * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // crocheted scarf — the recurring handmade touch
+    ctx.strokeStyle = ELLEN_APPEARANCE.crochetScarf;
+    ctx.lineWidth = Math.max(2, tile * 0.045);
+    ctx.beginPath();
+    ctx.arc(cx, cy - tile * 0.15 * squash, tile * 0.1, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+    ctx.strokeStyle = ELLEN_APPEARANCE.crochetScarfAlt;
+    ctx.lineWidth = Math.max(1, tile * 0.015);
+    for (let i = 0; i < 4; i++) {
+      const a = 0.22 * Math.PI + i * 0.16 * Math.PI;
+      const sx = cx + Math.cos(a) * tile * 0.1;
+      const sy = cy - tile * 0.15 * squash + Math.sin(a) * tile * 0.1;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + Math.cos(a) * tile * 0.02, sy + Math.sin(a) * tile * 0.02);
+      ctx.stroke();
+    }
+
+    // satchel + hand lens at the hip
+    const hipX = cx + sideFlip * tile * 0.13;
+    ctx.fillStyle = ELLEN_APPEARANCE.pouch;
+    ctx.beginPath();
+    ctx.ellipse(hipX, cy + tile * 0.05, tile * 0.06, tile * 0.07, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#cbb78a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(hipX, cy + tile * 0.01, tile * 0.03, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = ELLEN_APPEARANCE.lensGlint;
+    ctx.beginPath();
+    ctx.arc(hipX, cy + tile * 0.01, tile * 0.015, 0, Math.PI * 2);
+    ctx.fill();
+
+    // head + face
+    const headY = cy - tile * 0.32 * squash;
+    ctx.fillStyle = ELLEN_APPEARANCE.skin;
+    ctx.beginPath();
+    ctx.arc(cx, headY, tile * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = ELLEN_APPEARANCE.hair;
+    ctx.beginPath();
+    ctx.arc(cx - dir[0] * tile * 0.02, headY + tile * 0.06, tile * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    if (!facingBack) {
+      ctx.fillStyle = '#2a2018';
+      ctx.beginPath();
+      ctx.arc(cx + dir[0] * tile * 0.05 - tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.015, 0, Math.PI * 2);
+      ctx.arc(cx + dir[0] * tile * 0.05 + tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.015, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // wide-brim field hat
+    ctx.fillStyle = ELLEN_APPEARANCE.hat;
+    ctx.beginPath();
+    ctx.ellipse(cx, headY - tile * 0.02, tile * 0.16, tile * 0.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx - dir[0] * tile * 0.02, headY - tile * 0.08, tile * 0.09, tile * 0.075, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = ELLEN_APPEARANCE.hatBand;
+    ctx.lineWidth = Math.max(1, tile * 0.025);
+    ctx.beginPath();
+    ctx.ellipse(cx - dir[0] * tile * 0.02, headY - tile * 0.02, tile * 0.09, tile * 0.04, 0, 0, Math.PI);
+    ctx.stroke();
+
+    // backpack straps, visible over the shoulders from the front
+    if (facing === 'down') {
+      ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
+      ctx.lineWidth = Math.max(1, tile * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(cx - tile * 0.1, cy - tile * 0.18 * squash);
+      ctx.lineTo(cx - tile * 0.05, cy + tile * 0.05);
+      ctx.moveTo(cx + tile * 0.1, cy - tile * 0.18 * squash);
+      ctx.lineTo(cx + tile * 0.05, cy + tile * 0.05);
+      ctx.stroke();
+    }
+
+    // reaching hand while crouched/collecting
+    if (crouching) {
+      ctx.fillStyle = ELLEN_APPEARANCE.skin;
+      ctx.beginPath();
+      ctx.arc(cx + dir[0] * tile * 0.22, cy + dir[1] * tile * 0.14 + tile * 0.08, tile * 0.045, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /** Scout: Ellen's scruffy one-eyed field companion. */
+  private drawScout(camera: Camera, scout: ScoutState, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const screen = camera.worldToScreen(scout.x * TILE_SIZE, scout.y * TILE_SIZE);
+    const dir = Renderer.DIR[scout.facing];
+
+    const sitting = scout.behavior === 'idleSit';
+    const sniffing = scout.behavior === 'idleSniff';
+    const alert = scout.behavior === 'idleLook' || scout.behavior === 'noticing';
+    const moving = scout.behavior === 'following';
+
+    const bodyScaleY = sitting ? 0.62 : 1;
+    const headDrop = sniffing ? tile * 0.09 : 0;
+    const earPerk = alert ? 1.3 : 1;
+    const legPhase = moving ? now * 0.02 : now * 0.004;
+    const legSwing = moving ? Math.sin(legPhase) * tile * 0.045 : Math.sin(legPhase) * tile * 0.01;
+
+    const cx = screen.x;
+    const cy = screen.y;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + tile * 0.14, tile * 0.16, tile * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // tail: curled at rest, wagging when moving or content
+    const tailBaseX = cx - dir[0] * tile * 0.14;
+    const tailBaseY = cy - dir[1] * tile * 0.14 * bodyScaleY;
+    const wag = sitting ? 0.3 : Math.sin(now * 0.012) * (moving ? 0.5 : 0.25);
+    ctx.strokeStyle = SCOUT_APPEARANCE.furDark;
+    ctx.lineWidth = Math.max(1, tile * 0.045);
+    ctx.beginPath();
+    ctx.moveTo(tailBaseX, tailBaseY);
+    ctx.quadraticCurveTo(
+      tailBaseX - dir[0] * tile * 0.14 + wag * tile * 0.1,
+      tailBaseY - dir[1] * tile * 0.14 - tile * 0.06,
+      tailBaseX - dir[0] * tile * 0.05 + wag * tile * 0.16,
+      tailBaseY - tile * 0.14
+    );
+    ctx.stroke();
+
+    // body with a scruffy darker patch
+    ctx.fillStyle = SCOUT_APPEARANCE.furBase;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - tile * 0.02, tile * 0.15, tile * 0.11 * bodyScaleY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = SCOUT_APPEARANCE.furDark;
+    ctx.beginPath();
+    ctx.ellipse(cx - dir[0] * tile * 0.03, cy - tile * 0.05 - dir[1] * tile * 0.02, tile * 0.08, tile * 0.05 * bodyScaleY, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (!sitting) {
+      ctx.fillStyle = SCOUT_APPEARANCE.furDark;
+      ctx.beginPath();
+      ctx.ellipse(cx - tile * 0.07, cy + tile * 0.1 + legSwing, tile * 0.03, tile * 0.035, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + tile * 0.07, cy + tile * 0.1 - legSwing, tile * 0.03, tile * 0.035, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // head
+    const headX = cx + dir[0] * tile * 0.14;
+    const headY = cy + dir[1] * tile * 0.1 - tile * 0.03 + headDrop;
+    ctx.fillStyle = SCOUT_APPEARANCE.furBase;
+    ctx.beginPath();
+    ctx.arc(headX, headY, tile * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ears — one a little crooked
+    ctx.fillStyle = SCOUT_APPEARANCE.furDark;
+    ctx.beginPath();
+    ctx.moveTo(headX - tile * 0.07, headY - tile * 0.04);
+    ctx.lineTo(headX - tile * 0.1, headY - tile * 0.12 * earPerk);
+    ctx.lineTo(headX - tile * 0.02, headY - tile * 0.06);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(headX + tile * 0.06, headY - tile * 0.04);
+    ctx.lineTo(headX + tile * 0.11, headY - tile * 0.1 * earPerk);
+    ctx.lineTo(headX + tile * 0.02, headY - tile * 0.06);
+    ctx.closePath();
+    ctx.fill();
+
+    // muzzle + nose
+    ctx.fillStyle = SCOUT_APPEARANCE.furLight;
+    ctx.beginPath();
+    ctx.ellipse(headX + dir[0] * tile * 0.06, headY + dir[1] * tile * 0.04 + tile * 0.02, tile * 0.055, tile * 0.04, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = SCOUT_APPEARANCE.nose;
+    ctx.beginPath();
+    ctx.arc(headX + dir[0] * tile * 0.1, headY + dir[1] * tile * 0.06 + tile * 0.02, tile * 0.018, 0, Math.PI * 2);
+    ctx.fill();
+
+    // one good eye, one patch — a plain, recognizable detail
+    ctx.fillStyle = SCOUT_APPEARANCE.eye;
+    ctx.beginPath();
+    ctx.arc(headX - dir[1] * tile * 0.05 + dir[0] * tile * 0.01, headY - tile * 0.01, tile * 0.016, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = SCOUT_APPEARANCE.eyePatch;
+    ctx.beginPath();
+    ctx.arc(headX + dir[1] * tile * 0.05 + dir[0] * tile * 0.01, headY - tile * 0.01, tile * 0.022, 0, Math.PI * 2);
+    ctx.fill();
+
+    // handmade collar, matching Ellen's crochet accent
+    ctx.strokeStyle = SCOUT_APPEARANCE.collar;
+    ctx.lineWidth = Math.max(1, tile * 0.03);
+    ctx.beginPath();
+    ctx.arc(headX, headY + tile * 0.07, tile * 0.06, 0.1 * Math.PI, 0.9 * Math.PI);
+    ctx.stroke();
+  }
+
+  /**
+   * Small wandering creature icons scaled by the same ecosystem population
+   * numbers driving the simulation, so relationships read visually instead
+   * of only as numbers behind the scenes. Generic per creature `kind` —
+   * new species need no new rendering code.
+   */
+  private drawRoamingCreatures(
+    camera: Camera,
+    state: GameState,
+    zone: ZoneId,
+    bounds: { minX: number; maxX: number; minY: number; maxY: number },
+    now: number
+  ) {
+    const pops = state.ecosystem[zone];
+    if (!pops) return;
+    const tile = TILE_SIZE * camera.zoom;
+    let drawn = 0;
+    for (const speciesId of Object.keys(pops)) {
+      if (drawn >= 8) break;
+      const creature = CREATURES[speciesId];
+      if (!creature) continue;
+      const pop = pops[speciesId];
+      if (pop < 22) continue;
+      if (creature.nocturnal && !isNight(state.clock.totalMinutes)) continue;
+      const count = Math.min(3, Math.max(1, Math.round((pop / 100) * 3)));
+      for (let i = 0; i < count && drawn < 8; i++) {
+        const seedA = hash2(speciesId.charCodeAt(0) + i * 3, speciesId.length * 7 + i);
+        const seedB = hash2(seedA * 97, i * 5 + speciesId.charCodeAt(speciesId.length - 1));
+        const centerX = bounds.minX + seedA * (bounds.maxX - bounds.minX);
+        const centerY = bounds.minY + seedB * (bounds.maxY - bounds.minY);
+        const wx = centerX + Math.sin(now * 0.0009 + i * 2.1 + seedA * 6) * 1.4;
+        const wy = centerY + Math.cos(now * 0.0011 + i * 1.7 + seedB * 6) * 1.4;
+        const screen = camera.worldToScreen(wx * TILE_SIZE, wy * TILE_SIZE);
+        this.drawCreatureIcon(screen.x, screen.y, tile, creature.kind, now + i * 400);
+        drawn++;
+      }
+    }
+  }
+
+  private drawCreatureIcon(x: number, y: number, tile: number, kind: 'insect' | 'animal', now: number) {
+    const { ctx } = this;
+    if (kind === 'insect') {
+      const flutter = Math.sin(now * 0.02) * tile * 0.03;
+      ctx.fillStyle = 'rgba(40,40,30,0.85)';
+      ctx.beginPath();
+      ctx.arc(x, y, tile * 0.025, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(220,220,255,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(x - tile * 0.03, y - flutter, tile * 0.025, tile * 0.014, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x + tile * 0.03, y + flutter, tile * 0.025, tile * 0.014, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = 'rgba(90,70,50,0.7)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, tile * 0.05, tile * 0.032, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /**
+   * Tasteful, capped-count atmosphere: drifting pollen in the shaded
+   * zones, a couple of wandering butterflies over open flowers, and
+   * falling leaves under the canopy when it's dry. Screen-space and cheap,
+   * in the same spirit as the existing rain overlay.
+   */
+  private drawAmbientParticles(camera: Camera, zone: ZoneId, weather: string, now: number) {
+    const { ctx } = this;
+    const w = ctx.canvas.width;
+    const h = ctx.canvas.height;
+
+    if (zone === 'woodland' || zone === 'dampForest') {
+      for (let i = 0; i < 10; i++) {
+        const seed = i * 137.5;
+        const x = (seed * 3 + now * 0.01 * (0.5 + (i % 3) * 0.2)) % w;
+        const y = h - ((now * 0.02 + seed * 5) % (h + 40));
+        const alpha = Math.max(0, 0.15 + 0.1 * Math.sin(now * 0.002 + i));
+        ctx.fillStyle = `rgba(230,225,190,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (weather !== 'rain') {
+        for (let i = 0; i < 4; i++) {
+          const seed = i * 211.3;
+          const fx = (seed * 2 + Math.sin(now * 0.0006 + i) * 40 + w) % w;
+          const fy = ((now * 0.03 + seed * 4) % (h + 30)) - 15;
+          ctx.save();
+          ctx.translate(fx, fy);
+          ctx.rotate(now * 0.001 + i);
+          ctx.fillStyle = 'rgba(150,110,60,0.4)';
+          ctx.beginPath();
+          ctx.ellipse(0, 0, 3, 1.6, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+    } else if (zone === 'meadow' || zone === 'overgrownClearing') {
+      for (let i = 0; i < 3; i++) {
+        const bx = (w * (0.15 + i * 0.35) + Math.sin(now * 0.0015 + i * 2) * w * 0.12 + w) % w;
+        const by = h * 0.3 + Math.cos(now * 0.0021 + i * 3) * h * 0.15;
+        const flap = Math.sin(now * 0.02 + i) * 3;
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(240,220,120,0.75)' : 'rgba(230,180,220,0.75)';
+        ctx.beginPath();
+        ctx.ellipse(bx - 3, by - flap, 3, 2, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(bx + 3, by + flap, 3, 2, -0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   private drawWeatherOverlay(camera: Camera, state: GameState, now: number) {
@@ -368,7 +789,7 @@ export class Renderer {
 
   // ---------------- Indoor (greenhouse) ----------------
 
-  renderIndoor(outerCamera: Camera, state: GameState, now: number) {
+  renderIndoor(outerCamera: Camera, state: GameState, now: number, crouching = false) {
     const { ctx } = this;
     this.clear('#241a12');
 
@@ -417,15 +838,118 @@ export class Renderer {
     ctx.fillStyle = 'rgba(150,200,255,0.25)';
     ctx.fillRect(exitScreen.x - tile * 0.3, exitScreen.y, tile * 1.6, tile);
 
+    this.drawGreenhouseProps(camera, now);
+
     for (const station of STATIONS) {
       this.drawStation(camera, state, station, now);
     }
 
-    this.drawPlayer(camera, state.player.x, state.player.y, state.player.facing);
+    const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
+    this.lastEllenX = state.player.x;
+    this.lastEllenY = state.player.y;
+    this.drawScout(camera, state.scout, now);
+    this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching);
 
     // Warm ambient tint + light shafts
     ctx.fillStyle = 'rgba(255,200,130,0.05)';
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  }
+
+  /**
+   * Set dressing that makes the greenhouse read as somewhere Ellen actually
+   * lives and works: Scout's own resting spot, her notebook and crochet
+   * basket, and a row of hanging pots suspended from the glass roof (drawn
+   * with an upward screen offset so they read as overhead, not underfoot).
+   */
+  private drawGreenhouseProps(camera: Camera, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const at = (x: number, y: number) => camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
+
+    // Scout's bed.
+    {
+      const s = at(11, 9);
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y + tile * 0.24, tile * 0.34, tile * 0.12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = SCOUT_APPEARANCE.collar;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y + tile * 0.14, tile * 0.32, tile * 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = SCOUT_APPEARANCE.furLight;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y + tile * 0.12, tile * 0.22, tile * 0.13, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Ellen's notebook + crochet basket.
+    {
+      const s = at(13, 9);
+      ctx.fillStyle = '#5a4530';
+      ctx.fillRect(s.x - tile * 0.3, s.y - tile * 0.16, tile * 0.6, tile * 0.32);
+      // notebook
+      ctx.save();
+      ctx.translate(s.x - tile * 0.1, s.y - tile * 0.04);
+      ctx.rotate(-0.15);
+      ctx.fillStyle = ELLEN_APPEARANCE.shirt;
+      ctx.fillRect(-tile * 0.12, -tile * 0.09, tile * 0.24, tile * 0.18);
+      ctx.strokeStyle = 'rgba(60,45,30,0.5)';
+      ctx.lineWidth = 1;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(-tile * 0.09, i * tile * 0.05);
+        ctx.lineTo(tile * 0.09, i * tile * 0.05);
+        ctx.stroke();
+      }
+      ctx.restore();
+      // crochet basket with a hook of yarn
+      ctx.fillStyle = '#8a6a42';
+      ctx.beginPath();
+      ctx.ellipse(s.x + tile * 0.16, s.y + tile * 0.04, tile * 0.11, tile * 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = ELLEN_APPEARANCE.crochetScarf;
+      ctx.beginPath();
+      ctx.arc(s.x + tile * 0.16, s.y - tile * 0.02, tile * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = ELLEN_APPEARANCE.crochetScarfAlt;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(s.x + tile * 0.1, s.y - tile * 0.05);
+      ctx.quadraticCurveTo(s.x + tile * 0.02, s.y - tile * 0.12, s.x - tile * 0.05, s.y - tile * 0.08);
+      ctx.stroke();
+    }
+
+    // Hanging pots, suspended from the roof line.
+    const hangSway = Math.sin(now * 0.0012) * tile * 0.02;
+    for (const [hx, hy] of [
+      [8, 1],
+      [10, 1],
+      [17, 5],
+    ] as const) {
+      const s = at(hx, hy);
+      const px = s.x + hangSway;
+      const py = s.y - tile * 0.55;
+      ctx.strokeStyle = 'rgba(60,50,40,0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, s.y - tile * 0.9);
+      ctx.lineTo(px, py);
+      ctx.stroke();
+      ctx.fillStyle = '#8a5a3c';
+      ctx.beginPath();
+      ctx.moveTo(px - tile * 0.13, py);
+      ctx.lineTo(px + tile * 0.13, py);
+      ctx.lineTo(px + tile * 0.09, py + tile * 0.16);
+      ctx.lineTo(px - tile * 0.09, py + tile * 0.16);
+      ctx.closePath();
+      ctx.fill();
+      const green = lerpColor('#3f6b3a', '#5a8a4c', hash2(hx, hy));
+      ctx.fillStyle = green;
+      ctx.beginPath();
+      ctx.arc(px, py - tile * 0.06, tile * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   private drawStation(camera: Camera, state: GameState, station: { id: string; x: number; y: number; kind: string }, now: number) {

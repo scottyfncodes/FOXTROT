@@ -12,8 +12,8 @@ export interface ZoneDef {
 export const ZONES: Record<ZoneId, ZoneDef> = {
   greenhouse: {
     id: 'greenhouse',
-    name: 'The Greenhouse',
-    blurb: 'Warm glass and old wood. Your laboratory and incubator.',
+    name: "Ellen's Greenhouse",
+    blurb: 'Warm glass and old wood. Her laboratory, nursery, and workshop — and Scout\'s favorite place to nap.',
     ambient: 'creaking wood, dripping condensation, muffled wind',
     tint: '#2a4038',
     groundColors: ['#5a4632', '#4d3c2a'],

@@ -1,4 +1,5 @@
 import { el } from './dom';
+import { SAVE_KEY } from '../game/state';
 
 export class StartOverlay {
   root = el('div', 'start-overlay');
@@ -10,8 +11,8 @@ export class StartOverlay {
         'p',
         undefined,
         isNew
-          ? 'An abandoned greenhouse. A living wilderness just beyond it. Something is watching from the tree line.'
-          : 'The greenhouse is as you left it. The wilderness may not be.'
+          ? "You're Ellen, a field botanist, with Scout — scruffy, one-eyed, never far — at your side. An abandoned greenhouse behind you. A living wilderness ahead. Something in the tree line is watching."
+          : 'The greenhouse is as you and Scout left it. The wilderness may not be.'
       )
     );
     const btn = el('button', 'primary-btn', isNew ? 'Step Outside' : 'Continue');
@@ -25,7 +26,7 @@ export class StartOverlay {
     resetLink.style.marginTop = '4px';
     resetLink.addEventListener('click', () => {
       if (confirm('This will erase your current progress. Start fresh?')) {
-        localStorage.removeItem('foxtrot-save-v1');
+        localStorage.removeItem(SAVE_KEY);
         location.reload();
       }
     });

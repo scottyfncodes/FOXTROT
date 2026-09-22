@@ -13,6 +13,21 @@
   --radius: 14px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   font-family: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Segoe UI', system-ui, sans-serif;
+
+  /* Ellen's field-journal palette — used to reskin panels (journal, basket,
+     station) as pages from her own notebook, kept separate from the world/
+     HUD's cool evening palette above. */
+  --paper: #efe3c4;
+  --paper-deep: #e4d5ac;
+  --paper-border: rgba(90, 66, 34, 0.28);
+  --ink-brown: #3c2f20;
+  --ink-brown-dim: #6b5a3f;
+  --leaf: #4c6b38;
+  --leaf-soft: rgba(76, 107, 56, 0.14);
+  --leaf-strong: #35502a;
+  --stamp: #a8582e;
+  --stamp-soft: rgba(168, 88, 46, 0.16);
+  --rust: #9c4530;
 }
 
 * {
@@ -293,11 +308,30 @@ button {
 }
 
 .panel {
+  /* A page from Ellen's field journal: warm paper, brown ink, a leaf-green
+     accent instead of the wilderness's cool teal. Every rule below still
+     just reads var(--panel-bg)/var(--accent)/etc, so redefining the tokens
+     here is enough to reskin the whole panel family at once. */
+  --panel-bg: var(--paper);
+  --panel-border: var(--paper-border);
+  --ink: var(--ink-brown);
+  --ink-dim: var(--ink-brown-dim);
+  --accent: var(--leaf);
+  --accent-soft: var(--leaf-soft);
+  --accent-strong: var(--leaf-strong);
+  --warm: var(--stamp);
+  --warm-soft: var(--stamp-soft);
+  --danger: var(--rust);
+
   width: 100%;
   max-width: 640px;
   max-height: 86vh;
-  background: var(--panel-bg);
+  background-color: var(--panel-bg);
+  background-image: radial-gradient(ellipse at 20% 0%, rgba(255, 250, 230, 0.5), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(90, 66, 34, 0.025) 0px, rgba(90, 66, 34, 0.025) 1px, transparent 1px, transparent 26px);
+  color: var(--ink);
   border: 1px solid var(--panel-border);
+  border-top: 3px solid var(--leaf-strong);
   border-radius: var(--radius) var(--radius) 0 0;
   box-shadow: var(--shadow);
   display: flex;
@@ -322,8 +356,9 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 18px;
+  padding: 16px 18px 13px;
   border-bottom: 1px solid var(--panel-border);
+  box-shadow: 0 3px 0 -2px var(--paper-deep);
 }
 
 .panel-header h2 {
@@ -331,6 +366,8 @@ button {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.02em;
+  font-style: italic;
+  color: var(--leaf-strong);
 }
 
 .panel-close {
@@ -382,9 +419,10 @@ button {
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  border-radius: 3px 10px 10px 3px;
+  background: rgba(255, 252, 240, 0.55);
   border: 1px solid transparent;
+  border-left: 3px solid var(--paper-border);
 }
 
 .entry-row.clickable {
@@ -393,7 +431,8 @@ button {
 
 .entry-row.clickable:hover {
   border-color: var(--panel-border);
-  background: rgba(255, 255, 255, 0.06);
+  border-left-color: var(--leaf);
+  background: rgba(255, 252, 240, 0.85);
 }
 
 .entry-swatch {
@@ -428,7 +467,7 @@ button {
 }
 
 .entry-status.unknown {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(90, 66, 34, 0.12);
   color: var(--ink-dim);
 }
 
@@ -495,7 +534,7 @@ button {
   flex: 1;
   height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(90, 66, 34, 0.14);
   overflow: hidden;
 }
 
@@ -511,7 +550,7 @@ button {
 }
 
 .choice-card {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 252, 240, 0.55);
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   padding: 10px 8px;
@@ -534,7 +573,7 @@ button {
 }
 
 .pill-btn {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 252, 240, 0.55);
   border: 1px solid var(--panel-border);
   color: var(--ink-dim);
   border-radius: 999px;
@@ -550,7 +589,7 @@ button {
 
 .primary-btn {
   background: var(--accent-strong);
-  color: var(--ink);
+  color: #f6efd9;
   border: none;
   border-radius: 10px;
   padding: 11px 16px;
@@ -582,7 +621,7 @@ button {
   flex: 1;
   height: 5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(90, 66, 34, 0.16);
 }
 
 .growth-stage-dot.filled {

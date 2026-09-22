@@ -22,6 +22,7 @@ import { isDiscoveryAvailable, collectAt } from '../systems/collection';
 import { tickEcosystem, initEcosystem, detectEcologicalAlerts, introduceSpecies } from '../systems/ecosystem';
 import { tickPlantGrowth, plantSpecimen, rollTraits, DEFAULT_CONDITIONS, GROWTH_TIME_SCALE } from '../systems/plantGrowth';
 import { tickFox } from '../systems/fox';
+import { tickScout } from '../systems/scout';
 import { recordCultivated, recordDeveloped, recordMastered, recordPropagated, recordVariant } from '../systems/journal';
 import { tickObservation } from '../systems/observation';
 import { meetsRequirement, unlockTool } from '../systems/tools';
@@ -71,6 +72,8 @@ export class Game {
   private observeAcc = 0;
   private seenAlertIds = new Set<string>();
   private rafId = 0;
+  /** Game-minute timestamp until which Ellen renders in her brief collect/crouch pose. */
+  actionAnimUntil = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -198,6 +201,17 @@ export class Game {
       this.audio.setZone('greenhouse', false, dtSeconds);
     }
 
+    tickScout(this.state.scout, {
+      playerX: this.state.player.x,
+      playerY: this.state.player.y,
+      playerFacing: this.state.player.facing,
+      playerMoving: move.x !== 0 || move.y !== 0,
+      dtSeconds,
+      now: this.state.clock.totalMinutes,
+      nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUndiscovered(),
+      rand: Math.random,
+    });
+
     this.alertAcc += elapsedMinutes;
     if (this.alertAcc > 15) {
       this.alertAcc = 0;
@@ -218,20 +232,46 @@ export class Game {
     }
   }
 
+  private findNearbyUndiscovered(): { x: number; y: number } | null {
+    const p = this.state.player;
+    let best: { x: number; y: number } | null = null;
+    let bestDist = 2.4;
+    for (const dp of DISCOVERY_POINTS) {
+      if (dp.foxLed && !this.state.discoveryPoints[dp.id]?.revealed) continue;
+      const entry = this.state.journal[dp.specimenId];
+      if (entry && entry.level !== 'UNDISCOVERED') continue;
+      const d = Math.hypot(p.x - (dp.x + 0.5), p.y - (dp.y + 0.5));
+      if (d < bestDist) {
+        bestDist = d;
+        best = { x: dp.x + 0.5, y: dp.y + 0.5 };
+      }
+    }
+    return best;
+  }
+
   private handleDoorTransitions() {
     const p = this.state.player;
+    const scout = this.state.scout;
     if (!p.inGreenhouse) {
       if (Math.floor(p.x) === GREENHOUSE_DOOR.x && Math.floor(p.y) === GREENHOUSE_DOOR.y) {
         p.inGreenhouse = true;
         p.x = GREENHOUSE_EXIT.x + 0.5;
         p.y = GREENHOUSE_EXIT.y - 1.5;
         p.facing = 'up';
+        // Scout follows Ellen through doorways instantly rather than
+        // trailing all the way from wherever he was outside.
+        scout.x = p.x - 0.7;
+        scout.y = p.y + 0.5;
+        scout.behavior = 'following';
       }
     } else if (Math.floor(p.x) === GREENHOUSE_EXIT.x && Math.floor(p.y) >= GREENHOUSE_EXIT.y) {
       p.inGreenhouse = false;
       p.x = GREENHOUSE_DOOR.x + 0.5;
       p.y = GREENHOUSE_DOOR.y + 1.5;
       p.facing = 'down';
+      scout.x = p.x - 0.7;
+      scout.y = p.y + 0.5;
+      scout.behavior = 'following';
     }
   }
 
@@ -301,6 +341,7 @@ export class Game {
       const dp = DISCOVERY_POINTS.find((d) => d.id === n.id)!;
       const result = collectAt(this.state, dp);
       if (result.success) {
+        this.actionAnimUntil = this.state.clock.totalMinutes + 1.4;
         this.audio.playDiscoveryChime();
         const def = dp.specimenKind === 'plant' ? PLANTS[dp.specimenId] : dp.specimenKind === 'fungus' ? FUNGI[dp.specimenId] : MATERIALS[dp.specimenId];
         const name = result.isNewIdentification || result.isNewDiscovery ? def?.name ?? 'something new' : def && 'name' in def ? def.name : 'a specimen';
@@ -406,10 +447,11 @@ export class Game {
 
   private render(now: number) {
     this.camera.follow(this.state.player.x, this.state.player.y);
+    const crouching = this.state.clock.totalMinutes < this.actionAnimUntil;
     if (this.state.player.inGreenhouse) {
-      this.renderer.renderIndoor(this.camera, this.state, now);
+      this.renderer.renderIndoor(this.camera, this.state, now, crouching);
     } else {
-      this.renderer.renderOutdoor(this.camera, this.state, this.obstacles, now);
+      this.renderer.renderOutdoor(this.camera, this.state, this.obstacles, now, crouching);
     }
   }
 }

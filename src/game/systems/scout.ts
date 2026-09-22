@@ -1,0 +1,99 @@
+import type { Facing, ScoutState } from '../state';
+
+// Scout trails just behind and to the side of Ellen (a real walking-companion
+// offset, not stacked on top of her), catching up briskly when he falls far
+// behind and settling into idle flavor behaviors when she pauses. He is a
+// constant companion — unlike the fox, who is a rare, wordless lure toward
+// hidden things, Scout's "noticing" is a small, frequent, unforced beat.
+
+const FACING_VEC: Record<Facing, [number, number]> = {
+  up: [0, -1],
+  down: [0, 1],
+  left: [-1, 0],
+  right: [1, 0],
+};
+
+const TRAIL_DIST = 0.85;
+const CATCHUP_SPEED = 4.6; // tiles/sec, used when far behind
+const NORMAL_SPEED = 3.6;
+const FAR_THRESHOLD = 3.0; // beyond this, trot to catch up
+const SETTLE_DIST = 0.5; // close enough to stop closing the gap
+const IDLE_MIN = 5; // game-minutes
+const IDLE_MAX = 14;
+const NOTICE_MIN = 4;
+const NOTICE_MAX = 8;
+const IDLE_START_CHANCE = 0.55;
+const RECHECK_MIN = 2;
+const RECHECK_MAX = 5;
+
+const IDLE_BEHAVIORS: ScoutState['behavior'][] = ['idleSit', 'idleSniff', 'idleLook'];
+
+function dist(ax: number, ay: number, bx: number, by: number): number {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function facingToward(dx: number, dy: number): Facing {
+  return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+}
+
+export interface ScoutTickContext {
+  playerX: number;
+  playerY: number;
+  playerFacing: Facing;
+  playerMoving: boolean;
+  dtSeconds: number;
+  now: number; // game-minutes
+  /** Nearest not-yet-discovered thing worth a curious glance, if any is close. */
+  nearbyUndiscovered: { x: number; y: number } | null;
+  rand: () => number;
+}
+
+export function tickScout(scout: ScoutState, ctx: ScoutTickContext): void {
+  const [fx, fy] = FACING_VEC[ctx.playerFacing];
+  // Trail behind Ellen's heading, offset slightly to her side so he reads as
+  // walking alongside rather than glued to her back.
+  const sideX = -fy;
+  const sideY = fx;
+  const targetX = ctx.playerX - fx * TRAIL_DIST + sideX * 0.35;
+  const targetY = ctx.playerY - fy * TRAIL_DIST + sideY * 0.35;
+  const d = dist(scout.x, scout.y, targetX, targetY);
+
+  const isIdle = scout.behavior !== 'following';
+  if (isIdle) {
+    const shouldResume = ctx.playerMoving || d > FAR_THRESHOLD || ctx.now >= scout.nextEventAt;
+    if (!shouldResume) {
+      if (scout.behavior === 'noticing' && ctx.nearbyUndiscovered) {
+        scout.facing = facingToward(ctx.nearbyUndiscovered.x - scout.x, ctx.nearbyUndiscovered.y - scout.y);
+      }
+      return; // hold the idle pose
+    }
+    scout.behavior = 'following';
+  }
+
+  if (d > SETTLE_DIST) {
+    const speed = (d > FAR_THRESHOLD ? CATCHUP_SPEED : NORMAL_SPEED) * ctx.dtSeconds;
+    const step = Math.min(speed, d);
+    scout.x += ((targetX - scout.x) / d) * step;
+    scout.y += ((targetY - scout.y) / d) * step;
+    const mdx = targetX - scout.x;
+    const mdy = targetY - scout.y;
+    if (Math.abs(mdx) > 0.04 || Math.abs(mdy) > 0.04) {
+      scout.facing = facingToward(mdx, mdy);
+    }
+    return;
+  }
+
+  // Settled beside Ellen: periodically consider a little idle flavor.
+  if (ctx.playerMoving || ctx.now < scout.nextEventAt) return;
+
+  if (ctx.nearbyUndiscovered && ctx.rand() < 0.7) {
+    scout.behavior = 'noticing';
+    scout.nextEventAt = ctx.now + NOTICE_MIN + ctx.rand() * (NOTICE_MAX - NOTICE_MIN);
+    scout.facing = facingToward(ctx.nearbyUndiscovered.x - scout.x, ctx.nearbyUndiscovered.y - scout.y);
+  } else if (ctx.rand() < IDLE_START_CHANCE) {
+    scout.behavior = IDLE_BEHAVIORS[Math.floor(ctx.rand() * IDLE_BEHAVIORS.length)];
+    scout.nextEventAt = ctx.now + IDLE_MIN + ctx.rand() * (IDLE_MAX - IDLE_MIN);
+  } else {
+    scout.nextEventAt = ctx.now + RECHECK_MIN + ctx.rand() * (RECHECK_MAX - RECHECK_MIN);
+  }
+}

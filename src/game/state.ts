@@ -1,8 +1,8 @@
 import type { DiscoveryLevel, GrowConditions, GrowthStage, SpecimenKind, ToolId, TraitSet, ZoneId } from './types';
 import { PLAYER_START } from './data/worldMap';
 
-export const SAVE_VERSION = 1;
-export const SAVE_KEY = 'foxtrot-save-v1';
+export const SAVE_VERSION = 2;
+export const SAVE_KEY = 'foxtrot-save-v2';
 
 export type Facing = 'up' | 'down' | 'left' | 'right';
 
@@ -78,6 +78,16 @@ export interface FoxState {
   visible: boolean;
 }
 
+export type ScoutBehavior = 'following' | 'idleSit' | 'idleSniff' | 'idleLook' | 'noticing';
+
+export interface ScoutState {
+  x: number;
+  y: number;
+  facing: Facing;
+  behavior: ScoutBehavior;
+  nextEventAt: number;
+}
+
 export interface WildIntroduction {
   defId: string;
   zone: ZoneId;
@@ -100,6 +110,7 @@ export interface GameState {
   ecosystem: Record<string, Record<string, number>>; // zone -> speciesId -> population 0-100
   wildIntroductions: WildIntroduction[];
   fox: FoxState;
+  scout: ScoutState;
   toastSeen: string[];
 }
 
@@ -127,6 +138,7 @@ export function createNewGame(): GameState {
     ecosystem: {},
     wildIntroductions: [],
     fox: { x: PLAYER_START.x + 4, y: PLAYER_START.y + 2, zone: 'meadow', behavior: 'idle', targetDiscoveryId: null, nextEventAt: 8 * 60 + 5, visible: true },
+    scout: { x: PLAYER_START.x - 0.8, y: PLAYER_START.y + 0.8, facing: 'down', behavior: 'following', nextEventAt: 8 * 60 + 10 },
     toastSeen: [],
   };
 }
