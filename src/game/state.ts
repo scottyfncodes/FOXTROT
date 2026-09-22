@@ -1,8 +1,8 @@
 import type { DiscoveryLevel, GrowConditions, GrowthStage, SpecimenKind, ToolId, TraitSet, ZoneId } from './types';
 import { PLAYER_START } from './data/worldMap';
 
-export const SAVE_VERSION = 2;
-export const SAVE_KEY = 'foxtrot-save-v2';
+export const SAVE_VERSION = 3;
+export const SAVE_KEY = 'foxtrot-save-v3';
 
 export type Facing = 'up' | 'down' | 'left' | 'right';
 
@@ -94,6 +94,19 @@ export interface WildIntroduction {
   introducedAt: number;
 }
 
+export type TheoActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking';
+
+export interface TheoState {
+  x: number;
+  y: number;
+  zone: ZoneId;
+  facing: Facing;
+  activity: TheoActivity;
+  currentSpotId: string | null;
+  targetSpotId: string;
+  nextChangeAt: number;
+}
+
 export interface GameState {
   version: number;
   createdAt: number;
@@ -111,6 +124,7 @@ export interface GameState {
   wildIntroductions: WildIntroduction[];
   fox: FoxState;
   scout: ScoutState;
+  theo: TheoState;
   toastSeen: string[];
 }
 
@@ -139,6 +153,16 @@ export function createNewGame(): GameState {
     wildIntroductions: [],
     fox: { x: PLAYER_START.x + 4, y: PLAYER_START.y + 2, zone: 'meadow', behavior: 'idle', targetDiscoveryId: null, nextEventAt: 8 * 60 + 5, visible: true },
     scout: { x: PLAYER_START.x - 0.8, y: PLAYER_START.y + 0.8, facing: 'down', behavior: 'following', nextEventAt: 8 * 60 + 10 },
+    theo: {
+      x: 5,
+      y: 7,
+      zone: 'greenhouse',
+      facing: 'down',
+      activity: 'tinkering',
+      currentSpotId: 'greenhouse-tinker',
+      targetSpotId: 'greenhouse-tinker',
+      nextChangeAt: 8 * 60 + 20,
+    },
     toastSeen: [],
   };
 }

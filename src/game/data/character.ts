@@ -30,3 +30,16 @@ export const SCOUT_APPEARANCE = {
   nose: '#2a2018',
   collar: '#c96a5a', // matches Ellen's crochet accent — a handmade collar
 };
+
+export const THEO_APPEARANCE = {
+  skin: '#e8bd94',
+  hair: '#d9b46a', // tall and blonde
+  shirt: '#7a8a9a', // faded chambray
+  overalls: '#4a6478',
+  overallsTrim: '#33485a',
+  boots: '#4a3623',
+  tool: '#8a8a82', // whatever he's tinkering with — a trowel, a watering can
+  toolHandle: '#6b4a2e',
+  snack: '#c97a4a', // an apple, more or less
+  napBlanket: '#c96a5a', // one of Ellen's crochet pieces, borrowed
+};

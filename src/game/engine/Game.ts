@@ -23,6 +23,7 @@ import { tickEcosystem, initEcosystem, detectEcologicalAlerts, introduceSpecies 
 import { tickPlantGrowth, plantSpecimen, rollTraits, DEFAULT_CONDITIONS, GROWTH_TIME_SCALE } from '../systems/plantGrowth';
 import { tickFox } from '../systems/fox';
 import { tickScout } from '../systems/scout';
+import { tickTheo } from '../systems/theo';
 import { recordCultivated, recordDeveloped, recordMastered, recordPropagated, recordVariant } from '../systems/journal';
 import { tickObservation } from '../systems/observation';
 import { meetsRequirement, unlockTool } from '../systems/tools';
@@ -211,6 +212,10 @@ export class Game {
       nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUndiscovered(),
       rand: Math.random,
     });
+
+    // Theo potters around on his own clock, entirely independent of where
+    // Ellen and Scout are.
+    tickTheo(this.state.theo, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random });
 
     this.alertAcc += elapsedMinutes;
     if (this.alertAcc > 15) {

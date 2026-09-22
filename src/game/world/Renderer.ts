@@ -1,5 +1,5 @@
 import { Camera } from '../engine/Camera';
-import type { GameState, ScoutState, Facing } from '../state';
+import type { GameState, ScoutState, TheoState, Facing } from '../state';
 import type { Obstacle } from './Obstacles';
 import type { DiscoveryPoint, ZoneId } from '../types';
 import { TILE_SIZE, ZONE_RECTS, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, zoneAt, isWater } from '../data/worldMap';
@@ -10,7 +10,7 @@ import { FUNGI } from '../data/fungi';
 import { MATERIALS } from '../data/materials';
 import { CREATURES } from '../data/creatures';
 import { TOOL_PICKUPS } from '../data/toolPickups';
-import { ELLEN_APPEARANCE, SCOUT_APPEARANCE } from '../data/character';
+import { ELLEN_APPEARANCE, SCOUT_APPEARANCE, THEO_APPEARANCE } from '../data/character';
 import { daylightFactor, isNight } from '../engine/Clock';
 import { isDiscoveryAvailable } from '../systems/collection';
 import { stageProgress01 } from '../systems/plantGrowth';
@@ -116,6 +116,11 @@ export class Renderer {
 
     // Scout, Ellen's companion, always somewhere nearby.
     this.drawScout(camera, state.scout, now);
+
+    // Theo, off doing his own thing somewhere in the wilderness or garden.
+    if (state.theo.zone !== 'greenhouse') {
+      this.drawTheo(camera, state.theo, now);
+    }
 
     // Ellen
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
@@ -643,6 +648,157 @@ export class Renderer {
   }
 
   /**
+   * Theo: tall, blonde, ambient, and entirely uninterested in whatever the
+   * player is doing. Tinkers, naps, or snacks depending on `activity`,
+   * which the theo system drives on its own independent clock.
+   */
+  private drawTheo(camera: Camera, theo: TheoState, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const screen = camera.worldToScreen(theo.x * TILE_SIZE, theo.y * TILE_SIZE);
+
+    if (theo.activity === 'napping') {
+      this.drawTheoNapping(screen, tile, now);
+      return;
+    }
+
+    const dir = Renderer.DIR[theo.facing];
+    const scale = 1.15; // he reads a little taller than Ellen
+    const moving = theo.activity === 'traveling';
+    const tinkering = theo.activity === 'tinkering';
+    const snacking = theo.activity === 'snacking';
+
+    const walkPhase = moving ? now * 0.011 : now * 0.0025;
+    const walkAmp = moving ? 1 : 0.25;
+    const bob = Math.sin(walkPhase) * tile * 0.02 * walkAmp;
+    const legSwing = moving ? Math.sin(walkPhase * 2) * tile * 0.055 : 0;
+    const squash = tinkering ? 0.68 : 1;
+    const lift = tinkering ? tile * 0.12 : 0;
+
+    const cx = screen.x;
+    const cy = screen.y + bob + lift;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.24)';
+    ctx.beginPath();
+    ctx.ellipse(cx, screen.y + tile * 0.3 * scale, tile * 0.2 * scale, tile * 0.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = THEO_APPEARANCE.boots;
+    ctx.beginPath();
+    ctx.ellipse(cx - tile * 0.075 * scale, screen.y + tile * 0.27 * scale + legSwing, tile * 0.065, tile * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + tile * 0.075 * scale, screen.y + tile * 0.27 * scale - legSwing, tile * 0.065, tile * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // overalls (lower)
+    ctx.fillStyle = THEO_APPEARANCE.overalls;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + tile * 0.14 * scale * squash, tile * 0.15 * scale, tile * 0.16 * scale * squash, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // chambray shirt (upper torso)
+    ctx.fillStyle = THEO_APPEARANCE.shirt;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - tile * 0.02 * scale * squash, tile * 0.16 * scale, tile * 0.18 * scale * squash, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // overall straps
+    ctx.strokeStyle = THEO_APPEARANCE.overallsTrim;
+    ctx.lineWidth = Math.max(1, tile * 0.025);
+    ctx.beginPath();
+    ctx.moveTo(cx - tile * 0.08 * scale, cy - tile * 0.15 * scale * squash);
+    ctx.lineTo(cx - tile * 0.05 * scale, cy + tile * 0.05 * scale * squash);
+    ctx.moveTo(cx + tile * 0.08 * scale, cy - tile * 0.15 * scale * squash);
+    ctx.lineTo(cx + tile * 0.05 * scale, cy + tile * 0.05 * scale * squash);
+    ctx.stroke();
+
+    // head, tall and blonde
+    const headY = cy - tile * 0.34 * scale * squash;
+    ctx.fillStyle = THEO_APPEARANCE.skin;
+    ctx.beginPath();
+    ctx.arc(cx, headY, tile * 0.115 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = THEO_APPEARANCE.hair;
+    ctx.beginPath();
+    ctx.arc(cx - dir[0] * tile * 0.01, headY - tile * 0.06 * scale, tile * 0.1 * scale, Math.PI, Math.PI * 2.15);
+    ctx.fill();
+    if (theo.facing !== 'up') {
+      ctx.fillStyle = '#2a2018';
+      ctx.beginPath();
+      ctx.arc(cx + dir[0] * tile * 0.05 - tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.014, 0, Math.PI * 2);
+      ctx.arc(cx + dir[0] * tile * 0.05 + tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.014, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (tinkering) {
+      const wiggle = Math.sin(now * 0.01) * tile * 0.03;
+      const tx = cx + dir[0] * tile * 0.2;
+      const ty = cy + tile * 0.14 + dir[1] * tile * 0.1 + wiggle;
+      ctx.strokeStyle = THEO_APPEARANCE.toolHandle;
+      ctx.lineWidth = Math.max(1, tile * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(cx + dir[0] * tile * 0.08, cy + tile * 0.02);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.fillStyle = THEO_APPEARANCE.tool;
+      ctx.beginPath();
+      ctx.arc(tx, ty, tile * 0.03, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (snacking) {
+      const chew = Math.sin(now * 0.012) * tile * 0.012;
+      ctx.fillStyle = THEO_APPEARANCE.snack;
+      ctx.beginPath();
+      ctx.arc(cx + dir[0] * tile * 0.14, headY + tile * 0.02 + chew, tile * 0.035, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private drawTheoNapping(screen: { x: number; y: number }, tile: number, now: number) {
+    const { ctx } = this;
+    const breathe = Math.sin(now * 0.003) * tile * 0.015;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(screen.x, screen.y + tile * 0.1, tile * 0.3, tile * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = THEO_APPEARANCE.overalls;
+    ctx.beginPath();
+    ctx.ellipse(screen.x, screen.y + tile * 0.06 + breathe, tile * 0.26, tile * 0.13, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // a borrowed crochet blanket
+    ctx.fillStyle = THEO_APPEARANCE.napBlanket;
+    ctx.beginPath();
+    ctx.ellipse(screen.x + tile * 0.03, screen.y + tile * 0.08 + breathe, tile * 0.16, tile * 0.09, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = THEO_APPEARANCE.skin;
+    ctx.beginPath();
+    ctx.arc(screen.x - tile * 0.22, screen.y + tile * 0.02 + breathe, tile * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = THEO_APPEARANCE.hair;
+    ctx.beginPath();
+    ctx.arc(screen.x - tile * 0.25, screen.y - tile * 0.02 + breathe, tile * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(240,236,216,0.75)';
+    ctx.font = `${Math.round(tile * 0.13)}px Georgia`;
+    ctx.textAlign = 'center';
+    for (let i = 0; i < 2; i++) {
+      const t = (now * 0.0006 + i * 0.5) % 1;
+      const zx = screen.x - tile * 0.3 - t * tile * 0.1;
+      const zy = screen.y - tile * 0.18 - t * tile * 0.4;
+      ctx.globalAlpha = 1 - t;
+      ctx.fillText('z', zx, zy);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
    * Small wandering creature icons scaled by the same ecosystem population
    * numbers driving the simulation, so relationships read visually instead
    * of only as numbers behind the scenes. Generic per creature `kind` —
@@ -848,6 +1004,9 @@ export class Renderer {
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
     this.drawScout(camera, state.scout, now);
+    if (state.theo.zone === 'greenhouse') {
+      this.drawTheo(camera, state.theo, now);
+    }
     this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching);
 
     // Warm ambient tint + light shafts

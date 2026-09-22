@@ -1,0 +1,34 @@
+import type { ZoneId } from '../types';
+
+export type TheoSpotKind = 'tinker' | 'nap' | 'snack';
+
+export interface TheoSpot {
+  id: string;
+  kind: TheoSpotKind;
+  zone: ZoneId;
+  /** Overworld tile coords for outdoor zones, greenhouse-interior tile coords for the 'greenhouse' zone. */
+  x: number;
+  y: number;
+}
+
+// Ellen's husband doesn't follow anyone — he potters between a handful of
+// favorite spots around the garden, the wilderness, and the greenhouse,
+// each tied to one of his three moods. Adding a new spot (or a new zone
+// for him to loaf around in) is just a data entry, same as everything else.
+export const THEO_SPOTS: TheoSpot[] = [
+  { id: 'meadow-garden-tinker', kind: 'tinker', zone: 'meadow', x: 58, y: 44 },
+  { id: 'meadow-sun-nap', kind: 'nap', zone: 'meadow', x: 75, y: 30 },
+  { id: 'meadow-snack', kind: 'snack', zone: 'meadow', x: 52, y: 36 },
+  { id: 'woodland-shade-nap', kind: 'nap', zone: 'woodland', x: 15, y: 15 },
+  { id: 'woodland-snack', kind: 'snack', zone: 'woodland', x: 25, y: 8 },
+  { id: 'rocky-nap', kind: 'nap', zone: 'rockyClearing', x: 65, y: 55 },
+  { id: 'overgrown-nap', kind: 'nap', zone: 'overgrownClearing', x: 10, y: 50 },
+  { id: 'overgrown-snack', kind: 'snack', zone: 'overgrownClearing', x: 20, y: 45 },
+  { id: 'greenhouse-tinker', kind: 'tinker', zone: 'greenhouse', x: 5, y: 7 },
+  { id: 'greenhouse-nap', kind: 'nap', zone: 'greenhouse', x: 12, y: 9 },
+  { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
+];
+
+export function findTheoSpot(id: string): TheoSpot | undefined {
+  return THEO_SPOTS.find((s) => s.id === id);
+}
