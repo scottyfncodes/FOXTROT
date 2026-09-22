@@ -167,7 +167,7 @@ export function createNewGame(): GameState {
     fox: { x: PLAYER_START.x + 4, y: PLAYER_START.y + 2, zone: 'meadow', behavior: 'idle', targetDiscoveryId: null, nextEventAt: 8 * 60 + 5, visible: true },
     scout: { x: PLAYER_START.x - 0.8, y: PLAYER_START.y + 0.8, facing: 'down', behavior: 'following', nextEventAt: 8 * 60 + 10 },
     scott: {
-      x: 5,
+      x: 8,
       y: 7,
       zone: 'greenhouse',
       facing: 'down',

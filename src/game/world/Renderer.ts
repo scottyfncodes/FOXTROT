@@ -4,7 +4,7 @@ import type { Obstacle } from './Obstacles';
 import type { DiscoveryPoint, ZoneId } from '../types';
 import { TILE_SIZE, ZONE_RECTS, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, zoneAt, isWater } from '../data/worldMap';
 import { ZONES } from '../data/zones';
-import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, STATIONS, GREENHOUSE_EXIT } from '../data/stations';
+import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, STATIONS, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE } from '../data/stations';
 import { PLANTS } from '../data/plants';
 import { FUNGI } from '../data/fungi';
 import { MATERIALS } from '../data/materials';
@@ -394,6 +394,12 @@ export class Renderer {
     const cx = screen.x;
     const cy = screen.y + bob + lift;
 
+    // A thin dark outline on every silhouette-defining shape, so she reads
+    // as a distinct figure against any background at small zoom instead of
+    // blurring into a same-toned blob.
+    const OUTLINE = 'rgba(28,20,12,0.55)';
+    const outlineWidth = Math.max(1, tile * 0.018);
+
     // shadow
     ctx.fillStyle = 'rgba(0,0,0,0.24)';
     ctx.beginPath();
@@ -407,6 +413,9 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(packX, packY, tile * 0.14, tile * 0.17 * squash, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = outlineWidth;
+    ctx.stroke();
     ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
     ctx.lineWidth = Math.max(1, tile * 0.02);
     ctx.beginPath();
@@ -419,21 +428,27 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(cx - tile * 0.07, screen.y + tile * 0.24 + legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
     ctx.beginPath();
     ctx.ellipse(cx + tile * 0.07, screen.y + tile * 0.24 - legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
 
     // pants sliver
     ctx.fillStyle = ELLEN_APPEARANCE.pants;
     ctx.beginPath();
     ctx.ellipse(cx, cy + tile * 0.2 * squash, tile * 0.14, tile * 0.1 * squash, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
 
     // vest / torso
     ctx.fillStyle = ELLEN_APPEARANCE.vest;
     ctx.beginPath();
     ctx.ellipse(cx, cy, tile * 0.17, tile * 0.22 * squash, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = outlineWidth;
+    ctx.stroke();
     ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
     ctx.lineWidth = Math.max(1, tile * 0.02);
     ctx.beginPath();
@@ -504,6 +519,9 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(cx, headY - tile * 0.02, tile * 0.16, tile * 0.08, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = outlineWidth;
+    ctx.stroke();
     ctx.beginPath();
     ctx.ellipse(cx - dir[0] * tile * 0.02, headY - tile * 0.08, tile * 0.09, tile * 0.075, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -1191,9 +1209,12 @@ export class Renderer {
     const tile = TILE_SIZE * camera.zoom;
     const at = (x: number, y: number) => camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
 
+    const scoutBedSpot = GREENHOUSE_FURNITURE.find((f) => f.id === 'scoutBed')!;
+    const ellenDeskSpot = GREENHOUSE_FURNITURE.find((f) => f.id === 'ellenDesk')!;
+
     // Scout's bed.
     {
-      const s = at(11, 9);
+      const s = at(scoutBedSpot.x, scoutBedSpot.y);
       ctx.fillStyle = 'rgba(0,0,0,0.22)';
       ctx.beginPath();
       ctx.ellipse(s.x, s.y + tile * 0.24, tile * 0.34, tile * 0.12, 0, 0, Math.PI * 2);
@@ -1210,7 +1231,7 @@ export class Renderer {
 
     // Ellen's notebook + crochet basket.
     {
-      const s = at(13, 9);
+      const s = at(ellenDeskSpot.x, ellenDeskSpot.y);
       ctx.fillStyle = '#5a4530';
       ctx.fillRect(s.x - tile * 0.3, s.y - tile * 0.16, tile * 0.6, tile * 0.32);
       // notebook
@@ -1248,9 +1269,9 @@ export class Renderer {
     // Hanging pots, suspended from the roof line.
     const hangSway = Math.sin(now * 0.0012) * tile * 0.02;
     for (const [hx, hy] of [
-      [8, 1],
-      [10, 1],
-      [17, 5],
+      [5, 1],
+      [9, 1],
+      [13, 1],
     ] as const) {
       const s = at(hx, hy);
       const px = s.x + hangSway;

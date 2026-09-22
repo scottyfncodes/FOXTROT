@@ -24,7 +24,7 @@ export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'rocky-nap', kind: 'nap', zone: 'rockyClearing', x: 65, y: 55 },
   { id: 'overgrown-nap', kind: 'nap', zone: 'overgrownClearing', x: 10, y: 50 },
   { id: 'overgrown-snack', kind: 'snack', zone: 'overgrownClearing', x: 20, y: 45 },
-  { id: 'greenhouse-tinker', kind: 'tinker', zone: 'greenhouse', x: 5, y: 7 },
+  { id: 'greenhouse-tinker', kind: 'tinker', zone: 'greenhouse', x: 8, y: 7 },
   { id: 'greenhouse-nap', kind: 'nap', zone: 'greenhouse', x: 12, y: 9 },
   { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
 ];

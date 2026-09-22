@@ -1,5 +1,5 @@
 import { GREENHOUSE_DOOR, GREENHOUSE_FOOTPRINT, isInBounds, isWater, rectContains } from '../data/worldMap';
-import { GREENHOUSE_EXIT, GREENHOUSE_GRID_H, GREENHOUSE_GRID_W, STATIONS } from '../data/stations';
+import { GREENHOUSE_EXIT, GREENHOUSE_FURNITURE, GREENHOUSE_GRID_H, GREENHOUSE_GRID_W, STATIONS } from '../data/stations';
 
 export function isBlockedOutdoor(x: number, y: number, blockingSet: Set<string>): boolean {
   const tx = Math.floor(x);
@@ -11,7 +11,7 @@ export function isBlockedOutdoor(x: number, y: number, blockingSet: Set<string>)
   return false;
 }
 
-const STATION_TILES = new Set(STATIONS.map((s) => `${s.x},${s.y}`));
+const STATION_TILES = new Set([...STATIONS, ...GREENHOUSE_FURNITURE].map((s) => `${s.x},${s.y}`));
 
 export function isBlockedIndoor(x: number, y: number): boolean {
   const tx = Math.floor(x);
