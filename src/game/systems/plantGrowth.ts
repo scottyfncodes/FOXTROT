@@ -4,6 +4,19 @@ import { makeUid } from '../state';
 
 const STAGE_ORDER: GrowthStage[] = ['WILD', 'CULTIVATED', 'IMPROVED', 'MATURE', 'COMPLETE'];
 
+/**
+ * Growth is decoupled from the day/weather clock's pace: the clock runs
+ * fast enough that day/night and weather visibly change within a play
+ * session, but plants shouldn't blaze through every stage (and spam
+ * "now IMPROVED" toasts) in a few seconds of real time just because the
+ * clock ticked. This scales elapsed game-minutes down before they're
+ * applied to growth, so a planted specimen takes on the order of minutes
+ * of real, active play to complete rather than seconds — while an
+ * offline catch-up (which passes much larger elapsed-minute values)
+ * still comfortably finishes it.
+ */
+export const GROWTH_TIME_SCALE = 0.06;
+
 export function nextStage(stage: GrowthStage): GrowthStage {
   const i = STAGE_ORDER.indexOf(stage);
   return STAGE_ORDER[Math.min(i + 1, STAGE_ORDER.length - 1)];

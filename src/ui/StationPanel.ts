@@ -3,10 +3,10 @@ import { Panel } from './Panel';
 import { el } from './dom';
 import { PLANTS } from '../game/data/plants';
 import { STATIONS } from '../game/data/stations';
-import { stageProgress01 } from '../game/systems/plantGrowth';
+import { stageProgress01, conditionMatchScore } from '../game/systems/plantGrowth';
 import { BASKET_RECIPES, canCraftBasketUpgrade } from '../game/systems/tools';
 import { consumeMaterials } from '../game/systems/inventory';
-import { unlockTool } from '../game/systems/tools';
+import { unlockTool, hasToolTier } from '../game/systems/tools';
 import type { GrowConditions, SoilType, WaterPref, LightPref, TempPref, NutrientPref } from '../game/types';
 import { MATERIALS } from '../game/data/materials';
 
@@ -18,6 +18,17 @@ const NUTRIENT_OPTS: NutrientPref[] = ['lean', 'moderate', 'rich'];
 
 function prettify(s: string): string {
   return s.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+}
+
+function matchLabel(score: number): { text: string; color: string } {
+  if (score >= 0.85) return { text: 'Thriving in these conditions', color: 'var(--accent)' };
+  if (score >= 0.6) return { text: 'Doing reasonably well here', color: 'var(--accent)' };
+  if (score >= 0.35) return { text: 'Struggling a little with this setup', color: 'var(--warm)' };
+  return { text: 'A poor fit — try adjusting soil, water, or light', color: 'var(--danger)' };
+}
+
+function conditionsText(c: GrowConditions): string {
+  return `${prettify(c.soil)} soil, ${prettify(c.water)}, ${prettify(c.light)}, ${prettify(c.temp)}, ${prettify(c.nutrients)} nutrients`;
 }
 
 export class StationPanel {
@@ -60,31 +71,60 @@ export class StationPanel {
         this.panel.body.appendChild(el('div', 'empty-state', 'Nothing in your basket to plant yet.'));
         return;
       }
+      const hint = el(
+        'p',
+        undefined,
+        'Choose a specimen, then set growing conditions to match what it prefers in the wild. You can change conditions anytime — mismatched ones just slow it down, they never harm it.'
+      );
+      hint.style.cssText = 'font-size:12px;color:var(--ink-dim);margin:0 0 12px;line-height:1.5;';
+      this.panel.body.appendChild(hint);
+
       this.panel.body.appendChild(el('h4', undefined, 'Plant a Specimen'));
       const grid = el('div', 'station-choice-grid');
-      let selected: string | null = null;
+      let selected: (typeof plantItems)[number] | null = null;
+      const feedback = el('div');
+      feedback.style.cssText = 'margin: 10px 0; font-size: 13px;';
       for (const item of plantItems) {
         const def = PLANTS[item.defId];
         const card = el('div', 'choice-card', def?.name ?? item.defId);
         card.addEventListener('click', () => {
-          selected = item.uid;
+          selected = item;
           for (const c of Array.from(grid.children)) c.classList.remove('selected');
           card.classList.add('selected');
           plantBtn.disabled = false;
+          updateFeedback();
         });
         grid.appendChild(card);
       }
       this.panel.body.appendChild(grid);
 
       const conditions: GrowConditions = { soil: 'loam', water: 'moist', light: 'partialShade', temp: 'temperate', nutrients: 'moderate' };
-      this.panel.body.appendChild(this.buildConditionPicker(conditions));
+      const updateFeedback = () => {
+        feedback.innerHTML = '';
+        if (!selected) return;
+        const def = PLANTS[selected.defId];
+        if (!def || !selected.traits) return;
+        const score = conditionMatchScore(conditions, def.preferredConditions, selected.traits.hardiness);
+        const { text, color } = matchLabel(score);
+        const line = el('div', undefined, text);
+        line.style.color = color;
+        feedback.appendChild(line);
+        if (hasToolTier(state, 'fieldKit', 1)) {
+          const exact = el('div', undefined, `Field Kit reading — prefers: ${conditionsText(def.preferredConditions)}`);
+          exact.style.cssText = 'color:var(--ink-dim);margin-top:4px;';
+          feedback.appendChild(exact);
+        }
+      };
+
+      this.panel.body.appendChild(this.buildConditionPicker(conditions, () => updateFeedback()));
+      this.panel.body.appendChild(feedback);
 
       const plantBtn = el('button', 'primary-btn', 'Plant');
       plantBtn.disabled = true;
-      plantBtn.style.marginTop = '14px';
+      plantBtn.style.marginTop = '4px';
       plantBtn.addEventListener('click', () => {
         if (!selected) return;
-        this.game.plantAtStation(stationId, selected, conditions);
+        this.game.plantAtStation(stationId, selected.uid, conditions);
         this.render(stationId);
       });
       this.panel.body.appendChild(plantBtn);
@@ -109,11 +149,35 @@ export class StationPanel {
         undefined,
         inst.stage === 'COMPLETE'
           ? `Complete. Quality ${inst.qualityEstimate}.`
-          : `${prettify(inst.stage)} — ${Math.round(stageProgress01(def!, inst) * 100)}% to ${stages[currentIdx + 1] ?? 'complete'}.${inst.dormant ? ' Conditions are mismatched; growth has nearly stalled, but nothing is at risk.' : ''}`
+          : `${prettify(inst.stage)} — ${Math.round(stageProgress01(def!, inst) * 100)}% to ${stages[currentIdx + 1] ?? 'complete'}.`
       )
     ).style.cssText = 'font-size:13px;color:var(--ink-dim);';
 
-    wrap.appendChild(this.buildConditionPicker(inst.conditions, (next) => this.game.setStationConditions(stationId, next)));
+    const feedback = el('div');
+    feedback.style.cssText = 'margin-bottom: 10px; font-size: 13px;';
+    const updateFeedback = () => {
+      feedback.innerHTML = '';
+      if (!def || inst.stage === 'COMPLETE') return;
+      const score = conditionMatchScore(inst.conditions, def.preferredConditions, inst.traits.hardiness);
+      const { text, color } = matchLabel(score);
+      const line = el('div', undefined, inst.dormant ? `${text} — nearly stalled, but nothing is at risk.` : text);
+      line.style.color = color;
+      feedback.appendChild(line);
+      if (hasToolTier(state, 'fieldKit', 1)) {
+        const exact = el('div', undefined, `Field Kit reading — prefers: ${conditionsText(def.preferredConditions)}`);
+        exact.style.cssText = 'color:var(--ink-dim);margin-top:4px;';
+        feedback.appendChild(exact);
+      }
+    };
+    updateFeedback();
+    wrap.appendChild(feedback);
+
+    wrap.appendChild(
+      this.buildConditionPicker(inst.conditions, (next) => {
+        this.game.setStationConditions(stationId, next);
+        updateFeedback();
+      })
+    );
 
     if (inst.stage === 'COMPLETE') {
       const harvestBtn = el('button', 'primary-btn', 'Move to Collection (free this bed)');
@@ -161,6 +225,13 @@ export class StationPanel {
   private renderPropagation() {
     const state = this.game.state;
     const completed = Object.values(state.plantInstances).filter((p) => p.stage === 'COMPLETE');
+    const explainer = el(
+      'p',
+      undefined,
+      'Combine two COMPLETE specimens here. Two of the same species can produce an improved or unusual variant. A few specific pairings of different species are known to create something new — most other pairings won\'t do anything, but it costs nothing to experiment, and your original specimens are never used up.'
+    );
+    explainer.style.cssText = 'font-size:12px;color:var(--ink-dim);line-height:1.5;margin-bottom:14px;';
+    this.panel.body.appendChild(explainer);
     if (completed.length < 2) {
       this.panel.body.appendChild(el('div', 'empty-state', 'Bring two COMPLETE specimens here to try combining them.'));
       return;

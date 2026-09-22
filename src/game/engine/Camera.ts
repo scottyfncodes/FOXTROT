@@ -13,8 +13,8 @@ export class Camera {
     // Zoom out a little on very small phones, in a little on large desktops,
     // keeping roughly 16-20 tiles visible across the shorter axis.
     const shortAxis = Math.min(cssW, cssH);
-    const targetTilesVisible = 14;
-    this.zoom = Math.max(1, Math.min(2.2, shortAxis / (targetTilesVisible * TILE_SIZE)));
+    const targetTilesVisible = 9;
+    this.zoom = Math.max(1, Math.min(3.2, shortAxis / (targetTilesVisible * TILE_SIZE)));
   }
 
   follow(worldTileX: number, worldTileY: number) {

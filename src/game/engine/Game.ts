@@ -20,7 +20,7 @@ import { MATERIALS } from '../data/materials';
 import { TOOLS } from '../data/tools';
 import { isDiscoveryAvailable, collectAt } from '../systems/collection';
 import { tickEcosystem, initEcosystem, detectEcologicalAlerts, introduceSpecies } from '../systems/ecosystem';
-import { tickPlantGrowth, plantSpecimen, rollTraits, DEFAULT_CONDITIONS } from '../systems/plantGrowth';
+import { tickPlantGrowth, plantSpecimen, rollTraits, DEFAULT_CONDITIONS, GROWTH_TIME_SCALE } from '../systems/plantGrowth';
 import { tickFox } from '../systems/fox';
 import { recordCultivated, recordDeveloped, recordMastered, recordPropagated, recordVariant } from '../systems/journal';
 import { tickObservation } from '../systems/observation';
@@ -140,7 +140,7 @@ export class Game {
         if (instance.harvested || instance.stage === 'COMPLETE') continue;
         const def = PLANTS[instance.defId];
         if (!def) continue;
-        const result = tickPlantGrowth(def, instance, elapsedMinutes);
+        const result = tickPlantGrowth(def, instance, elapsedMinutes * GROWTH_TIME_SCALE);
         if (result.completed) {
           this.pushToast(`${def.name} has reached its full potential — COMPLETE.`, 'growth');
           recordMastered(this.state, def.id, 'plant', this.state.clock.totalMinutes);

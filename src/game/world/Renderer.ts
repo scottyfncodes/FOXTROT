@@ -378,7 +378,7 @@ export class Renderer {
     const camera = new Camera();
     camera.viewW = outerCamera.viewW;
     camera.viewH = outerCamera.viewH;
-    const margin = 2;
+    const margin = 0.6;
     camera.zoom = Math.min(
       camera.viewW / ((GREENHOUSE_GRID_W + margin) * TILE_SIZE),
       camera.viewH / ((GREENHOUSE_GRID_H + margin) * TILE_SIZE)
