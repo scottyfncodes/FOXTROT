@@ -3,7 +3,7 @@ import { Panel } from './Panel';
 import { el } from './dom';
 import { PLANTS } from '../game/data/plants';
 import { STATIONS } from '../game/data/stations';
-import { stageProgress01, conditionMatchScore } from '../game/systems/plantGrowth';
+import { stageProgress01, conditionMatchScore, biggestMismatchHint } from '../game/systems/plantGrowth';
 import { BASKET_RECIPES, canCraftBasketUpgrade } from '../game/systems/tools';
 import { consumeMaterials } from '../game/systems/inventory';
 import { unlockTool, hasToolTier } from '../game/systems/tools';
@@ -24,12 +24,14 @@ function matchLabel(score: number): { text: string; color: string } {
   if (score >= 0.85) return { text: 'Thriving in these conditions', color: 'var(--accent)' };
   if (score >= 0.6) return { text: 'Doing reasonably well here', color: 'var(--accent)' };
   if (score >= 0.35) return { text: 'Struggling a little with this setup', color: 'var(--warm)' };
-  return { text: 'A poor fit — try adjusting soil, water, or light', color: 'var(--danger)' };
+  return { text: 'Struggling badly with this setup', color: 'var(--danger)' };
 }
 
 function conditionsText(c: GrowConditions): string {
   return `${prettify(c.soil)} soil, ${prettify(c.water)}, ${prettify(c.light)}, ${prettify(c.temp)}, ${prettify(c.nutrients)} nutrients`;
 }
+
+const LEVEL_RANK: Record<string, number> = { UNDISCOVERED: 0, DISCOVERED: 1, IDENTIFIED: 2, CULTIVATED: 3, DEVELOPED: 4, MASTERED: 5 };
 
 export class StationPanel {
   panel = new Panel('Station');
@@ -100,20 +102,13 @@ export class StationPanel {
 
       const conditions: GrowConditions = { soil: 'loam', water: 'moist', light: 'partialShade', temp: 'temperate', nutrients: 'moderate' };
       const updateFeedback = () => {
-        feedback.innerHTML = '';
-        if (!selected) return;
+        if (!selected) {
+          feedback.innerHTML = '';
+          return;
+        }
         const def = PLANTS[selected.defId];
         if (!def || !selected.traits) return;
-        const score = conditionMatchScore(conditions, def.preferredConditions, selected.traits.hardiness);
-        const { text, color } = matchLabel(score);
-        const line = el('div', undefined, text);
-        line.style.color = color;
-        feedback.appendChild(line);
-        if (hasToolTier(state, 'fieldKit', 1)) {
-          const exact = el('div', undefined, `Field Kit reading — prefers: ${conditionsText(def.preferredConditions)}`);
-          exact.style.cssText = 'color:var(--ink-dim);margin-top:4px;';
-          feedback.appendChild(exact);
-        }
+        this.renderConditionFeedback(feedback, conditions, def.preferredConditions, selected.traits.hardiness, selected.defId);
       };
 
       this.panel.body.appendChild(this.buildConditionPicker(conditions, () => updateFeedback()));
@@ -156,18 +151,18 @@ export class StationPanel {
     const feedback = el('div');
     feedback.style.cssText = 'margin-bottom: 10px; font-size: 13px;';
     const updateFeedback = () => {
-      feedback.innerHTML = '';
-      if (!def || inst.stage === 'COMPLETE') return;
-      const score = conditionMatchScore(inst.conditions, def.preferredConditions, inst.traits.hardiness);
-      const { text, color } = matchLabel(score);
-      const line = el('div', undefined, inst.dormant ? `${text} — nearly stalled, but nothing is at risk.` : text);
-      line.style.color = color;
-      feedback.appendChild(line);
-      if (hasToolTier(state, 'fieldKit', 1)) {
-        const exact = el('div', undefined, `Field Kit reading — prefers: ${conditionsText(def.preferredConditions)}`);
-        exact.style.cssText = 'color:var(--ink-dim);margin-top:4px;';
-        feedback.appendChild(exact);
+      if (!def || inst.stage === 'COMPLETE') {
+        feedback.innerHTML = '';
+        return;
       }
+      this.renderConditionFeedback(
+        feedback,
+        inst.conditions,
+        def.preferredConditions,
+        inst.traits.hardiness,
+        inst.defId,
+        inst.dormant ? 'nearly stalled, but nothing is at risk' : undefined
+      );
     };
     updateFeedback();
     wrap.appendChild(feedback);
@@ -195,6 +190,54 @@ export class StationPanel {
     }
 
     this.panel.body.appendChild(wrap);
+  }
+
+  /**
+   * Never states the exact answer up front. A qualitative read is always
+   * available; a single directional nudge ("wants more shade") appears once
+   * conditions are off, guiding experimentation instead of replacing it.
+   * The exact preferred conditions only surface once you've actually
+   * earned them: by fully mastering the species yourself, or — as a
+   * genuine Field Kit payoff rather than a day-one spoiler — once you've
+   * already gotten a specimen through at least one real growth stage.
+   */
+  private renderConditionFeedback(
+    container: HTMLElement,
+    conditions: GrowConditions,
+    preferred: GrowConditions,
+    hardiness: number,
+    defId: string,
+    dormantSuffix?: string
+  ) {
+    container.innerHTML = '';
+    const state = this.game.state;
+    const score = conditionMatchScore(conditions, preferred, hardiness);
+    const { text, color } = matchLabel(score);
+    const line = el('div', undefined, dormantSuffix ? `${text} — ${dormantSuffix}` : text);
+    line.style.color = color;
+    container.appendChild(line);
+
+    const rank = LEVEL_RANK[state.journal[defId]?.level ?? 'UNDISCOVERED'];
+    const mastered = rank >= LEVEL_RANK.MASTERED;
+    const fieldKitEarned = hasToolTier(state, 'fieldKit', 1) && rank >= LEVEL_RANK.DEVELOPED;
+    if (mastered || fieldKitEarned) {
+      const exact = el(
+        'div',
+        undefined,
+        mastered
+          ? `You know this species well now — it prefers: ${conditionsText(preferred)}`
+          : `Field Kit reading — prefers: ${conditionsText(preferred)}`
+      );
+      exact.style.cssText = 'color:var(--ink-dim);margin-top:4px;';
+      container.appendChild(exact);
+    } else if (score < 0.85) {
+      const hint = biggestMismatchHint(conditions, preferred);
+      if (hint) {
+        const hintEl = el('div', undefined, hint);
+        hintEl.style.cssText = 'color:var(--ink-dim);margin-top:4px;';
+        container.appendChild(hintEl);
+      }
+    }
   }
 
   private buildConditionPicker(conditions: GrowConditions, onChange?: (c: GrowConditions) => void): HTMLElement {

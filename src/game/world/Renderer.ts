@@ -73,7 +73,7 @@ export class Renderer {
     }
 
     // Greenhouse building
-    this.drawGreenhouseExterior(camera, now);
+    this.drawGreenhouseExterior(camera, state.clock.totalMinutes);
 
     // Obstacles
     for (const o of obstacles) {
@@ -112,14 +112,14 @@ export class Renderer {
     this.drawWeatherOverlay(camera, state, now);
   }
 
-  private drawGreenhouseExterior(camera: Camera, now: number) {
+  private drawGreenhouseExterior(camera: Camera, gameMinutes: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const topLeft = camera.worldToScreen(GREENHOUSE_FOOTPRINT.x * TILE_SIZE, GREENHOUSE_FOOTPRINT.y * TILE_SIZE);
     const w = GREENHOUSE_FOOTPRINT.w * tile;
     const h = GREENHOUSE_FOOTPRINT.h * tile;
     const grad = ctx.createLinearGradient(topLeft.x, topLeft.y, topLeft.x, topLeft.y + h);
-    const night = isNight(now);
+    const night = isNight(gameMinutes);
     grad.addColorStop(0, night ? '#8fae9e' : '#bcd8c8');
     grad.addColorStop(1, night ? '#3c5a4d' : '#6f8f7c');
     ctx.fillStyle = grad;
@@ -372,19 +372,30 @@ export class Renderer {
     const { ctx } = this;
     this.clear('#241a12');
 
-    // The greenhouse is small and meant to be seen whole, so it gets its
-    // own static, screen-fitted camera instead of scrolling with the
-    // player — the whole point of a cozy, legible little space.
+    // The greenhouse is small and meant to feel close and cozy, so it
+    // zooms in well past a whole-room fit and instead follows the player
+    // with the view clamped to the room's own bounds — never showing the
+    // void beyond its walls, but zoomed in noticeably more than a static
+    // fit-the-whole-room camera would allow.
     const camera = new Camera();
     camera.viewW = outerCamera.viewW;
     camera.viewH = outerCamera.viewH;
-    const margin = 0.6;
-    camera.zoom = Math.min(
-      camera.viewW / ((GREENHOUSE_GRID_W + margin) * TILE_SIZE),
-      camera.viewH / ((GREENHOUSE_GRID_H + margin) * TILE_SIZE)
+    const shortAxis = Math.min(camera.viewW, camera.viewH);
+    const targetTilesVisible = 7;
+    const fitWholeRoom = Math.min(
+      camera.viewW / (GREENHOUSE_GRID_W * TILE_SIZE),
+      camera.viewH / (GREENHOUSE_GRID_H * TILE_SIZE)
     );
-    camera.x = (GREENHOUSE_GRID_W / 2) * TILE_SIZE;
-    camera.y = (GREENHOUSE_GRID_H / 2) * TILE_SIZE;
+    camera.zoom = Math.max(fitWholeRoom, shortAxis / (targetTilesVisible * TILE_SIZE));
+
+    const clampAxis = (playerWorld: number, viewSize: number, worldTiles: number): number => {
+      const halfView = viewSize / 2 / camera.zoom;
+      const worldSize = worldTiles * TILE_SIZE;
+      if (worldSize <= viewSize / camera.zoom) return worldSize / 2;
+      return Math.min(Math.max(playerWorld, halfView), worldSize - halfView);
+    };
+    camera.x = clampAxis(state.player.x * TILE_SIZE, camera.viewW, GREENHOUSE_GRID_W);
+    camera.y = clampAxis(state.player.y * TILE_SIZE, camera.viewH, GREENHOUSE_GRID_H);
     const tile = TILE_SIZE * camera.zoom;
 
     for (let y = 0; y < GREENHOUSE_GRID_H; y++) {

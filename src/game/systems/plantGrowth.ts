@@ -82,6 +82,36 @@ export function conditionMatchScore(chosen: GrowConditions, preferred: GrowCondi
   return clamp((soilScore + waterScore + lightScore + tempScore + nutrientScore) / 5, 0, 1);
 }
 
+/**
+ * A single directional nudge toward whichever chosen condition is furthest
+ * from this plant's preference — "it wants more shade", never the exact
+ * target. Meant to guide experimentation without handing over the answer;
+ * returns null once every condition already matches.
+ */
+export function biggestMismatchHint(chosen: GrowConditions, preferred: GrowConditions): string | null {
+  const candidates: { dist: number; text: string }[] = [
+    {
+      dist: Math.abs(WATER_SCALE[chosen.water] - WATER_SCALE[preferred.water]),
+      text: WATER_SCALE[chosen.water] > WATER_SCALE[preferred.water] ? 'It might be getting too much water.' : 'It could probably use more water.',
+    },
+    {
+      dist: Math.abs(LIGHT_SCALE[chosen.light] - LIGHT_SCALE[preferred.light]),
+      text: LIGHT_SCALE[chosen.light] > LIGHT_SCALE[preferred.light] ? 'It may want more direct light.' : 'It might prefer more shade.',
+    },
+    {
+      dist: Math.abs(TEMP_SCALE[chosen.temp] - TEMP_SCALE[preferred.temp]),
+      text: TEMP_SCALE[chosen.temp] > TEMP_SCALE[preferred.temp] ? 'This spot may be too warm for it.' : 'It could probably use more warmth.',
+    },
+    {
+      dist: Math.abs(NUTRIENT_SCALE[chosen.nutrients] - NUTRIENT_SCALE[preferred.nutrients]),
+      text: NUTRIENT_SCALE[chosen.nutrients] > NUTRIENT_SCALE[preferred.nutrients] ? 'The soil here might be richer than it wants.' : 'It may want richer soil.',
+    },
+    { dist: chosen.soil === preferred.soil ? 0 : 1, text: 'Something about this soil type doesn\'t feel right for it.' },
+  ];
+  const worst = candidates.reduce((a, b) => (b.dist > a.dist ? b : a));
+  return worst.dist > 0 ? worst.text : null;
+}
+
 export const DEFAULT_CONDITIONS: GrowConditions = {
   soil: 'loam',
   water: 'moist',

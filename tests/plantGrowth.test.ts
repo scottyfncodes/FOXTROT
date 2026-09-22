@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rollTraits, conditionMatchScore, plantSpecimen, tickPlantGrowth, DEFAULT_CONDITIONS } from '../src/game/systems/plantGrowth';
+import { rollTraits, conditionMatchScore, plantSpecimen, tickPlantGrowth, DEFAULT_CONDITIONS, biggestMismatchHint } from '../src/game/systems/plantGrowth';
 import { createNewGame } from '../src/game/state';
 import { PLANTS } from '../src/game/data/plants';
 
@@ -84,5 +84,25 @@ describe('plant growth stage progression', () => {
     tickPlantGrowth(def, goodInstance, 3);
     tickPlantGrowth(def, badInstance, 3);
     expect(goodInstance.progressMinutes).toBeGreaterThan(badInstance.progressMinutes);
+  });
+});
+
+describe('biggestMismatchHint', () => {
+  it('returns null when every condition already matches', () => {
+    expect(biggestMismatchHint(PLANTS.bluebell.preferredConditions, PLANTS.bluebell.preferredConditions)).toBeNull();
+  });
+
+  it('names a direction, never an exact target value', () => {
+    const chosen = { soil: 'loam', water: 'dry', light: 'partialShade', temp: 'temperate', nutrients: 'moderate' } as const;
+    const hint = biggestMismatchHint(chosen, PLANTS.bluebell.preferredConditions);
+    expect(hint).toMatch(/water/i);
+    expect(hint).not.toMatch(/moist/i); // shouldn't leak the actual preferred value
+  });
+
+  it('picks the single worst-mismatched attribute, not a generic message', () => {
+    // Water is off by 2 steps (dry vs wet-preferring plant), light only 1 step off.
+    const chosen = { soil: 'clay', water: 'dry', light: 'partialShade', temp: 'temperate', nutrients: 'rich' } as const;
+    const hint = biggestMismatchHint(chosen, PLANTS.creekflagIris.preferredConditions);
+    expect(hint).toMatch(/water/i);
   });
 });
