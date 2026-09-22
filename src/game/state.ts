@@ -1,8 +1,8 @@
 import type { DiscoveryLevel, GrowConditions, GrowthStage, SpecimenKind, ToolId, TraitSet, ZoneId } from './types';
 import { PLAYER_START } from './data/worldMap';
 
-export const SAVE_VERSION = 3;
-export const SAVE_KEY = 'foxtrot-save-v3';
+export const SAVE_VERSION = 4;
+export const SAVE_KEY = 'foxtrot-save-v4';
 
 export type Facing = 'up' | 'down' | 'left' | 'right';
 
@@ -94,14 +94,26 @@ export interface WildIntroduction {
   introducedAt: number;
 }
 
-export type TheoActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking';
+export type ScottActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking';
 
-export interface TheoState {
+export interface ScottState {
   x: number;
   y: number;
   zone: ZoneId;
   facing: Facing;
-  activity: TheoActivity;
+  activity: ScottActivity;
+  currentSpotId: string | null;
+  targetSpotId: string;
+  nextChangeAt: number;
+}
+
+export type CatActivity = 'wandering' | 'sitting' | 'grooming' | 'sleeping';
+
+export interface CatState {
+  x: number;
+  y: number;
+  facing: Facing;
+  activity: CatActivity;
   currentSpotId: string | null;
   targetSpotId: string;
   nextChangeAt: number;
@@ -124,7 +136,8 @@ export interface GameState {
   wildIntroductions: WildIntroduction[];
   fox: FoxState;
   scout: ScoutState;
-  theo: TheoState;
+  scott: ScottState;
+  cat: CatState;
   toastSeen: string[];
 }
 
@@ -153,7 +166,7 @@ export function createNewGame(): GameState {
     wildIntroductions: [],
     fox: { x: PLAYER_START.x + 4, y: PLAYER_START.y + 2, zone: 'meadow', behavior: 'idle', targetDiscoveryId: null, nextEventAt: 8 * 60 + 5, visible: true },
     scout: { x: PLAYER_START.x - 0.8, y: PLAYER_START.y + 0.8, facing: 'down', behavior: 'following', nextEventAt: 8 * 60 + 10 },
-    theo: {
+    scott: {
       x: 5,
       y: 7,
       zone: 'greenhouse',
@@ -162,6 +175,15 @@ export function createNewGame(): GameState {
       currentSpotId: 'greenhouse-tinker',
       targetSpotId: 'greenhouse-tinker',
       nextChangeAt: 8 * 60 + 20,
+    },
+    cat: {
+      x: 16,
+      y: 5,
+      facing: 'down',
+      activity: 'sitting',
+      currentSpotId: 'sunny-perch',
+      targetSpotId: 'sunny-perch',
+      nextChangeAt: 8 * 60 + 15,
     },
     toastSeen: [],
   };

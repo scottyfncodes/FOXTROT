@@ -1,10 +1,10 @@
 import type { ZoneId } from '../types';
 
-export type TheoSpotKind = 'tinker' | 'nap' | 'snack';
+export type ScottSpotKind = 'tinker' | 'nap' | 'snack';
 
-export interface TheoSpot {
+export interface ScottSpot {
   id: string;
-  kind: TheoSpotKind;
+  kind: ScottSpotKind;
   zone: ZoneId;
   /** Overworld tile coords for outdoor zones, greenhouse-interior tile coords for the 'greenhouse' zone. */
   x: number;
@@ -15,7 +15,7 @@ export interface TheoSpot {
 // favorite spots around the garden, the wilderness, and the greenhouse,
 // each tied to one of his three moods. Adding a new spot (or a new zone
 // for him to loaf around in) is just a data entry, same as everything else.
-export const THEO_SPOTS: TheoSpot[] = [
+export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'meadow-garden-tinker', kind: 'tinker', zone: 'meadow', x: 58, y: 44 },
   { id: 'meadow-sun-nap', kind: 'nap', zone: 'meadow', x: 75, y: 30 },
   { id: 'meadow-snack', kind: 'snack', zone: 'meadow', x: 52, y: 36 },
@@ -29,6 +29,6 @@ export const THEO_SPOTS: TheoSpot[] = [
   { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
 ];
 
-export function findTheoSpot(id: string): TheoSpot | undefined {
-  return THEO_SPOTS.find((s) => s.id === id);
+export function findScottSpot(id: string): ScottSpot | undefined {
+  return SCOTT_SPOTS.find((s) => s.id === id);
 }

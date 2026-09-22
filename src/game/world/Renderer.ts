@@ -1,5 +1,5 @@
 import { Camera } from '../engine/Camera';
-import type { GameState, ScoutState, TheoState, Facing } from '../state';
+import type { GameState, ScoutState, ScottState, CatState, Facing } from '../state';
 import type { Obstacle } from './Obstacles';
 import type { DiscoveryPoint, ZoneId } from '../types';
 import { TILE_SIZE, ZONE_RECTS, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, zoneAt, isWater } from '../data/worldMap';
@@ -10,7 +10,7 @@ import { FUNGI } from '../data/fungi';
 import { MATERIALS } from '../data/materials';
 import { CREATURES } from '../data/creatures';
 import { TOOL_PICKUPS } from '../data/toolPickups';
-import { ELLEN_APPEARANCE, SCOUT_APPEARANCE, THEO_APPEARANCE } from '../data/character';
+import { ELLEN_APPEARANCE, SCOUT_APPEARANCE, SCOTT_APPEARANCE, CAT_APPEARANCE } from '../data/character';
 import { daylightFactor, isNight } from '../engine/Clock';
 import { isDiscoveryAvailable } from '../systems/collection';
 import { stageProgress01 } from '../systems/plantGrowth';
@@ -117,9 +117,9 @@ export class Renderer {
     // Scout, Ellen's companion, always somewhere nearby.
     this.drawScout(camera, state.scout, now);
 
-    // Theo, off doing his own thing somewhere in the wilderness or garden.
-    if (state.theo.zone !== 'greenhouse') {
-      this.drawTheo(camera, state.theo, now);
+    // Scott, off doing his own thing somewhere in the wilderness or garden.
+    if (state.scott.zone !== 'greenhouse') {
+      this.drawScott(camera, state.scott, now);
     }
 
     // Ellen
@@ -648,25 +648,25 @@ export class Renderer {
   }
 
   /**
-   * Theo: tall, blonde, ambient, and entirely uninterested in whatever the
+   * Scott: tall, blonde, ambient, and entirely uninterested in whatever the
    * player is doing. Tinkers, naps, or snacks depending on `activity`,
-   * which the theo system drives on its own independent clock.
+   * which the scott system drives on its own independent clock.
    */
-  private drawTheo(camera: Camera, theo: TheoState, now: number) {
+  private drawScott(camera: Camera, scott: ScottState, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
-    const screen = camera.worldToScreen(theo.x * TILE_SIZE, theo.y * TILE_SIZE);
+    const screen = camera.worldToScreen(scott.x * TILE_SIZE, scott.y * TILE_SIZE);
 
-    if (theo.activity === 'napping') {
-      this.drawTheoNapping(screen, tile, now);
+    if (scott.activity === 'napping') {
+      this.drawScottNapping(screen, tile, now);
       return;
     }
 
-    const dir = Renderer.DIR[theo.facing];
+    const dir = Renderer.DIR[scott.facing];
     const scale = 1.15; // he reads a little taller than Ellen
-    const moving = theo.activity === 'traveling';
-    const tinkering = theo.activity === 'tinkering';
-    const snacking = theo.activity === 'snacking';
+    const moving = scott.activity === 'traveling';
+    const tinkering = scott.activity === 'tinkering';
+    const snacking = scott.activity === 'snacking';
 
     const walkPhase = moving ? now * 0.011 : now * 0.0025;
     const walkAmp = moving ? 1 : 0.25;
@@ -683,7 +683,7 @@ export class Renderer {
     ctx.ellipse(cx, screen.y + tile * 0.3 * scale, tile * 0.2 * scale, tile * 0.08, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = THEO_APPEARANCE.boots;
+    ctx.fillStyle = SCOTT_APPEARANCE.boots;
     ctx.beginPath();
     ctx.ellipse(cx - tile * 0.075 * scale, screen.y + tile * 0.27 * scale + legSwing, tile * 0.065, tile * 0.05, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -692,19 +692,19 @@ export class Renderer {
     ctx.fill();
 
     // overalls (lower)
-    ctx.fillStyle = THEO_APPEARANCE.overalls;
+    ctx.fillStyle = SCOTT_APPEARANCE.overalls;
     ctx.beginPath();
     ctx.ellipse(cx, cy + tile * 0.14 * scale * squash, tile * 0.15 * scale, tile * 0.16 * scale * squash, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // chambray shirt (upper torso)
-    ctx.fillStyle = THEO_APPEARANCE.shirt;
+    ctx.fillStyle = SCOTT_APPEARANCE.shirt;
     ctx.beginPath();
     ctx.ellipse(cx, cy - tile * 0.02 * scale * squash, tile * 0.16 * scale, tile * 0.18 * scale * squash, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // overall straps
-    ctx.strokeStyle = THEO_APPEARANCE.overallsTrim;
+    ctx.strokeStyle = SCOTT_APPEARANCE.overallsTrim;
     ctx.lineWidth = Math.max(1, tile * 0.025);
     ctx.beginPath();
     ctx.moveTo(cx - tile * 0.08 * scale, cy - tile * 0.15 * scale * squash);
@@ -715,15 +715,15 @@ export class Renderer {
 
     // head, tall and blonde
     const headY = cy - tile * 0.34 * scale * squash;
-    ctx.fillStyle = THEO_APPEARANCE.skin;
+    ctx.fillStyle = SCOTT_APPEARANCE.skin;
     ctx.beginPath();
     ctx.arc(cx, headY, tile * 0.115 * scale, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = THEO_APPEARANCE.hair;
+    ctx.fillStyle = SCOTT_APPEARANCE.hair;
     ctx.beginPath();
     ctx.arc(cx - dir[0] * tile * 0.01, headY - tile * 0.06 * scale, tile * 0.1 * scale, Math.PI, Math.PI * 2.15);
     ctx.fill();
-    if (theo.facing !== 'up') {
+    if (scott.facing !== 'up') {
       ctx.fillStyle = '#2a2018';
       ctx.beginPath();
       ctx.arc(cx + dir[0] * tile * 0.05 - tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.014, 0, Math.PI * 2);
@@ -735,13 +735,13 @@ export class Renderer {
       const wiggle = Math.sin(now * 0.01) * tile * 0.03;
       const tx = cx + dir[0] * tile * 0.2;
       const ty = cy + tile * 0.14 + dir[1] * tile * 0.1 + wiggle;
-      ctx.strokeStyle = THEO_APPEARANCE.toolHandle;
+      ctx.strokeStyle = SCOTT_APPEARANCE.toolHandle;
       ctx.lineWidth = Math.max(1, tile * 0.025);
       ctx.beginPath();
       ctx.moveTo(cx + dir[0] * tile * 0.08, cy + tile * 0.02);
       ctx.lineTo(tx, ty);
       ctx.stroke();
-      ctx.fillStyle = THEO_APPEARANCE.tool;
+      ctx.fillStyle = SCOTT_APPEARANCE.tool;
       ctx.beginPath();
       ctx.arc(tx, ty, tile * 0.03, 0, Math.PI * 2);
       ctx.fill();
@@ -749,14 +749,14 @@ export class Renderer {
 
     if (snacking) {
       const chew = Math.sin(now * 0.012) * tile * 0.012;
-      ctx.fillStyle = THEO_APPEARANCE.snack;
+      ctx.fillStyle = SCOTT_APPEARANCE.snack;
       ctx.beginPath();
       ctx.arc(cx + dir[0] * tile * 0.14, headY + tile * 0.02 + chew, tile * 0.035, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
-  private drawTheoNapping(screen: { x: number; y: number }, tile: number, now: number) {
+  private drawScottNapping(screen: { x: number; y: number }, tile: number, now: number) {
     const { ctx } = this;
     const breathe = Math.sin(now * 0.003) * tile * 0.015;
 
@@ -765,22 +765,22 @@ export class Renderer {
     ctx.ellipse(screen.x, screen.y + tile * 0.1, tile * 0.3, tile * 0.12, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = THEO_APPEARANCE.overalls;
+    ctx.fillStyle = SCOTT_APPEARANCE.overalls;
     ctx.beginPath();
     ctx.ellipse(screen.x, screen.y + tile * 0.06 + breathe, tile * 0.26, tile * 0.13, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // a borrowed crochet blanket
-    ctx.fillStyle = THEO_APPEARANCE.napBlanket;
+    ctx.fillStyle = SCOTT_APPEARANCE.napBlanket;
     ctx.beginPath();
     ctx.ellipse(screen.x + tile * 0.03, screen.y + tile * 0.08 + breathe, tile * 0.16, tile * 0.09, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = THEO_APPEARANCE.skin;
+    ctx.fillStyle = SCOTT_APPEARANCE.skin;
     ctx.beginPath();
     ctx.arc(screen.x - tile * 0.22, screen.y + tile * 0.02 + breathe, tile * 0.1, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = THEO_APPEARANCE.hair;
+    ctx.fillStyle = SCOTT_APPEARANCE.hair;
     ctx.beginPath();
     ctx.arc(screen.x - tile * 0.25, screen.y - tile * 0.02 + breathe, tile * 0.09, 0, Math.PI * 2);
     ctx.fill();
@@ -792,6 +792,171 @@ export class Renderer {
       const t = (now * 0.0006 + i * 0.5) % 1;
       const zx = screen.x - tile * 0.3 - t * tile * 0.1;
       const zy = screen.y - tile * 0.18 - t * tile * 0.4;
+      ctx.globalAlpha = 1 - t;
+      ctx.fillText('z', zx, zy);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * The greenhouse cat: small, orange, indoor-only, and drawn only from
+   * `renderIndoor` — she has no outdoor coordinate space to speak of.
+   */
+  private drawCat(camera: Camera, cat: CatState, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const screen = camera.worldToScreen(cat.x * TILE_SIZE, cat.y * TILE_SIZE);
+
+    if (cat.activity === 'sleeping') {
+      this.drawCatSleeping(screen, tile, now);
+      return;
+    }
+
+    const dir = Renderer.DIR[cat.facing];
+    const moving = cat.activity === 'wandering';
+    const sitting = cat.activity === 'sitting';
+    const grooming = cat.activity === 'grooming';
+
+    const walkPhase = now * 0.015;
+    const bob = moving ? Math.sin(walkPhase) * tile * 0.015 : 0;
+    const legSwing = moving ? Math.sin(walkPhase * 2) * tile * 0.03 : 0;
+    const bodyScaleY = sitting || grooming ? 1.15 : 1;
+
+    const cx = screen.x;
+    const cy = screen.y + bob;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(cx, screen.y + tile * 0.13, tile * 0.13, tile * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // tail: curled up at rest, low and out while walking
+    const tailBaseX = cx - dir[0] * tile * 0.1;
+    const tailBaseY = cy - tile * 0.02;
+    ctx.strokeStyle = CAT_APPEARANCE.furDark;
+    ctx.lineWidth = Math.max(1, tile * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(tailBaseX, tailBaseY);
+    if (sitting || grooming) {
+      ctx.quadraticCurveTo(tailBaseX - dir[0] * tile * 0.1, tailBaseY - tile * 0.14, tailBaseX + tile * 0.03, tailBaseY - tile * 0.16);
+    } else {
+      ctx.quadraticCurveTo(
+        tailBaseX - dir[0] * tile * 0.12,
+        tailBaseY - tile * 0.02 + Math.sin(now * 0.01) * tile * 0.03,
+        tailBaseX - dir[0] * tile * 0.16,
+        tailBaseY - tile * 0.08
+      );
+    }
+    ctx.stroke();
+
+    if (!sitting && !grooming) {
+      ctx.fillStyle = CAT_APPEARANCE.furDark;
+      ctx.beginPath();
+      ctx.ellipse(cx - tile * 0.05, cy + tile * 0.08 + legSwing, tile * 0.02, tile * 0.025, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + tile * 0.05, cy + tile * 0.08 - legSwing, tile * 0.02, tile * 0.025, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // body, orange tabby
+    ctx.fillStyle = CAT_APPEARANCE.furBase;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - tile * 0.02, tile * 0.1, tile * 0.075 * bodyScaleY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = CAT_APPEARANCE.furDark;
+    ctx.lineWidth = Math.max(1, tile * 0.015);
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx + i * tile * 0.025, cy - tile * 0.07 * bodyScaleY);
+      ctx.lineTo(cx + i * tile * 0.025, cy + tile * 0.01);
+      ctx.stroke();
+    }
+
+    // head
+    const headX = cx + dir[0] * tile * 0.1;
+    const headY = cy + dir[1] * tile * 0.06 - tile * 0.06;
+    ctx.fillStyle = CAT_APPEARANCE.furBase;
+    ctx.beginPath();
+    ctx.arc(headX, headY, tile * 0.065, 0, Math.PI * 2);
+    ctx.fill();
+
+    // pointed ears
+    ctx.fillStyle = CAT_APPEARANCE.furBase;
+    ctx.beginPath();
+    ctx.moveTo(headX - tile * 0.05, headY - tile * 0.03);
+    ctx.lineTo(headX - tile * 0.07, headY - tile * 0.1);
+    ctx.lineTo(headX - tile * 0.01, headY - tile * 0.05);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(headX + tile * 0.05, headY - tile * 0.03);
+    ctx.lineTo(headX + tile * 0.07, headY - tile * 0.1);
+    ctx.lineTo(headX + tile * 0.01, headY - tile * 0.05);
+    ctx.closePath();
+    ctx.fill();
+
+    // muzzle + nose
+    ctx.fillStyle = CAT_APPEARANCE.belly;
+    ctx.beginPath();
+    ctx.ellipse(headX + dir[0] * tile * 0.02, headY + tile * 0.03, tile * 0.035, tile * 0.025, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = CAT_APPEARANCE.nose;
+    ctx.beginPath();
+    ctx.arc(headX + dir[0] * tile * 0.03, headY + tile * 0.02, tile * 0.012, 0, Math.PI * 2);
+    ctx.fill();
+
+    // eyes
+    ctx.fillStyle = CAT_APPEARANCE.eye;
+    ctx.beginPath();
+    ctx.arc(headX - dir[1] * tile * 0.03 + dir[0] * tile * 0.005, headY - tile * 0.005, tile * 0.012, 0, Math.PI * 2);
+    ctx.arc(headX + dir[1] * tile * 0.03 + dir[0] * tile * 0.005, headY - tile * 0.005, tile * 0.012, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (grooming) {
+      // one paw raised to the side of her head, mid-lick
+      const liftPhase = Math.sin(now * 0.018) * tile * 0.02;
+      ctx.fillStyle = CAT_APPEARANCE.furLight;
+      ctx.beginPath();
+      ctx.ellipse(headX - dir[0] * tile * 0.02, headY + tile * 0.06 + liftPhase, tile * 0.02, tile * 0.03, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private drawCatSleeping(screen: { x: number; y: number }, tile: number, now: number) {
+    const { ctx } = this;
+    const breathe = Math.sin(now * 0.004) * tile * 0.01;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.beginPath();
+    ctx.ellipse(screen.x, screen.y + tile * 0.06, tile * 0.14, tile * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // curled into a ball
+    ctx.fillStyle = CAT_APPEARANCE.furBase;
+    ctx.beginPath();
+    ctx.ellipse(screen.x, screen.y + tile * 0.02 + breathe, tile * 0.11, tile * 0.09, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = CAT_APPEARANCE.furDark;
+    ctx.lineWidth = Math.max(1, tile * 0.015);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y + tile * 0.02 + breathe, tile * 0.09, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.stroke();
+
+    // tail wrapped over the nose
+    ctx.strokeStyle = CAT_APPEARANCE.furDark;
+    ctx.lineWidth = Math.max(1, tile * 0.025);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y + tile * 0.02 + breathe, tile * 0.1, -0.3 * Math.PI, 0.15 * Math.PI);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(240,236,216,0.7)';
+    ctx.font = `${Math.round(tile * 0.1)}px Georgia`;
+    ctx.textAlign = 'center';
+    for (let i = 0; i < 2; i++) {
+      const t = (now * 0.0006 + i * 0.5) % 1;
+      const zx = screen.x + tile * 0.14 + t * tile * 0.08;
+      const zy = screen.y - tile * 0.1 - t * tile * 0.3;
       ctx.globalAlpha = 1 - t;
       ctx.fillText('z', zx, zy);
     }
@@ -1004,9 +1169,10 @@ export class Renderer {
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
     this.drawScout(camera, state.scout, now);
-    if (state.theo.zone === 'greenhouse') {
-      this.drawTheo(camera, state.theo, now);
+    if (state.scott.zone === 'greenhouse') {
+      this.drawScott(camera, state.scott, now);
     }
+    this.drawCat(camera, state.cat, now);
     this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching);
 
     // Warm ambient tint + light shafts

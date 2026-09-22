@@ -6,7 +6,9 @@ at your side. Explore a compact wilderness around Ellen's own greenhouse,
 collect and cultivate plants, breed new varieties, and watch (and nudge) a
 living ecosystem of insects, animals, and fungi. A wild fox wanders the
 wilderness as a quiet, wordless guide, separate from Scout's constant,
-companionable presence.
+companionable presence. Ellen's husband **Scott** potters between the
+garden, the greenhouse, and the occasional nap on his own independent
+clock, and an orange cat keeps entirely to herself inside the greenhouse.
 
 ## Running it
 
@@ -28,13 +30,13 @@ devices) to interact. Progress autosaves to `localStorage`; there's a
 ## Architecture
 
 - `src/game/data/` — all content (plants, fungi, creatures, tools, zones,
-  ecosystem relationships, discovery points, stations, Ellen/Scout's visual
+  ecosystem relationships, discovery points, stations, everyone's visual
   palette) as plain data. New species/tools/areas are added here, not by
   touching systems or rendering code.
 - `src/game/systems/` — pure(ish) functions operating on `GameState`: plant
   growth, ecosystem simulation, propagation/hybridization, tools,
   inventory, journal/discovery tracking, fox behavior, Scout's companion
-  AI, weather-gated collection.
+  AI, Scott and the greenhouse cat's ambient AI, weather-gated collection.
 - `src/game/engine/` — the game loop, input (keyboard + touch joystick),
   camera, clock/weather, save manager, a small procedural audio layer.
 - `src/game/world/` — the tile map, collision, movement, and the Canvas2D
