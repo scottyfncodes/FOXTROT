@@ -181,12 +181,13 @@ export class StationPanel {
         this.render(stationId);
       });
       wrap.appendChild(harvestBtn);
-      const introBtn = el('button', 'secondary-btn', 'Introduce to the Wild');
-      introBtn.style.marginTop = '8px';
-      introBtn.style.width = '100%';
-      introBtn.disabled = true;
-      introBtn.title = 'Step outside first.';
-      wrap.appendChild(introBtn);
+      const introHint = el(
+        'p',
+        undefined,
+        'To release it into the wild, step outside to where you want it to grow and open its page in the Field Journal.'
+      );
+      introHint.style.cssText = 'font-size:12px;color:var(--ink-dim);margin:10px 0 0;line-height:1.5;';
+      wrap.appendChild(introHint);
     }
 
     this.panel.body.appendChild(wrap);

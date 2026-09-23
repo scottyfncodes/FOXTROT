@@ -30,7 +30,8 @@ import { tickObservation } from '../systems/observation';
 import { meetsRequirement, unlockTool } from '../systems/tools';
 import { addItem, inventoryFull, removeItem } from '../systems/inventory';
 import { attemptPropagation } from '../systems/propagation';
-import type { GrowConditions } from '../types';
+import type { GrowConditions, GrowthStage, ZoneId } from '../types';
+import { ZONES } from '../data/zones';
 
 export type InteractableKind = 'discoveryPoint' | 'toolPickup' | 'station' | 'greenhouseDoor' | 'greenhouseExit';
 
@@ -51,6 +52,17 @@ export interface ToastEvent {
 
 const AUTOSAVE_MS = 8000;
 const MOVE_SPEED = 3.4; // tiles per second
+const INTERACT_RANGE = 1.3;
+
+const STAGE_RANK: Record<GrowthStage, number> = { WILD: 0, CULTIVATED: 1, IMPROVED: 2, MATURE: 3, COMPLETE: 4 };
+
+function welcomeBackMessage(gameMinutes: number, plantsThatGrew: number): string {
+  const hours = gameMinutes / 60;
+  const span = hours >= 36 ? `${Math.round(hours / 24)} days` : hours >= 20 ? 'about a day' : hours >= 1.5 ? `${Math.round(hours)} hours` : 'a little while';
+  if (plantsThatGrew === 0) return `Welcome back — ${span} passed out here.`;
+  const plants = plantsThatGrew === 1 ? 'one of your plants' : `${plantsThatGrew} of your plants`;
+  return `Welcome back — ${span} passed, and ${plants} grew while you were away.`;
+}
 
 export class Game {
   state: GameState;
@@ -73,6 +85,8 @@ export class Game {
   private alertAcc = 0;
   private observeAcc = 0;
   private seenAlertIds = new Set<string>();
+  private ecosystemCarry = 0;
+  private started = false;
   private rafId = 0;
   /** Game-minute timestamp until which Ellen renders in her brief collect/crouch pose. */
   actionAnimUntil = 0;
@@ -93,11 +107,19 @@ export class Game {
 
     this.input.onInteract(() => this.interactWithNearest());
     window.addEventListener('resize', this.handleResize);
+    document.addEventListener('visibilitychange', this.saveWhenHidden);
+    window.addEventListener('pagehide', this.saveNow);
     this.handleResize();
-
-    // Catch up time immediately so a returning player sees the effect of
-    // elapsed time on load (via the update loop's first tick).
   }
+
+  // Mobile browsers often kill a backgrounded tab without warning, so don't
+  // wait for the next autosave tick to persist what just happened.
+  private saveNow = () => {
+    if (this.started) saveGame(this.state);
+  };
+  private saveWhenHidden = () => {
+    if (document.visibilityState === 'hidden') this.saveNow();
+  };
 
   private handleResize = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -112,11 +134,12 @@ export class Game {
   };
 
   start() {
+    this.started = true;
     this.lastFrame = performance.now();
     const loop = (now: number) => {
       const dtMs = Math.min(100, now - this.lastFrame);
       this.lastFrame = now;
-      this.update(now, dtMs);
+      this.update(dtMs);
       this.render(now);
       this.onFrame?.();
       this.rafId = requestAnimationFrame(loop);
@@ -128,32 +151,41 @@ export class Game {
     cancelAnimationFrame(this.rafId);
     this.input.destroy();
     window.removeEventListener('resize', this.handleResize);
+    document.removeEventListener('visibilitychange', this.saveWhenHidden);
+    window.removeEventListener('pagehide', this.saveNow);
   }
 
   private pushToast(text: string, kind: ToastEvent['kind'] = 'info') {
     this.onToast?.({ id: makeUid('toast'), text, kind });
   }
 
-  private update(nowMs: number, dtMs: number) {
+  private update(dtMs: number) {
     const dtSeconds = dtMs / 1000;
-    const clockResult = advanceClock(this.state, nowMs);
+    // Wall-clock time, not the rAF timestamp: rAF time restarts near zero on
+    // every page load, so it can't measure how long the player was away.
+    const clockResult = advanceClock(this.state, Date.now());
     const elapsedMinutes = clockResult.elapsedMinutes;
 
     if (elapsedMinutes > 0) {
-      tickEcosystem(this.state, elapsedMinutes);
+      this.ecosystemCarry = tickEcosystem(this.state, this.ecosystemCarry + elapsedMinutes);
+      let plantsThatGrew = 0;
       for (const instance of Object.values(this.state.plantInstances)) {
         if (instance.harvested || instance.stage === 'COMPLETE') continue;
         const def = PLANTS[instance.defId];
         if (!def) continue;
         const result = tickPlantGrowth(def, instance, elapsedMinutes * GROWTH_TIME_SCALE);
+        if (!result.stageAdvanced) continue;
+        plantsThatGrew += 1;
+        const now = this.state.clock.totalMinutes;
+        if (STAGE_RANK[result.newStage] >= STAGE_RANK.IMPROVED) recordDeveloped(this.state, def.id, 'plant', now);
         if (result.completed) {
-          this.pushToast(`${def.name} has reached its full potential — COMPLETE.`, 'growth');
-          recordMastered(this.state, def.id, 'plant', this.state.clock.totalMinutes);
-        } else if (result.stageAdvanced) {
+          recordMastered(this.state, def.id, 'plant', now);
+          if (!clockResult.wasOffline) this.pushToast(`${def.name} has reached its full potential — COMPLETE.`, 'growth');
+        } else if (!clockResult.wasOffline) {
           this.pushToast(`${def.name} is now ${result.newStage.toLowerCase()}.`, 'growth');
-          if (result.newStage === 'IMPROVED') recordDeveloped(this.state, def.id, 'plant', this.state.clock.totalMinutes);
         }
       }
+      if (clockResult.wasOffline) this.pushToast(welcomeBackMessage(elapsedMinutes, plantsThatGrew), 'info');
     }
 
     // Movement
@@ -261,34 +293,46 @@ export class Game {
 
   private handleDoorTransitions() {
     const p = this.state.player;
-    const scout = this.state.scout;
     if (!p.inGreenhouse) {
-      if (Math.floor(p.x) === GREENHOUSE_DOOR.x && Math.floor(p.y) === GREENHOUSE_DOOR.y) {
-        p.inGreenhouse = true;
-        p.x = GREENHOUSE_EXIT.x + 0.5;
-        p.y = GREENHOUSE_EXIT.y - 1.5;
-        p.facing = 'up';
-        // Scout follows Ellen through doorways instantly rather than
-        // trailing all the way from wherever he was outside.
-        scout.x = p.x - 0.7;
-        scout.y = p.y + 0.5;
-        scout.behavior = 'following';
-      }
+      if (Math.floor(p.x) === GREENHOUSE_DOOR.x && Math.floor(p.y) === GREENHOUSE_DOOR.y) this.enterGreenhouse();
     } else if (Math.floor(p.x) === GREENHOUSE_EXIT.x && Math.floor(p.y) >= GREENHOUSE_EXIT.y) {
-      p.inGreenhouse = false;
-      p.x = GREENHOUSE_DOOR.x + 0.5;
-      p.y = GREENHOUSE_DOOR.y + 1.5;
-      p.facing = 'down';
-      scout.x = p.x - 0.7;
-      scout.y = p.y + 0.5;
-      scout.behavior = 'following';
+      this.exitGreenhouse();
     }
+  }
+
+  private enterGreenhouse() {
+    const p = this.state.player;
+    p.inGreenhouse = true;
+    p.x = GREENHOUSE_EXIT.x + 0.5;
+    p.y = GREENHOUSE_EXIT.y - 1.5;
+    p.facing = 'up';
+    this.bringScoutAlong();
+  }
+
+  private exitGreenhouse() {
+    const p = this.state.player;
+    p.inGreenhouse = false;
+    p.x = GREENHOUSE_DOOR.x + 0.5;
+    p.y = GREENHOUSE_DOOR.y + 1.5;
+    p.facing = 'down';
+    this.bringScoutAlong();
+  }
+
+  // Indoor and outdoor coordinates are different spaces, so Scout is
+  // placed beside Ellen rather than left at a position that means nothing
+  // on the other side of the door.
+  private bringScoutAlong() {
+    const p = this.state.player;
+    const scout = this.state.scout;
+    scout.x = p.x - 0.7;
+    scout.y = p.y + 0.5;
+    scout.behavior = 'following';
   }
 
   private updateNearestInteractable() {
     const p = this.state.player;
     let best: Interactable | null = null;
-    let bestDist = 1.3;
+    let bestDist = INTERACT_RANGE;
 
     const consider = (i: Interactable, x: number, y: number) => {
       const d = Math.hypot(p.x - (x + 0.5), p.y - (y + 0.5));
@@ -312,13 +356,18 @@ export class Game {
         if (!meetsRequirement(this.state, tp.requiresToolTier)) continue;
         consider({ kind: 'toolPickup', id: tp.id, x: tp.x, y: tp.y, label: `Pick up ${TOOLS[tp.tool].tiers[tp.tier - 1].name}`, available: true }, tp.x, tp.y);
       }
-      if (Math.hypot(p.x - (GREENHOUSE_DOOR.x + 0.5), p.y - (GREENHOUSE_DOOR.y + 0.5)) < 1.3) {
+      if (Math.hypot(p.x - (GREENHOUSE_DOOR.x + 0.5), p.y - (GREENHOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
         best = { kind: 'greenhouseDoor', id: 'door', x: GREENHOUSE_DOOR.x, y: GREENHOUSE_DOOR.y, label: 'Enter the Greenhouse', available: true };
       }
     } else {
       for (const station of STATIONS) {
         consider({ kind: 'station', id: station.id, x: station.x, y: station.y, label: this.stationLabel(station), available: true }, station.x, station.y);
       }
+      consider(
+        { kind: 'greenhouseExit', id: 'exit', x: GREENHOUSE_EXIT.x, y: GREENHOUSE_EXIT.y, label: 'Step Outside', available: true },
+        GREENHOUSE_EXIT.x,
+        GREENHOUSE_EXIT.y
+      );
     }
 
     this.nearest = best;
@@ -365,7 +414,9 @@ export class Game {
       this.audio.playToolChime();
       this.pushToast(`Found: ${TOOLS[tp.tool].tiers[tp.tier - 1].name}. ${tp.flavor}`, 'discovery');
     } else if (n.kind === 'greenhouseDoor') {
-      this.handleDoorTransitions();
+      this.enterGreenhouse();
+    } else if (n.kind === 'greenhouseExit') {
+      this.exitGreenhouse();
     } else if (n.kind === 'station') {
       this.onOpenStation?.(n.id);
     }
@@ -404,8 +455,19 @@ export class Game {
     this.onStateTouched?.();
   }
 
+  /** The outdoor zone Ellen is standing in, or null while she's indoors. */
+  currentOutdoorZone(): ZoneId | null {
+    if (this.state.player.inGreenhouse) return null;
+    return zoneAt(Math.floor(this.state.player.x), Math.floor(this.state.player.y));
+  }
+
+  hasIntroduced(defId: string, zone: ZoneId): boolean {
+    return this.state.wildIntroductions.some((w) => w.defId === defId && w.zone === zone);
+  }
+
   introduceToWild(inventoryUidOrInstanceId: string, fromPlantInstance: boolean) {
-    const zone = zoneAt(Math.floor(this.state.player.x), Math.floor(this.state.player.y));
+    const zone = this.currentOutdoorZone();
+    if (!zone) return;
     let defId: string | null = null;
     if (fromPlantInstance) {
       const inst = this.state.plantInstances[inventoryUidOrInstanceId];
@@ -415,10 +477,15 @@ export class Game {
       const item = this.state.inventory.find((i) => i.uid === inventoryUidOrInstanceId);
       if (!item) return;
       defId = item.defId;
-      removeItem(this.state, inventoryUidOrInstanceId);
     }
+    const name = PLANTS[defId]?.name ?? defId;
+    if (this.hasIntroduced(defId, zone)) {
+      this.pushToast(`${name} already grows wild in ${ZONES[zone].name}.`, 'info');
+      return;
+    }
+    if (!fromPlantInstance) removeItem(this.state, inventoryUidOrInstanceId);
     introduceSpecies(this.state, defId, zone, 18, this.state.clock.totalMinutes);
-    this.pushToast(`Introduced ${PLANTS[defId]?.name ?? defId} to ${zone}. The ecosystem will respond in time.`, 'info');
+    this.pushToast(`Introduced ${name} to ${ZONES[zone].name}. The ecosystem will respond in time.`, 'info');
     this.onStateTouched?.();
   }
 
@@ -451,6 +518,7 @@ export class Game {
     this.state = resetGame();
     initEcosystem(this.state);
     this.seenAlertIds.clear();
+    this.ecosystemCarry = 0;
     saveGame(this.state);
     this.onStateTouched?.();
   }

@@ -7,6 +7,7 @@ import { CREATURE_LIST, CREATURES } from '../game/data/creatures';
 import { MATERIAL_LIST, MATERIALS } from '../game/data/materials';
 import { RELATIONSHIPS } from '../game/data/relationships';
 import { detectEcologicalAlerts } from '../game/systems/ecosystem';
+import { ZONES } from '../game/data/zones';
 import type { DiscoveryLevel } from '../game/types';
 
 type Tab = 'plants' | 'fungi' | 'insects' | 'animals' | 'ecosystem' | 'unknown';
@@ -198,8 +199,15 @@ export class JournalPanel {
 
       const completed = instances.filter((p) => p.stage === 'COMPLETE');
       if (completed.length > 0) {
-        const introBtn = el('button', 'primary-btn', state.player.inGreenhouse ? 'Step outside to introduce to the wild' : 'Introduce to the Wild, Here');
-        introBtn.disabled = state.player.inGreenhouse;
+        const zone = this.game.currentOutdoorZone();
+        const already = zone !== null && this.game.hasIntroduced(specimenId, zone);
+        const label = !zone
+          ? 'Step outside to introduce it to the wild'
+          : already
+            ? `Already growing wild in ${ZONES[zone].name}`
+            : `Introduce to ${ZONES[zone].name}`;
+        const introBtn = el('button', 'primary-btn', label);
+        introBtn.disabled = !zone || already;
         introBtn.addEventListener('click', () => {
           this.game.introduceToWild(completed[0].id, true);
           this.renderDetail(specimenId, kind, lookup);
@@ -220,7 +228,7 @@ export class JournalPanel {
       wrap.appendChild(el('div', 'empty-state', 'Nothing seems out of balance right now.'));
     } else {
       const ul = el('ul');
-      for (const a of alerts) ul.appendChild(el('li', undefined, `${a.message} (${a.zone})`));
+      for (const a of alerts) ul.appendChild(el('li', undefined, `${a.message} (${ZONES[a.zone].name})`));
       wrap.appendChild(ul);
     }
     wrap.appendChild(el('h4', undefined, 'Relationships You\'ve Noticed'));

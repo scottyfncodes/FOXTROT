@@ -24,20 +24,80 @@ function hash2(x: number, y: number): number {
   return s - Math.floor(s);
 }
 
-function lerpColor(a: string, b: string, t: number): string {
-  const pa = parseInt(a.slice(1), 16);
-  const pb = parseInt(b.slice(1), 16);
-  const ar = (pa >> 16) & 255;
-  const ag = (pa >> 8) & 255;
-  const ab = pa & 255;
-  const br = (pb >> 16) & 255;
-  const bg = (pb >> 8) & 255;
-  const bb = pb & 255;
-  const r = Math.round(ar + (br - ar) * t);
-  const g = Math.round(ag + (bg - ag) * t);
-  const bl = Math.round(ab + (bb - ab) * t);
-  return `rgb(${r},${g},${bl})`;
+type RGB = [number, number, number];
+
+function hexToRgb(hex: string): RGB {
+  const p = parseInt(hex.slice(1), 16);
+  return [(p >> 16) & 255, (p >> 8) & 255, p & 255];
 }
+
+function mixRgb(a: RGB, b: RGB, t: number): RGB {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+
+function rgbCss(c: RGB): string {
+  return `rgb(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])})`;
+}
+
+function lerpColor(a: string, b: string, t: number): string {
+  return rgbCss(mixRgb(hexToRgb(a), hexToRgb(b), t));
+}
+
+/** Bilinear value noise over the hash lattice: smooth, organic patches. */
+function smoothNoise(x: number, y: number, scale: number): number {
+  const gx = x / scale;
+  const gy = y / scale;
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const fx = gx - x0;
+  const fy = gy - y0;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const a = hash2(x0, y0);
+  const b = hash2(x0 + 1, y0);
+  const c = hash2(x0, y0 + 1);
+  const d = hash2(x0 + 1, y0 + 1);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+function luminance(c: RGB): number {
+  return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+}
+
+// Each zone's ground palette as a dark-to-light gradient, so tiles can be
+// sampled continuously instead of flipping between discrete swatches.
+const GROUND_GRADIENTS = Object.fromEntries(
+  Object.values(ZONES).map((z) => [z.id, z.groundColors.map(hexToRgb).sort((a, b) => luminance(a) - luminance(b))])
+) as Record<ZoneId, RGB[]>;
+
+function sampleGradient(stops: RGB[], t: number): RGB {
+  if (stops.length === 1) return stops[0];
+  const pos = Math.max(0, Math.min(0.9999, t)) * (stops.length - 1);
+  const i = Math.floor(pos);
+  return mixRgb(stops[i], stops[i + 1], pos - i);
+}
+
+type GroundDetail = 'grass' | 'litter' | 'moss' | 'pebbles';
+const GROUND_DETAIL: Partial<Record<ZoneId, GroundDetail>> = {
+  meadow: 'grass',
+  overgrownClearing: 'grass',
+  woodland: 'litter',
+  dampForest: 'moss',
+  rockyClearing: 'pebbles',
+  creek: 'pebbles',
+};
+const BLOB_COLORS: Record<GroundDetail, string> = {
+  grass: 'rgba(0,0,0,0)',
+  litter: 'rgba(122,88,48,0.24)',
+  moss: 'rgba(150,196,120,0.16)',
+  pebbles: 'rgba(58,52,42,0.26)',
+};
+const NEIGHBORS: [number, number][] = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
 export class Renderer {
   private lastEllenX = 0;
@@ -58,24 +118,7 @@ export class Renderer {
     const bounds = camera.getViewportTileBounds();
     const tile = TILE_SIZE * camera.zoom;
 
-    // Ground
-    for (let ty = bounds.minY; ty <= bounds.maxY; ty++) {
-      for (let tx = bounds.minX; tx <= bounds.maxX; tx++) {
-        const zone = zoneAt(tx, ty);
-        const palette = ZONES[zone].groundColors;
-        const water = isWater(tx, ty);
-        const screen = camera.worldToScreen(tx * TILE_SIZE, ty * TILE_SIZE);
-        if (water) {
-          const wobble = Math.sin(now * 0.002 + tx * 0.6 + ty * 0.3) * 0.15 + 0.5;
-          ctx.fillStyle = lerpColor('#1c4650', '#3f7f86', wobble);
-        } else {
-          const n = hash2(tx, ty);
-          const idx = Math.floor(n * palette.length);
-          ctx.fillStyle = palette[Math.min(idx, palette.length - 1)];
-        }
-        ctx.fillRect(Math.floor(screen.x), Math.floor(screen.y), Math.ceil(tile) + 1, Math.ceil(tile) + 1);
-      }
-    }
+    this.drawGround(camera, bounds, now);
 
     // Greenhouse building
     this.drawGreenhouseExterior(camera, state.clock.totalMinutes);
@@ -143,6 +186,78 @@ export class Renderer {
 
     // Weather / lighting overlay
     this.drawWeatherOverlay(camera, state, now);
+  }
+
+  /**
+   * Ground colour comes from smooth value noise sampled along each zone's
+   * palette, so neighbouring tiles differ gently instead of reading as a
+   * checkerboard; tiles bordering another zone lean toward its colour to
+   * soften the straight seams. Small per-zone detail (grass blades, leaf
+   * litter, moss, pebbles) is batched into one path per layer.
+   */
+  private drawGround(camera: Camera, bounds: { minX: number; maxX: number; minY: number; maxY: number }, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const size = Math.ceil(tile) + 1;
+    const dark = new Path2D();
+    const light = new Path2D();
+    const blobs: Partial<Record<GroundDetail, Path2D>> = {};
+
+    for (let ty = bounds.minY; ty <= bounds.maxY; ty++) {
+      for (let tx = bounds.minX; tx <= bounds.maxX; tx++) {
+        const screen = camera.worldToScreen(tx * TILE_SIZE, ty * TILE_SIZE);
+        const sx = Math.floor(screen.x);
+        const sy = Math.floor(screen.y);
+        if (isWater(tx, ty)) {
+          const wobble = Math.sin(now * 0.002 + tx * 0.6 + ty * 0.3) * 0.15 + 0.5;
+          ctx.fillStyle = lerpColor('#1c4650', '#3f7f86', wobble);
+          ctx.fillRect(sx, sy, size, size);
+          continue;
+        }
+
+        const zone = zoneAt(tx, ty);
+        const t = 0.78 * smoothNoise(tx, ty, 6) + 0.22 * hash2(tx + 17.3, ty - 4.1);
+        let color = sampleGradient(GROUND_GRADIENTS[zone], t);
+        for (const [dx, dy] of NEIGHBORS) {
+          const nz = zoneAt(tx + dx, ty + dy);
+          if (nz === zone || nz === 'greenhouse' || isWater(tx + dx, ty + dy)) continue;
+          color = mixRgb(color, sampleGradient(GROUND_GRADIENTS[nz], t), 0.2);
+        }
+        ctx.fillStyle = rgbCss(color);
+        ctx.fillRect(sx, sy, size, size);
+
+        const detail = GROUND_DETAIL[zone];
+        const d = hash2(tx * 3.1, ty * 1.7);
+        if (!detail || d > 0.62) continue;
+        for (let k = 0; k < 3; k++) {
+          const px = sx + (0.12 + 0.76 * hash2(tx + k * 5.3, ty * 2.1)) * tile;
+          const py = sy + (0.2 + 0.7 * hash2(tx * 2.3, ty + k * 3.7)) * tile;
+          if (detail === 'grass') {
+            const lean = (hash2(tx + k, ty - k) - 0.5) * tile * 0.08;
+            const path = k % 2 === 0 ? dark : light;
+            path.moveTo(px, py);
+            path.lineTo(px + lean, py - tile * 0.13);
+          } else if (k < 2) {
+            const r = tile * (detail === 'pebbles' ? 0.045 : 0.05) * (0.7 + d);
+            const path = (blobs[detail] ??= new Path2D());
+            path.moveTo(px + r, py);
+            path.ellipse(px, py, r, r * 0.62, hash2(tx, ty + k) * Math.PI, 0, Math.PI * 2);
+          }
+        }
+      }
+    }
+
+    ctx.lineWidth = Math.max(1, tile * 0.022);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(28,52,22,0.32)';
+    ctx.stroke(dark);
+    ctx.strokeStyle = 'rgba(214,236,160,0.2)';
+    ctx.stroke(light);
+    ctx.lineCap = 'butt';
+    for (const kind of Object.keys(blobs) as GroundDetail[]) {
+      ctx.fillStyle = BLOB_COLORS[kind];
+      ctx.fill(blobs[kind]!);
+    }
   }
 
   private drawGreenhouseExterior(camera: Camera, gameMinutes: number) {
@@ -277,11 +392,12 @@ export class Renderer {
     }
   }
 
-  private glowMarker(x: number, y: number, tile: number, color: string, now: number) {
+  private glowMarker(x: number, y: number, tile: number, hexColor: string, now: number) {
     const { ctx } = this;
     const pulse = 0.5 + 0.5 * Math.sin(now * 0.003);
     const grad = ctx.createRadialGradient(x, y, 0, x, y, tile * (0.5 + pulse * 0.15));
-    grad.addColorStop(0, color.replace(')', ',0.35)').replace('rgb', 'rgba'));
+    const [r, g, b] = hexToRgb(hexColor);
+    grad.addColorStop(0, `rgba(${r},${g},${b},0.45)`);
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -1094,8 +1210,10 @@ export class Renderer {
    */
   private drawAmbientParticles(camera: Camera, zone: ZoneId, weather: string, now: number) {
     const { ctx } = this;
-    const w = ctx.canvas.width;
-    const h = ctx.canvas.height;
+    // CSS pixels, matching the DPR-scaled transform; canvas.width would be
+    // 2x on a phone and push most particles off-screen.
+    const w = camera.viewW;
+    const h = camera.viewH;
 
     if (zone === 'woodland' || zone === 'dampForest') {
       for (let i = 0; i < 10; i++) {
@@ -1156,16 +1274,16 @@ export class Renderer {
       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       ctx.strokeStyle = 'rgba(200,220,235,0.35)';
       ctx.lineWidth = 1;
-      const w = ctx.canvas.width;
-      const h = ctx.canvas.height;
+      const w = camera.viewW;
+      const h = camera.viewH;
+      ctx.beginPath();
       for (let i = 0; i < 90; i++) {
         const seedX = (i * 977) % w;
         const seedY = ((i * 613 + Math.floor(now * 0.6)) % (h + 40)) - 20;
-        ctx.beginPath();
         ctx.moveTo(seedX, seedY);
         ctx.lineTo(seedX - 6, seedY + 16);
-        ctx.stroke();
       }
+      ctx.stroke();
     }
   }
 
@@ -1201,19 +1319,42 @@ export class Renderer {
     camera.y = clampAxis(state.player.y * TILE_SIZE, camera.viewH, GREENHOUSE_GRID_H);
     const tile = TILE_SIZE * camera.zoom;
 
+    // Floorboards: three-tile planks, staggered row to row, each plank one
+    // slightly different tone, with dark seams between them.
+    const seams = new Path2D();
+    const grain = new Path2D();
     for (let y = 0; y < GREENHOUSE_GRID_H; y++) {
+      const stagger = (y * 2) % 3;
       for (let x = 0; x < GREENHOUSE_GRID_W; x++) {
         const border = x === 0 || y === 0 || x === GREENHOUSE_GRID_W - 1 || y === GREENHOUSE_GRID_H - 1;
         const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
+        const sx = Math.floor(screen.x);
+        const sy = Math.floor(screen.y);
         if (border) {
           ctx.fillStyle = '#3a4a40';
-        } else {
-          const n = hash2(x, y);
-          ctx.fillStyle = n > 0.5 ? '#6b4f36' : '#63492f';
+          ctx.fillRect(sx, sy, Math.ceil(tile) + 1, Math.ceil(tile) + 1);
+          continue;
         }
-        ctx.fillRect(Math.floor(screen.x), Math.floor(screen.y), Math.ceil(tile) + 1, Math.ceil(tile) + 1);
+        const plank = Math.floor((x + stagger) / 3);
+        ctx.fillStyle = lerpColor('#6e5238', '#5f4630', hash2(plank * 7.1, y * 3.3));
+        ctx.fillRect(sx, sy, Math.ceil(tile) + 1, Math.ceil(tile) + 1);
+        seams.moveTo(sx, sy);
+        seams.lineTo(sx + tile, sy);
+        if ((x + stagger) % 3 === 0) {
+          seams.moveTo(sx, sy);
+          seams.lineTo(sx, sy + tile);
+        }
+        const gy = sy + tile * (0.3 + 0.4 * hash2(x * 1.9, y * 2.7));
+        grain.moveTo(sx + tile * 0.1, gy);
+        grain.lineTo(sx + tile * 0.9, gy + tile * 0.02);
       }
     }
+    ctx.lineWidth = Math.max(1, tile * 0.02);
+    ctx.strokeStyle = 'rgba(40,26,14,0.55)';
+    ctx.stroke(seams);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(40,26,14,0.18)';
+    ctx.stroke(grain);
 
     // exit door glow
     const exitScreen = camera.worldToScreen(GREENHOUSE_EXIT.x * TILE_SIZE, GREENHOUSE_EXIT.y * TILE_SIZE);

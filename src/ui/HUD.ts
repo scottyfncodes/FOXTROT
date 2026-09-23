@@ -15,6 +15,10 @@ function formatClock(totalMinutes: number): string {
 
 const WEATHER_ICON: Record<string, string> = { clear: '☀', rain: '☔', overcast: '☁' };
 
+function setText(node: Node, text: string) {
+  if (node.textContent !== text) node.textContent = text;
+}
+
 export class HUD {
   root = el('div', 'hud');
   private zoneChip = el('div', 'hud-chip');
@@ -22,6 +26,7 @@ export class HUD {
   private journalBtn = el('button', 'icon-btn', '\u{1F4D3}');
   private basketBtn = el('button', 'icon-btn', '\u{1F9FA}');
   private interactionPrompt = el('div', 'interaction-prompt');
+  private promptLabel = document.createTextNode('');
   private toastStack = el('div', 'toast-stack');
   private joystickZone = el('div', 'joystick-zone');
   private joystickThumb = el('div', 'joystick-thumb');
@@ -47,6 +52,7 @@ export class HUD {
       touch.append(this.joystickZone, this.actionBtn);
     }
 
+    this.interactionPrompt.append(el('kbd', undefined, 'E'), this.promptLabel);
     this.root.append(top, this.interactionPrompt, this.toastStack, touch);
 
     this.journalBtn.addEventListener('click', () => this.onJournal?.());
@@ -62,26 +68,19 @@ export class HUD {
     setTimeout(() => node.remove(), 4200);
   }
 
+  // Called every frame: only touch the DOM when what's shown actually changes.
   update() {
     const state = this.game.state;
     const zone = state.player.inGreenhouse ? 'greenhouse' : zoneAt(Math.floor(state.player.x), Math.floor(state.player.y));
-    this.zoneChip.innerHTML = '';
-    this.zoneChip.append(document.createTextNode(''));
-    this.zoneChip.textContent = ZONES[zone].name;
+    setText(this.zoneChip, ZONES[zone].name);
     const night = isNight(state.clock.totalMinutes);
-    this.timeChip.textContent = `${WEATHER_ICON[state.weather.condition]} ${formatClock(state.clock.totalMinutes)}${night ? ' \u{1F319}' : ''}`;
+    setText(this.timeChip, `${WEATHER_ICON[state.weather.condition]} ${formatClock(state.clock.totalMinutes)}${night ? ' \u{1F319}' : ''}`);
 
     const n = this.game.nearest;
-    if (n) {
-      this.interactionPrompt.classList.add('visible');
-      this.interactionPrompt.innerHTML = '';
-      const kbd = el('kbd', undefined, 'E');
-      this.interactionPrompt.append(kbd, document.createTextNode(n.label));
-      this.actionBtn.textContent = n.kind === 'discoveryPoint' ? 'TAKE' : n.kind === 'toolPickup' ? 'TAKE' : n.kind === 'station' ? 'OPEN' : 'GO';
-      this.actionBtn.style.opacity = '1';
-    } else {
-      this.interactionPrompt.classList.remove('visible');
-      this.actionBtn.style.opacity = '0.55';
-    }
+    this.interactionPrompt.classList.toggle('visible', !!n);
+    this.actionBtn.style.opacity = n ? '1' : '0.55';
+    if (!n) return;
+    setText(this.promptLabel, n.label);
+    setText(this.actionBtn, n.kind === 'discoveryPoint' || n.kind === 'toolPickup' ? 'TAKE' : n.kind === 'station' ? 'OPEN' : 'GO');
   }
 }

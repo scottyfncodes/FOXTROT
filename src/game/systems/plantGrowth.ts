@@ -178,18 +178,20 @@ export function tickPlantGrowth(def: PlantDef, instance: PlantInstance, elapsedM
   const effectiveMinutes = elapsedMinutes * (0.12 + 0.88 * matchScore) * speedMult;
   instance.progressMinutes += effectiveMinutes;
 
-  const durationKey = STAGE_DURATION_KEY[instance.stage];
-  if (!durationKey) return result;
-  const threshold = def.stageDurations[durationKey];
-  if (instance.progressMinutes >= threshold) {
-    instance.progressMinutes = 0;
+  // Surplus progress carries into the next stage, so one large catch-up
+  // (e.g. returning after a long absence) can pass through several stages.
+  let durationKey = STAGE_DURATION_KEY[instance.stage];
+  while (durationKey && instance.progressMinutes >= def.stageDurations[durationKey]) {
+    instance.progressMinutes -= def.stageDurations[durationKey];
     instance.stage = nextStage(instance.stage);
     result.stageAdvanced = true;
     result.newStage = instance.stage;
-    if (instance.stage === 'COMPLETE') {
-      instance.traits.quality = instance.qualityEstimate;
-      result.completed = true;
-    }
+    durationKey = STAGE_DURATION_KEY[instance.stage];
+  }
+  if (instance.stage === 'COMPLETE' && result.stageAdvanced) {
+    instance.progressMinutes = 0;
+    instance.traits.quality = instance.qualityEstimate;
+    result.completed = true;
   }
   return result;
 }

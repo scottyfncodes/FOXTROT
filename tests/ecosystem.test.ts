@@ -59,6 +59,36 @@ describe('ecosystem simulation', () => {
     expect(getPopulation(state, 'overgrownClearing', 'widowsLace')).toBe(50);
   });
 
+  it('accumulates small per-frame deltas instead of simulating a full step on every call', () => {
+    const state = createNewGame();
+    initEcosystem(state);
+    const before = JSON.stringify(state.ecosystem);
+    let carry = 0;
+    // One real second at 60fps is ~2 game-minutes: well under one 30-minute step.
+    for (let i = 0; i < 60; i++) carry = tickEcosystem(state, carry + 2 / 60);
+    expect(JSON.stringify(state.ecosystem)).toBe(before);
+    expect(carry).toBeCloseTo(2, 5);
+  });
+
+  it('returns the leftover minutes after simulating whole steps', () => {
+    const state = createNewGame();
+    initEcosystem(state);
+    expect(tickEcosystem(state, 45, fixedRand)).toBeCloseTo(15, 5);
+    expect(tickEcosystem(state, 29, fixedRand)).toBeCloseTo(29, 5);
+  });
+
+  it('a species Ellen introduces settles above its natural level there for good', () => {
+    const control = createNewGame();
+    initEcosystem(control);
+    const treated = createNewGame();
+    initEcosystem(treated);
+    introduceSpecies(treated, 'meadowClover', 'meadow', 18, 0);
+    // Far longer than any one-off boost would last on its own.
+    tickEcosystem(control, 30 * 400, fixedRand);
+    tickEcosystem(treated, 30 * 400, fixedRand);
+    expect(getPopulation(treated, 'meadow', 'meadowClover')).toBeGreaterThan(getPopulation(control, 'meadow', 'meadowClover') + 8);
+  });
+
   it('flags an ecological alert when aphids surge without enough spiders to check them', () => {
     const state = createNewGame();
     initEcosystem(state);

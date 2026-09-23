@@ -7,6 +7,9 @@ import { RELATIONSHIPS } from '../data/relationships';
 const INVASIVE_IDS = new Set(['widowsLace']);
 const CHUNK_MINUTES = 30;
 const MAX_CHUNKS_PER_TICK = 200;
+// A species Ellen deliberately established somewhere settles at a higher
+// level there for good, instead of drifting back to where it started.
+const ESTABLISHED_BONUS = 15;
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -60,7 +63,7 @@ export function thinSpecies(state: GameState, defId: string, zone: ZoneId, amoun
   state.ecosystem[zone][defId] = clamp(current - amount, 0, 100);
 }
 
-function tickChunk(state: GameState, rand: () => number) {
+function tickChunk(state: GameState, established: Set<string>, rand: () => number) {
   for (const zone of Object.keys(state.ecosystem) as ZoneId[]) {
     const pops = state.ecosystem[zone];
     const deltas: Record<string, number> = {};
@@ -73,7 +76,7 @@ function tickChunk(state: GameState, rand: () => number) {
         if (sourcePop === undefined || sourcePop <= 0) continue;
         delta += rel.effect * (sourcePop / 100) * 3.2;
       }
-      const baseline = baselineFor(speciesId);
+      const baseline = baselineFor(speciesId) + (established.has(`${zone}:${speciesId}`) ? ESTABLISHED_BONUS : 0);
       delta += (baseline - pop) * 0.035;
       delta += (rand() - 0.5) * 1.6;
       deltas[speciesId] = delta;
@@ -84,12 +87,20 @@ function tickChunk(state: GameState, rand: () => number) {
   }
 }
 
-export function tickEcosystem(state: GameState, elapsedMinutes: number, rand: () => number = Math.random) {
-  if (elapsedMinutes <= 0) return;
-  const chunks = Math.min(MAX_CHUNKS_PER_TICK, Math.ceil(elapsedMinutes / CHUNK_MINUTES));
-  for (let i = 0; i < chunks; i++) {
-    tickChunk(state, rand);
+/**
+ * Simulates whole CHUNK_MINUTES steps and returns the leftover minutes, so
+ * callers feeding it small per-frame deltas accumulate time instead of
+ * running a full step every frame.
+ */
+export function tickEcosystem(state: GameState, elapsedMinutes: number, rand: () => number = Math.random): number {
+  if (elapsedMinutes <= 0) return 0;
+  const whole = Math.floor(elapsedMinutes / CHUNK_MINUTES);
+  const chunks = Math.min(MAX_CHUNKS_PER_TICK, whole);
+  if (chunks > 0) {
+    const established = new Set(state.wildIntroductions.map((w) => `${w.zone}:${w.defId}`));
+    for (let i = 0; i < chunks; i++) tickChunk(state, established, rand);
   }
+  return elapsedMinutes - whole * CHUNK_MINUTES;
 }
 
 export interface EcosystemAlert {

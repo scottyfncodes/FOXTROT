@@ -54,6 +54,32 @@ describe('plant growth stage progression', () => {
     expect(instance.traits.quality).toBeGreaterThan(0);
   });
 
+  it('a single long catch-up (e.g. returning after being away) can pass through several stages', () => {
+    const state = createNewGame();
+    const def = PLANTS.meadowClover;
+    const instance = plantSpecimen(state, def.id, rollTraits(def.baseTraits, () => 0.5), 'growBed1', 0, def.preferredConditions);
+    const result = tickPlantGrowth(def, instance, 1000);
+    expect(instance.stage).toBe('COMPLETE');
+    expect(result.completed).toBe(true);
+    expect(result.newStage).toBe('COMPLETE');
+  });
+
+  it('carries surplus progress into the next stage instead of discarding it', () => {
+    const state = createNewGame();
+    const def = PLANTS.meadowClover;
+    const instance = plantSpecimen(state, def.id, rollTraits(def.baseTraits, () => 0.5), 'growBed1', 0, def.preferredConditions);
+    // Enough for CULTIVATED plus a bit, but not enough to also finish IMPROVED.
+    const perMinute = (() => {
+      const probe = plantSpecimen(state, def.id, { ...instance.traits }, 'growBed2', 0, def.preferredConditions);
+      tickPlantGrowth(def, probe, 1);
+      return probe.progressMinutes;
+    })();
+    const minutes = (def.stageDurations.CULTIVATED + 1) / perMinute;
+    tickPlantGrowth(def, instance, minutes);
+    expect(instance.stage).toBe('IMPROVED');
+    expect(instance.progressMinutes).toBeCloseTo(1, 5);
+  });
+
   it('never regresses or destroys a plant under mismatched conditions (failed cultivation is safe)', () => {
     const state = createNewGame();
     const def = PLANTS.blueFern; // prefers wet/peaty/shade/cool/rich

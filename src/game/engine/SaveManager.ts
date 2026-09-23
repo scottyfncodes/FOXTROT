@@ -1,20 +1,79 @@
 import { createNewGame, SAVE_KEY, SAVE_VERSION, type GameState } from '../state';
+import { findScottSpot } from '../data/scottSpots';
+import { findCatSpot } from '../data/catSpots';
+
+// Older builds stored each schema version under its own key; they're read
+// once as a fallback so those players' progress is recovered, not lost.
+const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
+
+// Fields that are small fixed-shape records: a field added to one of these
+// later is filled from the defaults instead of being left undefined.
+const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat'] as const;
+const ARRAY_FIELDS = ['inventory', 'discoveredRelationships', 'wildIntroductions', 'toastSeen'] as const;
+
+// Anything below this can't be a wall-clock epoch in ms; older builds saved
+// a page-relative performance.now() value here.
+const MIN_EPOCH_MS = 1_000_000_000_000;
+
+type Loose = Record<string, unknown>;
+
+function isRecord(v: unknown): v is Loose {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Brings any save from an older (or the current) schema up to date by
+ * layering it over a fresh game's defaults. Returns null for anything that
+ * isn't a recognizable save, or one written by a newer build.
+ */
+export function migrateSave(raw: unknown): GameState | null {
+  if (!isRecord(raw) || typeof raw.version !== 'number' || raw.version > SAVE_VERSION) return null;
+  if (!isRecord(raw.player) || !isRecord(raw.clock)) return null;
+
+  const defaults = createNewGame() as unknown as Loose;
+  const merged: Loose = {};
+  for (const key of Object.keys(defaults)) {
+    merged[key] = key in raw ? raw[key] : defaults[key];
+  }
+  for (const key of STRUCT_FIELDS) {
+    merged[key] = { ...(defaults[key] as Loose), ...(isRecord(raw[key]) ? raw[key] : {}) };
+  }
+  for (const key of ARRAY_FIELDS) {
+    if (!Array.isArray(merged[key])) merged[key] = defaults[key];
+  }
+  merged.version = SAVE_VERSION;
+
+  const state = merged as unknown as GameState;
+  if (!(state.clock.lastRealTimestamp >= MIN_EPOCH_MS)) state.clock.lastRealTimestamp = Date.now();
+
+  // Spot coordinates are data, not save state: re-seat a settled NPC on
+  // its spot's current position in case the layout moved since the save.
+  const scottSpot = state.scott.currentSpotId ? findScottSpot(state.scott.currentSpotId) : undefined;
+  if (scottSpot && state.scott.activity !== 'traveling') {
+    state.scott.x = scottSpot.x;
+    state.scott.y = scottSpot.y;
+    state.scott.zone = scottSpot.zone;
+  }
+  const catSpot = state.cat.currentSpotId ? findCatSpot(state.cat.currentSpotId) : undefined;
+  if (catSpot && state.cat.activity !== 'wandering') {
+    state.cat.x = catSpot.x;
+    state.cat.y = catSpot.y;
+  }
+  return state;
+}
 
 export function loadGame(): GameState | null {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as GameState;
-    if (!parsed || parsed.version !== SAVE_VERSION) {
-      // Future migrations would translate old saves here; for v1 we just
-      // start fresh if the shape doesn't match.
-      return null;
+  for (const key of [SAVE_KEY, ...LEGACY_KEYS]) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const state = migrateSave(JSON.parse(raw));
+      if (state) return state;
+    } catch (err) {
+      console.warn(`Foxtrot: couldn't read save "${key}".`, err);
     }
-    return parsed;
-  } catch (err) {
-    console.warn('Foxtrot: failed to load save, starting fresh.', err);
-    return null;
   }
+  return null;
 }
 
 export function saveGame(state: GameState): void {
@@ -25,8 +84,12 @@ export function saveGame(state: GameState): void {
   }
 }
 
+export function clearAllSaves(): void {
+  for (const key of [SAVE_KEY, ...LEGACY_KEYS]) localStorage.removeItem(key);
+}
+
 export function resetGame(): GameState {
-  localStorage.removeItem(SAVE_KEY);
+  clearAllSaves();
   return createNewGame();
 }
 

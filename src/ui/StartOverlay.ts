@@ -1,10 +1,19 @@
-import { el } from './dom';
-import { SAVE_KEY } from '../game/state';
+import { el, clear } from './dom';
 
 export class StartOverlay {
   root = el('div', 'start-overlay');
 
-  constructor(private onStart: () => void, isNew: boolean) {
+  constructor(
+    private onStart: () => void,
+    private onReset: () => void,
+    isNew: boolean
+  ) {
+    this.render(isNew);
+    document.body.appendChild(this.root);
+  }
+
+  private render(isNew: boolean) {
+    clear(this.root);
     this.root.appendChild(el('h1', undefined, 'FOXTROT'));
     this.root.appendChild(
       el(
@@ -22,16 +31,15 @@ export class StartOverlay {
     });
     this.root.appendChild(btn);
 
+    if (isNew) return;
     const resetLink = el('button', 'secondary-btn', 'Start a New Game Instead');
     resetLink.style.marginTop = '4px';
     resetLink.addEventListener('click', () => {
       if (confirm('This will erase your current progress. Start fresh?')) {
-        localStorage.removeItem(SAVE_KEY);
-        location.reload();
+        this.onReset();
+        this.render(true);
       }
     });
-    if (!isNew) this.root.appendChild(resetLink);
-
-    document.body.appendChild(this.root);
+    this.root.appendChild(resetLink);
   }
 }

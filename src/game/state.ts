@@ -1,6 +1,8 @@
 import type { DiscoveryLevel, GrowConditions, GrowthStage, SpecimenKind, ToolId, TraitSet, ZoneId } from './types';
 import { PLAYER_START } from './data/worldMap';
 
+// Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
+// fills new fields from createNewGame(). The storage key stays fixed.
 export const SAVE_VERSION = 4;
 export const SAVE_KEY = 'foxtrot-save-v4';
 

@@ -28,10 +28,14 @@ if (import.meta.env.DEV) {
   (window as unknown as { __foxtrot: unknown }).__foxtrot = { game };
 }
 
-new StartOverlay(() => {
-  game.audio.init();
-  game.start();
-}, game.isNew);
+new StartOverlay(
+  () => {
+    game.audio.init();
+    game.start();
+  },
+  () => game.resetToNewGame(),
+  game.isNew
+);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
