@@ -10,7 +10,7 @@ export default defineConfig({
       manifest: {
         name: 'Foxtrot',
         short_name: 'Foxtrot',
-        description: 'A cozy botanical exploration and ecosystem game.',
+        description: 'A cozy houseplant collecting and world-transforming game.',
         theme_color: '#1b3a34',
         background_color: '#0d2420',
         display: 'standalone',

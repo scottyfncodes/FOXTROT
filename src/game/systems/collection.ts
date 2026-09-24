@@ -1,78 +1,77 @@
-import type { DiscoveryPoint, SpecimenKind } from '../types';
-import type { GameState } from '../state';
-import { isNight } from '../engine/Clock';
-import { hasToolTier, meetsRequirement } from './tools';
-import { addItem, inventoryFull } from './inventory';
-import { recordCollected, recordIdentified } from './journal';
-import { rollTraits } from './plantGrowth';
+import type { GameState, SpeciesRecord } from '../state';
 import { PLANTS } from '../data/plants';
-import { FUNGI } from '../data/fungi';
-import { RESPAWN_MINUTES } from '../data/discoveryPoints';
 
-export function weatherSatisfied(state: GameState, req: 'rain' | 'clear' | 'night' | null | undefined): boolean {
-  if (!req) return true;
-  if (req === 'night') return isNight(state.clock.totalMinutes);
-  return state.weather.condition === req;
+/** Growing this many of a species makes it "established": you know it well enough to display it or plant it out. */
+export const ESTABLISH_THRESHOLD = 2;
+
+export function ensureRecord(state: GameState, defId: string, now: number): SpeciesRecord {
+  let rec = state.collection[defId];
+  if (!rec) {
+    rec = { foundAt: now, variants: [], grown: 0, propagated: 0, sold: 0, earned: 0, plantedOut: 0, displayed: 0 };
+    state.collection[defId] = rec;
+  }
+  return rec;
 }
 
-export function isDiscoveryAvailable(state: GameState, dp: DiscoveryPoint): boolean {
-  if (dp.foxLed && !state.discoveryPoints[dp.id]?.revealed) return false;
-  if (!weatherSatisfied(state, dp.requiresWeather)) return false;
-  if (!meetsRequirement(state, dp.requiresToolTier)) return false;
-  const ptState = state.discoveryPoints[dp.id];
-  if (ptState?.lastCollectedAt != null) {
-    const elapsed = state.clock.totalMinutes - ptState.lastCollectedAt;
-    if (elapsed < RESPAWN_MINUTES) return false;
-  }
-  return true;
+export interface FoundResult {
+  newSpecies: boolean;
+  newVariant: boolean;
 }
 
-export interface CollectResult {
-  success: boolean;
-  reason?: string;
-  isNewDiscovery?: boolean;
-  isNewIdentification?: boolean;
-  name?: string;
+/** Records that the player has laid eyes on (and hands on) this species/variant. */
+export function recordFound(state: GameState, defId: string, variantId: string, now: number): FoundResult {
+  const newSpecies = !state.collection[defId];
+  const rec = ensureRecord(state, defId, now);
+  const newVariant = !rec.variants.includes(variantId);
+  if (newVariant) rec.variants.push(variantId);
+  return { newSpecies, newVariant: newVariant && !newSpecies };
 }
 
-export function collectAt(state: GameState, dp: DiscoveryPoint): CollectResult {
-  if (!isDiscoveryAvailable(state, dp)) {
-    return { success: false, reason: 'not-available' };
+export function hasFound(state: GameState, defId: string, variantId?: string): boolean {
+  const rec = state.collection[defId];
+  if (!rec) return false;
+  return variantId === undefined || rec.variants.includes(variantId);
+}
+
+export function isEstablished(state: GameState, defId: string): boolean {
+  return (state.collection[defId]?.grown ?? 0) >= ESTABLISH_THRESHOLD;
+}
+
+export interface SpeciesCounts {
+  carrying: number;
+  inNursery: number;
+  displayed: number;
+  wild: number;
+  wildPlanted: number;
+  wildSprouted: number;
+}
+
+export function speciesCounts(state: GameState, defId: string): SpeciesCounts {
+  const c: SpeciesCounts = { carrying: 0, inNursery: 0, displayed: 0, wild: 0, wildPlanted: 0, wildSprouted: 0 };
+  for (const b of state.basket) if (b.defId === defId) c.carrying++;
+  for (const p of Object.values(state.plants)) {
+    if (p.defId !== defId) continue;
+    if (p.location.kind === 'nursery') c.inNursery++;
+    else if (p.location.kind === 'display') c.displayed++;
+    else {
+      c.wild++;
+      if (p.bornWild) c.wildSprouted++;
+      else c.wildPlanted++;
+    }
   }
-  if (dp.specimenKind !== 'material' && inventoryFull(state)) {
-    return { success: false, reason: 'inventory-full' };
+  return c;
+}
+
+export function collectionTotals(state: GameState) {
+  let species = 0;
+  let variants = 0;
+  let totalVariants = 0;
+  for (const def of Object.values(PLANTS)) {
+    totalVariants += def.variants.length;
+    const rec = state.collection[def.id];
+    if (!rec) continue;
+    species++;
+    variants += rec.variants.length;
   }
-  const now = state.clock.totalMinutes;
-  const wasKnown = !!state.journal[dp.specimenId];
-  const kind: SpecimenKind = dp.specimenKind;
-
-  let traits;
-  if (kind === 'plant') {
-    const def = PLANTS[dp.specimenId];
-    traits = rollTraits(def.baseTraits);
-  }
-
-  const added = addItem(state, dp.specimenId, kind, now, { traits });
-  if (!added) return { success: false, reason: 'inventory-full' };
-
-  recordCollected(state, dp.specimenId, kind, now);
-
-  let isNewIdentification = false;
-  const canIdentify = kind === 'material' || hasToolTier(state, 'lens', 1) || hasToolTier(state, 'fieldKit', 1);
-  if (canIdentify) {
-    const entry = state.journal[dp.specimenId];
-    const wasIdentified = entry.level !== 'DISCOVERED' && entry.level !== 'UNDISCOVERED' ? true : false;
-    recordIdentified(state, dp.specimenId, kind, now);
-    isNewIdentification = !wasIdentified;
-  }
-
-  if (!state.discoveryPoints[dp.id]) {
-    state.discoveryPoints[dp.id] = { lastCollectedAt: null, revealed: true };
-  }
-  state.discoveryPoints[dp.id].lastCollectedAt = now;
-  state.discoveryPoints[dp.id].revealed = true;
-
-  const name = kind === 'plant' ? PLANTS[dp.specimenId]?.name : kind === 'fungus' ? FUNGI[dp.specimenId]?.name : undefined;
-
-  return { success: true, isNewDiscovery: !wasKnown, isNewIdentification, name };
+  return { species, totalSpecies: Object.keys(PLANTS).length, variants, totalVariants };
 }

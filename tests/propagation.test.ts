@@ -1,76 +1,159 @@
 import { describe, it, expect } from 'vitest';
-import { attemptPropagation } from '../src/game/systems/propagation';
-import { plantSpecimen, rollTraits, tickPlantGrowth } from '../src/game/systems/plantGrowth';
-import { createNewGame } from '../src/game/state';
+import { createNewGame, type GameState, type OwnedPlant } from '../src/game/state';
+import {
+  takeCutting,
+  cuttingBlockReason,
+  potInNursery,
+  placeOnDisplay,
+  plantOutdoors,
+  liftPlant,
+  creditGrown,
+  placementBlockReason,
+  CUTTING_COOLDOWN,
+  rollSport,
+} from '../src/game/systems/propagation';
+import { addToBasket } from '../src/game/systems/basket';
+import { isEstablished, ESTABLISH_THRESHOLD } from '../src/game/systems/collection';
+import { STAGE_AT } from '../src/game/systems/growth';
 import { PLANTS } from '../src/game/data/plants';
 
-function growToComplete(defId: string) {
-  const state = createNewGame();
-  const def = PLANTS[defId];
-  const traits = rollTraits(def.baseTraits, () => 0.6);
-  const instance = plantSpecimen(state, defId, traits, 'growBed1', 0, def.preferredConditions);
-  let guard = 0;
-  while (instance.stage !== 'COMPLETE' && guard < 2000) {
-    tickPlantGrowth(def, instance, 5);
-    guard += 1;
-  }
-  return { instance, def };
+function nurseryPlant(state: GameState, id: string, growth: number, bedId = 'bed1'): OwnedPlant {
+  const p: OwnedPlant = {
+    id,
+    defId: 'monstera',
+    variantId: 'deliciosa',
+    seed: 5,
+    growth,
+    location: { kind: 'nursery', bedId },
+    plantedAt: 0,
+    lastCuttingAt: null,
+    generation: 0,
+    bornWild: false,
+  };
+  state.plants[id] = p;
+  return p;
 }
 
-describe('propagation', () => {
-  it('produces a known hybrid when the recipe parents both qualify', () => {
-    const a = growToComplete('sundropDaisy');
-    const b = growToComplete('creekflagIris');
-    // Recipe requires quality >= 55; force it in case variance rolled low.
-    a.instance.qualityEstimate = 80;
-    b.instance.qualityEstimate = 80;
-    const result = attemptPropagation(a, b, (id) => PLANTS[id], () => 0.5);
-    expect(result.success).toBe(true);
-    expect(result.resultDefId).toBe('duskstarBloom');
-    expect(result.isKnownRecipe).toBe(true);
+const never = () => 0.99; // no sport
+const always = () => 0.0; // sport every time
+
+describe('cuttings', () => {
+  it('cannot be taken until the plant has rooted', () => {
+    const state = createNewGame();
+    const p = nurseryPlant(state, 'a', 10);
+    expect(cuttingBlockReason(state, p, 0)).toBe('not-rooted');
+    expect(takeCutting(state, 'a', 0, never)).toBeNull();
   });
 
-  it('fails a known recipe if parent quality is too low', () => {
-    const a = growToComplete('sundropDaisy');
-    const b = growToComplete('creekflagIris');
-    a.instance.qualityEstimate = 10;
-    b.instance.qualityEstimate = 10;
-    const result = attemptPropagation(a, b, (id) => PLANTS[id], () => 0.5);
-    expect(result.success).toBe(false);
+  it('puts a fresh cutting in the basket without harming the parent, then needs recovery time', () => {
+    const state = createNewGame();
+    const p = nurseryPlant(state, 'a', STAGE_AT.young + 5);
+    const res = takeCutting(state, 'a', 100, never)!;
+    expect(res.item).toMatchObject({ defId: 'monstera', variantId: 'deliciosa', growth: 0, generation: 1 });
+    expect(state.plants.a.growth).toBe(STAGE_AT.young + 5);
+    expect(cuttingBlockReason(state, p, 100 + CUTTING_COOLDOWN - 1)).toBe('recovering');
+    expect(cuttingBlockReason(state, p, 100 + CUTTING_COOLDOWN)).toBeNull();
+    expect(state.collection.monstera.propagated).toBe(1);
   });
 
-  it('crossing two of the same species always produces an offspring of that species', () => {
-    const a = growToComplete('bluebell');
-    const b = growToComplete('bluebell');
-    const result = attemptPropagation(a, b, (id) => PLANTS[id], () => 0.5);
-    expect(result.success).toBe(true);
-    expect(result.resultDefId).toBe('bluebell');
-    expect(result.traits).not.toBeNull();
+  it('sometimes throws a sport: a different variant of the same species, recorded as a find', () => {
+    const state = createNewGame();
+    nurseryPlant(state, 'a', STAGE_AT.large);
+    const res = takeCutting(state, 'a', 0, always)!;
+    expect(res.sport).toBe(true);
+    expect(res.item.variantId).not.toBe('deliciosa');
+    expect(state.collection.monstera.variants).toContain(res.item.variantId);
   });
 
-  it('can produce a significant variant when parent traits differ enough', () => {
-    const a = growToComplete('bluebell');
-    const b = growToComplete('bluebell');
-    // Push traits far apart so the blended offspring deviates from baseline.
-    a.instance.traits.hardiness = 5;
-    b.instance.traits.hardiness = 5;
-    a.instance.traits.size = 5;
-    b.instance.traits.size = 5;
-    a.instance.traits.yield = 5;
-    b.instance.traits.yield = 5;
-    // Use a rand function that maximizes mutation spread.
-    const result = attemptPropagation(a, b, (id) => PLANTS[id], () => 1);
-    expect(result.success).toBe(true);
-    expect(result.isVariant).toBe(true);
+  it('a sport is always one of the species’ own variants', () => {
+    for (let i = 0; i < 50; i++) {
+      const v = rollSport('pothos', 'golden', Math.random);
+      expect(PLANTS.pothos.variants.map((x) => x.id)).toContain(v);
+      expect(v).not.toBe('golden');
+    }
   });
 
-  it('unlisted cross-species pairings are unpredictable: some succeed, most do not', () => {
-    const a = growToComplete('bluebell');
-    const b = growToComplete('stonecropSedum');
-    const alwaysFails = attemptPropagation(a, b, (id) => PLANTS[id], () => 0.99);
-    expect(alwaysFails.success).toBe(false);
-    const alwaysSucceeds = attemptPropagation(a, b, (id) => PLANTS[id], () => 0.01);
-    expect(alwaysSucceeds.success).toBe(true);
-    expect(alwaysSucceeds.isVariant).toBe(true);
+  it('refuses when the basket is full', () => {
+    const state = createNewGame();
+    nurseryPlant(state, 'a', STAGE_AT.large);
+    for (let i = 0; i < 6; i++) addToBasket(state, { defId: 'pothos', variantId: 'golden', seed: i, growth: 0, generation: 0, origin: 'wild', collectedAt: 0 });
+    expect(cuttingBlockReason(state, state.plants.a, 0)).toBe('basket-full');
+  });
+});
+
+describe('the two-plant threshold', () => {
+  it('establishes a species once two plants have been raised to "established"', () => {
+    const state = createNewGame();
+    nurseryPlant(state, 'a', STAGE_AT.established);
+    nurseryPlant(state, 'b', STAGE_AT.young, 'bed2');
+    expect(creditGrown(state, 'a', 0)).toBeNull();
+    expect(creditGrown(state, 'b', 0)).toBeNull(); // not established yet
+    expect(isEstablished(state, 'monstera')).toBe(false);
+    state.plants.b.growth = STAGE_AT.established;
+    expect(creditGrown(state, 'b', 0)).toBe('monstera');
+    expect(state.collection.monstera.grown).toBe(ESTABLISH_THRESHOLD);
+    expect(isEstablished(state, 'monstera')).toBe(true);
+    // Each plant only ever counts once.
+    expect(creditGrown(state, 'a', 0)).toBeNull();
+    expect(state.collection.monstera.grown).toBe(ESTABLISH_THRESHOLD);
+  });
+
+  it('keeps unestablished species out of the gallery and the wild', () => {
+    const state = createNewGame();
+    const item = addToBasket(state, { defId: 'monstera', variantId: 'deliciosa', seed: 1, growth: STAGE_AT.established, generation: 0, origin: 'lifted', collectedAt: 0 })!;
+    expect(placementBlockReason(state, item)).toBe('not-established');
+    expect(placeOnDisplay(state, item.uid, 'stand1', 'terracotta', 0)).toBeNull();
+    expect(plantOutdoors(state, item.uid, 30, 10, 'woodland', 0)).toBeNull();
+    expect(state.basket).toHaveLength(1);
+  });
+
+  it('a raw cutting must root in the nursery before it can go anywhere else', () => {
+    const state = createNewGame();
+    state.collection.monstera = { foundAt: 0, variants: ['deliciosa'], grown: 2, propagated: 0, sold: 0, earned: 0, plantedOut: 0, displayed: 0 };
+    const item = addToBasket(state, { defId: 'monstera', variantId: 'deliciosa', seed: 1, growth: 0, generation: 0, origin: 'cutting', collectedAt: 0 })!;
+    expect(placementBlockReason(state, item)).toBe('not-rooted');
+  });
+});
+
+describe('greenhouse vs wild', () => {
+  function established(state: GameState) {
+    state.collection.monstera = { foundAt: 0, variants: ['deliciosa'], grown: 2, propagated: 0, sold: 0, earned: 0, plantedOut: 0, displayed: 0 };
+  }
+
+  it('pots cuttings into free nursery beds only', () => {
+    const state = createNewGame();
+    const a = addToBasket(state, { defId: 'pothos', variantId: 'golden', seed: 1, growth: 0, generation: 0, origin: 'wild', collectedAt: 0 })!;
+    const b = addToBasket(state, { defId: 'pothos', variantId: 'golden', seed: 2, growth: 0, generation: 0, origin: 'wild', collectedAt: 0 })!;
+    expect(potInNursery(state, a.uid, 'bed1', 0)).not.toBeNull();
+    expect(potInNursery(state, b.uid, 'bed1', 0)).toBeNull();
+    expect(state.basket).toHaveLength(1);
+  });
+
+  it('displays an established plant in a chosen pot, keeping its growth', () => {
+    const state = createNewGame();
+    established(state);
+    const item = addToBasket(state, { defId: 'monstera', variantId: 'deliciosa', seed: 1, growth: 800, generation: 1, origin: 'lifted', collectedAt: 0 })!;
+    const p = placeOnDisplay(state, item.uid, 'stand1', 'copper', 0)!;
+    expect(p.location).toEqual({ kind: 'display', slotId: 'stand1', potId: 'copper' });
+    expect(p.growth).toBe(800);
+    expect(state.collection.monstera.displayed).toBe(1);
+  });
+
+  it('plants out into the wild for good: outdoor plants cannot be lifted', () => {
+    const state = createNewGame();
+    established(state);
+    const item = addToBasket(state, { defId: 'monstera', variantId: 'deliciosa', seed: 1, growth: 800, generation: 1, origin: 'lifted', collectedAt: 0 })!;
+    const p = plantOutdoors(state, item.uid, 30.5, 10.5, 'woodland', 0)!;
+    expect(p.location.kind).toBe('wild');
+    expect(liftPlant(state, p.id, 0)).toBeNull();
+    expect(state.collection.monstera.plantedOut).toBe(1);
+  });
+
+  it('lifts nursery plants back into the basket with their growth', () => {
+    const state = createNewGame();
+    nurseryPlant(state, 'a', 900);
+    const item = liftPlant(state, 'a', 0)!;
+    expect(item.growth).toBe(900);
+    expect(state.plants.a).toBeUndefined();
   });
 });

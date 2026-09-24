@@ -1,5 +1,7 @@
-import type { DiscoveryPoint, ZoneId } from '../types';
+import type { DiscoverySpot, ZoneId } from '../types';
 import type { GameState } from '../state';
+import { spotContent } from './spots';
+import { hasFound } from './collection';
 
 const FOX_SPEED = 2.4; // tiles per real second
 const PAUSE_MINUTES = 6; // ~3 real seconds at 2 game-min/sec
@@ -11,16 +13,18 @@ function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
 }
 
-function pickCandidate(state: GameState, zone: ZoneId, points: DiscoveryPoint[], rand: () => number): DiscoveryPoint | null {
+// The fox shows you things. Its secret patches come first; otherwise it
+// trots over to whatever's growing nearby that you've never seen.
+function pickCandidate(state: GameState, zone: ZoneId, points: DiscoverySpot[], rand: () => number): DiscoverySpot | null {
   const inZone = points.filter((p) => p.zone === zone);
-  const undiscovered = inZone.filter((p) => {
-    const entry = state.journal[p.specimenId];
-    return !entry || entry.level === 'UNDISCOVERED';
+  const secret = inZone.filter((p) => p.foxLed && !state.spots[p.id]?.revealed);
+  if (secret.length > 0) return secret[Math.floor(rand() * secret.length)];
+  const unseen = inZone.filter((p) => {
+    const c = spotContent(state, p);
+    return !!c && !hasFound(state, c.defId, c.variantId);
   });
-  if (undiscovered.length === 0) return null;
-  const foxLedFirst = undiscovered.filter((p) => p.foxLed && !state.discoveryPoints[p.id]?.revealed);
-  const pool = foxLedFirst.length > 0 ? foxLedFirst : undiscovered;
-  return pool[Math.floor(rand() * pool.length)];
+  if (unseen.length === 0) return null;
+  return unseen[Math.floor(rand() * unseen.length)];
 }
 
 export interface FoxTickContext {
@@ -30,7 +34,7 @@ export interface FoxTickContext {
   inGreenhouse: boolean;
   dtSeconds: number;
   now: number; // game-minutes
-  discoveryPoints: DiscoveryPoint[];
+  discoveryPoints: DiscoverySpot[];
   rand: () => number;
 }
 
@@ -86,8 +90,8 @@ export function tickFox(state: GameState, ctx: FoxTickContext): FoxTickResult {
       } else {
         if (fox.behavior === 'leading' && fox.targetDiscoveryId) {
           const dp = ctx.discoveryPoints.find((p) => p.id === fox.targetDiscoveryId);
-          if (dp && dp.foxLed && !state.discoveryPoints[dp.id]?.revealed) {
-            state.discoveryPoints[dp.id] = { lastCollectedAt: null, revealed: true };
+          if (dp && dp.foxLed && !state.spots[dp.id]?.revealed) {
+            state.spots[dp.id] = { ...(state.spots[dp.id] ?? {}), revealed: true };
             result.revealedDiscoveryId = dp.id;
           }
         }

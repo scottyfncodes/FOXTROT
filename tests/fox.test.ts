@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createNewGame } from '../src/game/state';
 import { tickFox } from '../src/game/systems/fox';
-import { DISCOVERY_POINTS } from '../src/game/data/discoveryPoints';
+import { DISCOVERY_SPOTS } from '../src/game/data/discoveryPoints';
 
 describe('fox behavior', () => {
   it('stays invisible while the player is inside the greenhouse', () => {
@@ -14,7 +14,7 @@ describe('fox behavior', () => {
       inGreenhouse: true,
       dtSeconds: 1,
       now: state.clock.totalMinutes,
-      discoveryPoints: DISCOVERY_POINTS,
+      discoveryPoints: DISCOVERY_SPOTS,
       rand: () => 0.5,
     });
     expect(state.fox.visible).toBe(false);
@@ -31,22 +31,22 @@ describe('fox behavior', () => {
       inGreenhouse: false,
       dtSeconds: 1,
       now: 100,
-      discoveryPoints: DISCOVERY_POINTS,
+      discoveryPoints: DISCOVERY_SPOTS,
       rand: () => 0.1, // < 0.65 so it chooses to lead if a candidate exists
     });
     expect(['leading', 'wandering']).toContain(state.fox.behavior);
     expect(state.fox.visible).toBe(true);
   });
 
-  it('reveals a fox-led discovery point once the fox arrives at it', () => {
+  it('reveals a fox-led patch once the fox arrives at it', () => {
     const state = createNewGame();
-    const target = DISCOVERY_POINTS.find((d) => d.id === 'dp-nightshade')!;
+    const target = DISCOVERY_SPOTS.find((d) => d.id === 'sp-over-fox')!;
     state.fox.behavior = 'leading';
     state.fox.targetDiscoveryId = target.id;
     state.fox.x = target.x + 0.01;
     state.fox.y = target.y;
     state.fox.zone = target.zone;
-    expect(state.discoveryPoints[target.id]?.revealed).toBeFalsy();
+    expect(state.spots[target.id]?.revealed).toBeFalsy();
 
     const result = tickFox(state, {
       playerZone: target.zone,
@@ -55,12 +55,12 @@ describe('fox behavior', () => {
       inGreenhouse: false,
       dtSeconds: 0.1,
       now: state.clock.totalMinutes,
-      discoveryPoints: DISCOVERY_POINTS,
+      discoveryPoints: DISCOVERY_SPOTS,
       rand: () => 0.5,
     });
 
     expect(result.revealedDiscoveryId).toBe(target.id);
-    expect(state.discoveryPoints[target.id]?.revealed).toBe(true);
+    expect(state.spots[target.id]?.revealed).toBe(true);
     expect(state.fox.behavior).toBe('paused');
   });
 
@@ -76,7 +76,7 @@ describe('fox behavior', () => {
       inGreenhouse: false,
       dtSeconds: 1,
       now: 0,
-      discoveryPoints: DISCOVERY_POINTS,
+      discoveryPoints: DISCOVERY_SPOTS,
       rand: () => 0.9,
     });
     expect(state.fox.behavior).toBe('wandering');

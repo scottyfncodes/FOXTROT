@@ -1,6 +1,7 @@
 import { createNewGame, SAVE_KEY, SAVE_VERSION, type GameState } from '../state';
 import { findScottSpot } from '../data/scottSpots';
 import { findCatSpot } from '../data/catSpots';
+import { PLANTS } from '../data/plants';
 
 // Older builds stored each schema version under its own key; they're read
 // once as a fallback so those players' progress is recovered, not lost.
@@ -9,7 +10,8 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
 const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat'] as const;
-const ARRAY_FIELDS = ['inventory', 'discoveredRelationships', 'wildIntroductions', 'toastSeen'] as const;
+const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints'] as const;
+const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock'] as const;
 
 // Anything below this can't be a wall-clock epoch in ms; older builds saved
 // a page-relative performance.now() value here.
@@ -41,9 +43,24 @@ export function migrateSave(raw: unknown): GameState | null {
   for (const key of ARRAY_FIELDS) {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   }
+  for (const key of RECORD_FIELDS) {
+    if (!isRecord(merged[key])) merged[key] = defaults[key];
+  }
+  if (typeof merged.coins !== 'number' || !Number.isFinite(merged.coins)) merged.coins = defaults.coins;
+  // Only the lantern survives from the old tool set; the rest of the old
+  // collecting/ecosystem state (journal, inventory, populations) belonged
+  // to species that no longer exist and is simply left behind.
+  const oldTools = merged.tools as Loose;
+  merged.tools = { lantern: typeof oldTools.lantern === 'number' ? oldTools.lantern : 0 };
   merged.version = SAVE_VERSION;
 
   const state = merged as unknown as GameState;
+  // Anything referring to a species this build doesn't know is dropped
+  // rather than left to break rendering.
+  for (const [id, p] of Object.entries(state.plants)) {
+    if (!isRecord(p) || !PLANTS[p.defId as string] || !isRecord(p.location)) delete state.plants[id];
+  }
+  state.basket = state.basket.filter((b) => isRecord(b) && !!PLANTS[b.defId]);
   if (!(state.clock.lastRealTimestamp >= MIN_EPOCH_MS)) state.clock.lastRealTimestamp = Date.now();
 
   // Spot coordinates are data, not save state: re-seat a settled NPC on

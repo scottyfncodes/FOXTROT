@@ -1,23 +1,34 @@
 import { Camera } from '../engine/Camera';
-import type { GameState, ScoutState, ScottState, CatState, Facing } from '../state';
+import type { GameState, ScoutState, ScottState, CatState, Facing, OwnedPlant, PlacedDecor } from '../state';
 import type { Obstacle } from './Obstacles';
-import type { DiscoveryPoint, ZoneId } from '../types';
-import { TILE_SIZE, ZONE_RECTS, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, zoneAt, isWater } from '../data/worldMap';
+import type { DiscoverySpot, ZoneId } from '../types';
+import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
 import { ZONES } from '../data/zones';
-import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, STATIONS, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE } from '../data/stations';
-import { PLANTS } from '../data/plants';
-import { FUNGI } from '../data/fungi';
-import { MATERIALS } from '../data/materials';
-import { CREATURES } from '../data/creatures';
+import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE, NURSERY_BEDS, DISPLAY_SLOTS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
+import { PLANTS, lookFor, specimenRarity, rarityRank } from '../data/plants';
 import { TOOL_PICKUPS } from '../data/toolPickups';
+import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
+import { findPotStyle } from '../data/shop';
 import { ELLEN_APPEARANCE, SCOUT_APPEARANCE, SCOTT_APPEARANCE, CAT_APPEARANCE } from '../data/character';
 import { daylightFactor, isNight } from '../engine/Clock';
-import { isDiscoveryAvailable } from '../systems/collection';
-import { stageProgress01 } from '../systems/plantGrowth';
-import { meetsRequirement } from '../systems/tools';
-import { DISCOVERY_POINTS } from '../data/discoveryPoints';
+import { spotContent } from '../systems/spots';
+import { hasFound } from '../systems/collection';
+import { stageFloat } from '../systems/growth';
+import { demandSpecies } from '../systems/market';
+import type { LushField } from '../systems/wild';
+import { CHARACTERS } from '../systems/wild';
+import { PlantSpriteCache, type PlantMode } from './PlantArt';
 
-const DISCOVERY_POINTS_BY_ID: Record<string, DiscoveryPoint> = Object.fromEntries(DISCOVERY_POINTS.map((d) => [d.id, d]));
+/** Ground colour each kind of planting pulls the land toward as it thickens. */
+const LUSH_GROUND: Record<string, RGB> = {
+  fern: [44, 88, 52],
+  jungle: [40, 76, 32],
+  vine: [58, 98, 40],
+  flower: [74, 104, 50],
+  arid: [118, 128, 80],
+  color: [70, 86, 58],
+  strange: [58, 56, 76],
+};
 
 function hash2(x: number, y: number): number {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
@@ -102,6 +113,8 @@ const NEIGHBORS: [number, number][] = [
 export class Renderer {
   private lastEllenX = 0;
   private lastEllenY = 0;
+  private sprites = new PlantSpriteCache();
+  private dpr = 1;
 
   constructor(private ctx: CanvasRenderingContext2D) {}
 
@@ -111,81 +124,73 @@ export class Renderer {
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
 
-  renderOutdoor(camera: Camera, state: GameState, obstacles: Obstacle[], now: number, crouching = false) {
-    const { ctx } = this;
+  renderOutdoor(camera: Camera, state: GameState, obstacles: Obstacle[], now: number, crouching = false, lush: LushField | null = null) {
     const zoneHere = zoneAt(Math.floor(state.player.x), Math.floor(state.player.y));
     this.clear(ZONES[zoneHere].tint);
+    this.sprites.beginFrame();
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     const bounds = camera.getViewportTileBounds();
-    const tile = TILE_SIZE * camera.zoom;
+    const inView = (x: number, y: number, pad = 2) => x > bounds.minX - pad && x < bounds.maxX + pad && y > bounds.minY - pad && y < bounds.maxY + pad;
 
-    this.drawGround(camera, bounds, now);
-
-    // Greenhouse building
+    this.drawGround(camera, bounds, now, lush);
     this.drawGreenhouseExterior(camera, state.clock.totalMinutes);
 
-    // Obstacles
     for (const o of obstacles) {
-      if (o.x < bounds.minX - 2 || o.x > bounds.maxX + 2 || o.y < bounds.minY - 2 || o.y > bounds.maxY + 2) continue;
-      this.drawObstacle(camera, o);
+      if (!inView(o.x, o.y)) continue;
+      this.drawObstacle(camera, o, lush ? lush.lush[o.y * GRID_W + o.x] : 0);
     }
 
-    // Discovery markers
-    for (const dp of Object.values(DISCOVERY_POINTS_BY_ID)) {
-      if (dp.x < bounds.minX - 1 || dp.x > bounds.maxX + 1 || dp.y < bounds.minY - 1 || dp.y > bounds.maxY + 1) continue;
-      this.drawDiscoveryMarker(camera, state, dp, now);
+    // Everything that stands up off the ground is depth-sorted together, so
+    // Ellen can walk behind a big monstera and in front of a small one.
+    const drawables: { y: number; draw: () => void }[] = [];
+    for (const p of Object.values(state.plants)) {
+      if (p.location.kind !== 'wild' || !inView(p.location.x, p.location.y, 3)) continue;
+      const loc = p.location;
+      drawables.push({ y: loc.y, draw: () => this.drawWildPlant(camera, state, p, loc.x, loc.y, now) });
     }
-
-    // Tool pickups
+    for (const spot of DISCOVERY_SPOTS) {
+      if (!inView(spot.x, spot.y)) continue;
+      drawables.push({ y: spot.y + 0.5, draw: () => this.drawSpot(camera, state, spot, now) });
+    }
+    for (const d of state.decor) {
+      if (!inView(d.x, d.y)) continue;
+      drawables.push({ y: d.y, draw: () => this.drawDecor(camera, d, state, now) });
+    }
     for (const tp of TOOL_PICKUPS) {
-      if ((state.tools[tp.tool] ?? 0) >= tp.tier) continue;
-      if (!meetsRequirement(state, tp.requiresToolTier)) continue;
-      if (tp.x < bounds.minX - 1 || tp.x > bounds.maxX + 1 || tp.y < bounds.minY - 1 || tp.y > bounds.maxY + 1) continue;
-      const screen = camera.worldToScreen((tp.x + 0.5) * TILE_SIZE, (tp.y + 0.5) * TILE_SIZE);
-      this.glowMarker(screen.x, screen.y, tile, '#e8c97a', now);
-      ctx.fillStyle = '#e8c97a';
-      ctx.beginPath();
-      ctx.arc(screen.x, screen.y, tile * 0.16, 0, Math.PI * 2);
-      ctx.fill();
+      if (state.tools[tp.tool] || !inView(tp.x, tp.y)) continue;
+      drawables.push({ y: tp.y + 0.5, draw: () => this.drawLanternPickup(camera, tp.x + 0.5, tp.y + 0.5, now) });
     }
-
-    // The living ecosystem, made visible: small wandering creatures scaled
-    // by the same population numbers driving the simulation underneath.
-    this.drawRoamingCreatures(camera, state, zoneHere, bounds, now);
-
-    // Fox
+    if (inView(MARKET_STALL.x, MARKET_STALL.y, 4)) {
+      drawables.push({ y: MARKET_STALL.y + 0.8, draw: () => this.drawMarketStall(camera, state, now) });
+    }
     if (state.fox.visible && !state.player.inGreenhouse) {
-      this.drawFox(camera, state.fox.x, state.fox.y, now);
+      drawables.push({ y: state.fox.y, draw: () => this.drawFox(camera, state.fox.x, state.fox.y, now) });
     }
-
-    // Scout, Ellen's companion, always somewhere nearby.
-    this.drawScout(camera, state.scout, now);
-
-    // Scott, off doing his own thing somewhere in the wilderness or garden.
+    drawables.push({ y: state.scout.y, draw: () => this.drawScout(camera, state.scout, now) });
     if (state.scott.zone !== 'greenhouse') {
-      this.drawScott(camera, state.scott, now);
+      drawables.push({ y: state.scott.y, draw: () => this.drawScott(camera, state.scott, now) });
     }
-
-    // Ellen
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
-    this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching);
+    drawables.push({ y: state.player.y, draw: () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching) });
+    drawables.sort((a, b) => a.y - b.y);
+    for (const d of drawables) d.draw();
 
     // Low foreground vegetation drawn last, so tall grass/reeds partially
     // overlap the characters' feet instead of characters always reading on
     // top of everything.
     for (const o of obstacles) {
       if (o.kind !== 'flower' && o.kind !== 'reed') continue;
-      if (o.x < bounds.minX - 2 || o.x > bounds.maxX + 2 || o.y < bounds.minY - 2 || o.y > bounds.maxY + 2) continue;
+      if (!inView(o.x, o.y)) continue;
       const nearFeet = Math.hypot(o.x + 0.5 - state.player.x, o.y + 0.5 - state.player.y) < 0.9;
-      if (nearFeet) this.drawObstacle(camera, o);
+      if (nearFeet) this.drawObstacle(camera, o, 0);
     }
 
-    // Ambient particles: a few, always tasteful, never noise.
+    this.drawPollinators(camera, state, bounds, now);
     this.drawAmbientParticles(camera, zoneHere, state.weather.condition, now);
-
-    // Weather / lighting overlay
     this.drawWeatherOverlay(camera, state, now);
+    this.drawNightLights(camera, state, bounds, now);
   }
 
   /**
@@ -195,13 +200,24 @@ export class Renderer {
    * soften the straight seams. Small per-zone detail (grass blades, leaf
    * litter, moss, pebbles) is batched into one path per layer.
    */
-  private drawGround(camera: Camera, bounds: { minX: number; maxX: number; minY: number; maxY: number }, now: number) {
+  private drawGround(camera: Camera, bounds: { minX: number; maxX: number; minY: number; maxY: number }, now: number, lush: LushField | null) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const size = Math.ceil(tile) + 1;
     const dark = new Path2D();
     const light = new Path2D();
     const blobs: Partial<Record<GroundDetail, Path2D>> = {};
+    // Ground cover under the player's plantings: leaf litter and runners,
+    // plus petals or glints depending on what's been planted there.
+    const coverDark = new Path2D();
+    const coverLight = new Path2D();
+    const petals: Record<string, Path2D> = {};
+    const petalColors: Record<string, string> = {
+      flower: 'rgba(250,244,236,0.85)',
+      color: 'rgba(236,140,190,0.8)',
+      strange: 'rgba(190,150,255,0.7)',
+      arid: 'rgba(200,210,170,0.6)',
+    };
 
     for (let ty = bounds.minY; ty <= bounds.maxY; ty++) {
       for (let tx = bounds.minX; tx <= bounds.maxX; tx++) {
@@ -223,10 +239,34 @@ export class Renderer {
           if (nz === zone || nz === 'greenhouse' || isWater(tx + dx, ty + dy)) continue;
           color = mixRgb(color, sampleGradient(GROUND_GRADIENTS[nz], t), 0.2);
         }
+        const li = ty * GRID_W + tx;
+        const lushHere = lush ? Math.min(1, lush.lush[li] / 0.9) : 0;
+        if (lushHere > 0.01) {
+          const ch = CHARACTERS[lush!.character[li]] ?? 'jungle';
+          const target = LUSH_GROUND[ch];
+          const shade = 0.85 + 0.3 * smoothNoise(tx + 40, ty + 40, 3);
+          color = mixRgb(color, [target[0] * shade, target[1] * shade, target[2] * shade], lushHere * 0.85);
+          // Scatter cover detail in proportion to how overgrown the tile is.
+          const count = Math.floor(lushHere * 5);
+          for (let k = 0; k < count; k++) {
+            const px = sx + hash2(tx * 1.3 + k * 7.7, ty * 0.7) * tile;
+            const py = sy + hash2(tx * 0.9, ty * 1.1 + k * 5.3) * tile;
+            const r = tile * (0.05 + 0.05 * hash2(tx + k, ty - k));
+            const path = k % 2 === 0 ? coverDark : coverLight;
+            path.moveTo(px + r, py);
+            path.ellipse(px, py, r, r * 0.55, hash2(tx - k, ty + k) * Math.PI, 0, Math.PI * 2);
+            if (petalColors[ch] && k % 2 === 1 && hash2(tx + k * 3, ty) < lushHere) {
+              const pp = (petals[ch] ??= new Path2D());
+              const pr = tile * 0.025;
+              pp.moveTo(px + tile * 0.08 + pr, py - tile * 0.04);
+              pp.arc(px + tile * 0.08, py - tile * 0.04, pr, 0, Math.PI * 2);
+            }
+          }
+        }
         ctx.fillStyle = rgbCss(color);
         ctx.fillRect(sx, sy, size, size);
 
-        const detail = GROUND_DETAIL[zone];
+        const detail = lushHere > 0.55 ? undefined : GROUND_DETAIL[zone];
         const d = hash2(tx * 3.1, ty * 1.7);
         if (!detail || d > 0.62) continue;
         for (let k = 0; k < 3; k++) {
@@ -257,6 +297,14 @@ export class Renderer {
     for (const kind of Object.keys(blobs) as GroundDetail[]) {
       ctx.fillStyle = BLOB_COLORS[kind];
       ctx.fill(blobs[kind]!);
+    }
+    ctx.fillStyle = 'rgba(16,40,14,0.35)';
+    ctx.fill(coverDark);
+    ctx.fillStyle = 'rgba(120,170,80,0.28)';
+    ctx.fill(coverLight);
+    for (const [ch, path] of Object.entries(petals)) {
+      ctx.fillStyle = petalColors[ch];
+      ctx.fill(path);
     }
   }
 
@@ -293,7 +341,7 @@ export class Renderer {
     ctx.fillRect(doorScreen.x, doorScreen.y - tile * 0.3, tile, tile * 0.5);
   }
 
-  private drawObstacle(camera: Camera, o: Obstacle) {
+  private drawObstacle(camera: Camera, o: Obstacle, lushHere: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const screen = camera.worldToScreen((o.x + 0.5) * TILE_SIZE, (o.y + 0.5) * TILE_SIZE);
@@ -390,6 +438,33 @@ export class Renderer {
         break;
       }
     }
+    // Once the player's plants have taken the ground around it, the old
+    // landscape starts disappearing under them: rocks and shrubs get
+    // smothered in leaves, trunks wear vines.
+    if (lushHere > 0.5) this.drawOvergrowth(screen.x, screen.y, tile, o, Math.min(1, (lushHere - 0.5) / 0.5));
+  }
+
+  private drawOvergrowth(x: number, y: number, tile: number, o: Obstacle, amount: number) {
+    const { ctx } = this;
+    const n = Math.round(3 + amount * 6);
+    if (o.kind === 'tree') {
+      ctx.strokeStyle = 'rgba(52,96,40,0.9)';
+      ctx.lineWidth = Math.max(1, tile * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(x - tile * 0.05, y + tile * 0.28);
+      ctx.bezierCurveTo(x + tile * 0.08, y + tile * 0.1, x - tile * 0.08, y, x + tile * 0.04, y - tile * 0.12);
+      ctx.stroke();
+    }
+    for (let i = 0; i < n; i++) {
+      const a = hash2(o.x + i, o.y - i) * Math.PI * 2;
+      const r = tile * (0.08 + 0.18 * hash2(o.x * 2 + i, o.y));
+      const lx = x + Math.cos(a) * r;
+      const ly = y + (o.kind === 'tree' ? tile * 0.2 : 0) + Math.sin(a) * r * 0.6;
+      ctx.fillStyle = lerpColor('#2c5a26', '#5a8e3e', hash2(o.x + i * 3, o.y + i));
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, tile * (0.08 + amount * 0.05), tile * (0.045 + amount * 0.03), a, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   private glowMarker(x: number, y: number, tile: number, hexColor: string, now: number) {
@@ -405,44 +480,375 @@ export class Renderer {
     ctx.fill();
   }
 
-  private drawDiscoveryMarker(camera: Camera, state: GameState, dp: DiscoveryPoint, now: number) {
+  /**
+   * Blits a cached plant sprite with its base at (x, y) screen px, with a
+   * gentle wind sway (a skew about the base) and a per-plant mirror flip.
+   */
+  private drawPlantSprite(x: number, y: number, unit: number, defId: string, variantId: string, sf: number, seed: number, mode: PlantMode, now: number, windy = false): boolean {
+    const sprite = this.sprites.get(defId, variantId, sf, seed, unit, mode, this.dpr);
+    if (!sprite) return false;
+    const { ctx } = this;
+    const sway = Math.sin(now * 0.0015 + (seed % 97)) * (windy ? 0.07 : 0.03) + Math.sin(now * 0.0041 + seed) * 0.01;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.transform(1, 0, mode === 'hanging' ? 0 : sway, 1, 0, 0);
+    if (seed % 2 === 1) ctx.scale(-1, 1);
+    ctx.drawImage(sprite.canvas, -sprite.ox, -sprite.oy, sprite.w, sprite.h);
+    ctx.restore();
+    return true;
+  }
+
+  private drawWildPlant(camera: Camera, state: GameState, p: OwnedPlant, wx: number, wy: number, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
-    if (dp.foxLed && !state.discoveryPoints[dp.id]?.revealed) return; // truly hidden
-    const ptState = state.discoveryPoints[dp.id];
-    const onCooldown = !!ptState?.lastCollectedAt && !isDiscoveryAvailable(state, dp);
-    if (onCooldown) return; // recently plucked, will return later
-
-    const available = isDiscoveryAvailable(state, dp);
-    const screen = camera.worldToScreen((dp.x + 0.5) * TILE_SIZE, (dp.y + 0.5) * TILE_SIZE);
-    const def = dp.specimenKind === 'plant' ? PLANTS[dp.specimenId] : dp.specimenKind === 'fungus' ? FUNGI[dp.specimenId] : MATERIALS[dp.specimenId];
-    const known = !!state.journal[dp.specimenId] && state.journal[dp.specimenId].level !== 'UNDISCOVERED';
-    const hue = 'baseTraits' in (def ?? {}) ? (def as { baseTraits: { colorHue?: number } }).baseTraits.colorHue ?? 140 : 140;
-    const color = dp.specimenKind === 'fungus' ? '#d9c896' : dp.specimenKind === 'material' ? '#b9ac8e' : `hsl(${hue},55%,60%)`;
-
-    if (!available) {
-      // Visible but not yet reachable: a faint hint, not a full render.
-      ctx.globalAlpha = 0.28;
-      ctx.fillStyle = known ? color : '#8fa89c';
-      ctx.beginPath();
-      ctx.arc(screen.x, screen.y, tile * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      return;
-    }
-
-    this.glowMarker(screen.x, screen.y, tile, color.startsWith('hsl') ? '#9fd6c0' : '#e8dcb8', now);
-    ctx.fillStyle = known ? color : '#c9d9c2';
+    const s = camera.worldToScreen(wx * TILE_SIZE, wy * TILE_SIZE);
+    const sf = stageFloat(p.growth);
+    const look = lookFor(p.defId, p.variantId);
+    const spread = tile * (0.12 + sf * 0.1) * look.size;
+    ctx.fillStyle = 'rgba(10,24,8,0.22)';
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, tile * 0.16, 0, Math.PI * 2);
+    ctx.ellipse(s.x, s.y + tile * 0.04, spread, spread * 0.4, 0, 0, Math.PI * 2);
     ctx.fill();
-    if (!known) {
-      ctx.fillStyle = '#1b2420';
-      ctx.font = `${Math.round(tile * 0.22)}px Georgia`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('?', screen.x, screen.y + 1);
+    // Foliage between the camera and Ellen fades, so she never gets lost in
+    // the jungle she planted.
+    const dx = wx - state.player.x;
+    const dy = wy - state.player.y;
+    const hides = dy > 0 && dy < 0.6 + sf * 0.3 && Math.abs(dx) < 0.5 + sf * 0.25;
+    if (hides) ctx.globalAlpha = 0.45;
+    this.drawPlantSprite(s.x, s.y + tile * 0.05, tile, p.defId, p.variantId, sf, p.seed, 'ground', now, state.weather.condition === 'rain');
+    ctx.globalAlpha = 1;
+    if (p.unnoticed) this.drawSparkle(s.x, s.y - tile * 0.35, tile, now, '#fff4c2', 3);
+  }
+
+  /** A few twinkling points: something here is worth walking over to. */
+  private drawSparkle(x: number, y: number, tile: number, now: number, color: string, count: number) {
+    const { ctx } = this;
+    ctx.fillStyle = color;
+    for (let i = 0; i < count; i++) {
+      const ph = now * 0.003 + i * 2.1;
+      const a = 0.5 + 0.5 * Math.sin(ph);
+      const px = x + Math.cos(i * 2.4 + now * 0.0007) * tile * 0.28;
+      const py = y + Math.sin(i * 1.7 + now * 0.0009) * tile * 0.18;
+      const r = tile * 0.05 * a;
+      ctx.globalAlpha = 0.35 + a * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(px, py - r * 2);
+      ctx.lineTo(px + r * 0.5, py - r * 0.5);
+      ctx.lineTo(px + r * 2, py);
+      ctx.lineTo(px + r * 0.5, py + r * 0.5);
+      ctx.lineTo(px, py + r * 2);
+      ctx.lineTo(px - r * 0.5, py + r * 0.5);
+      ctx.lineTo(px - r * 2, py);
+      ctx.lineTo(px - r * 0.5, py - r * 0.5);
+      ctx.closePath();
+      ctx.fill();
     }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * A wild patch shows the actual plant growing there — the plant itself
+   * is the clue. Things you've never seen get a curious sparkle; rarer
+   * finds shimmer more.
+   */
+  private drawSpot(camera: Camera, state: GameState, spot: DiscoverySpot, now: number) {
+    const { ctx } = this;
+    const content = spotContent(state, spot);
+    if (!content) return;
+    const tile = TILE_SIZE * camera.zoom;
+    const s = camera.worldToScreen((spot.x + 0.5) * TILE_SIZE, (spot.y + 0.65) * TILE_SIZE);
+    const rank = rarityRank(specimenRarity(content.defId, content.variantId));
+    const unseen = !hasFound(state, content.defId, content.variantId);
+    // Soft disturbed-earth patch so it reads as "something's growing here".
+    ctx.fillStyle = 'rgba(58,40,22,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y + tile * 0.02, tile * 0.3, tile * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (rank >= 2) this.glowMarker(s.x, s.y - tile * 0.2, tile, rank >= 3 ? '#f0d27a' : '#bfe6d4', now);
+    this.drawPlantSprite(s.x, s.y + tile * 0.04, tile, content.defId, content.variantId, 1.5, content.seed, 'ground', now);
+    if (unseen) this.drawSparkle(s.x, s.y - tile * 0.35, tile, now, rank >= 3 ? '#ffe28a' : '#ffffff', 2 + Math.min(3, rank));
+  }
+
+  private drawLanternPickup(camera: Camera, wx: number, wy: number, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const s = camera.worldToScreen(wx * TILE_SIZE, wy * TILE_SIZE);
+    this.glowMarker(s.x, s.y - tile * 0.1, tile, '#f2c86a', now);
+    ctx.fillStyle = '#3a3026';
+    ctx.fillRect(s.x - tile * 0.09, s.y - tile * 0.26, tile * 0.18, tile * 0.04);
+    ctx.fillStyle = 'rgba(255,214,120,0.9)';
+    ctx.fillRect(s.x - tile * 0.07, s.y - tile * 0.22, tile * 0.14, tile * 0.18);
+    ctx.strokeStyle = '#3a3026';
+    ctx.lineWidth = Math.max(1, tile * 0.025);
+    ctx.strokeRect(s.x - tile * 0.07, s.y - tile * 0.22, tile * 0.14, tile * 0.18);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y - tile * 0.28, tile * 0.05, Math.PI, 0);
+    ctx.stroke();
+  }
+
+  private drawPot(x: number, y: number, tile: number, potId: string, scale = 1) {
+    const { ctx } = this;
+    const pot = findPotStyle(potId);
+    const w = tile * 0.2 * scale;
+    const h = tile * 0.26 * scale;
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + h, w * 1.2, w * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x - w, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w * 0.75, y + h);
+    ctx.lineTo(x - w * 0.75, y + h);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(x - w, 0, x + w, 0);
+    g.addColorStop(0, pot.shade);
+    g.addColorStop(0.35, pot.body);
+    g.addColorStop(1, pot.shade);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    if (pot.pattern === 'speckle') {
+      ctx.fillStyle = 'rgba(80,60,40,0.55)';
+      for (let i = 0; i < 14; i++) ctx.fillRect(x - w + hash2(i, 3) * w * 2, y + hash2(3, i) * h, 1.2, 1.2);
+    } else if (pot.pattern === 'weave') {
+      ctx.strokeStyle = 'rgba(90,70,40,0.5)';
+      ctx.lineWidth = 1;
+      for (let k = 1; k < 4; k++) {
+        ctx.beginPath();
+        ctx.moveTo(x - w, y + (h * k) / 4);
+        ctx.lineTo(x + w, y + (h * k) / 4);
+        ctx.stroke();
+      }
+    } else if (pot.pattern === 'hammered') {
+      ctx.fillStyle = 'rgba(255,220,170,0.25)';
+      for (let i = 0; i < 6; i++) {
+        ctx.beginPath();
+        ctx.arc(x - w + hash2(i, 9) * w * 2, y + hash2(9, i) * h, w * 0.14, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (pot.pattern === 'drip') {
+      ctx.fillStyle = 'rgba(20,60,58,0.7)';
+      ctx.fillRect(x - w, y, w * 2, h * 0.28);
+    } else if (pot.pattern === 'gold') {
+      ctx.strokeStyle = '#d8b24a';
+      ctx.lineWidth = Math.max(1, tile * 0.012);
+      ctx.beginPath();
+      ctx.moveTo(x - w, y + h * 0.55);
+      ctx.lineTo(x + w, y + h * 0.55);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.fillStyle = pot.rim;
+    ctx.fillRect(x - w * 1.08, y - h * 0.08, w * 2.16, h * 0.18);
+    ctx.fillStyle = '#3a2a1c';
+    ctx.beginPath();
+    ctx.ellipse(x, y - h * 0.02, w * 0.95, h * 0.07, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /**
+   * The farmer's market stall: a trestle table, crates of plants for sale,
+   * and a chalkboard advertising what people are asking for today.
+   * Upgrades show up on the stall itself.
+   */
+  private drawMarketStall(camera: Camera, state: GameState, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const tl = camera.worldToScreen(MARKET_STALL.x * TILE_SIZE, MARKET_STALL.y * TILE_SIZE);
+    const w = MARKET_STALL.w * tile;
+    const awning = state.owned.includes('stallAwning');
+    const crates = state.owned.includes('stallCrates');
+    const top = tl.y - tile * 0.9;
+    // posts
+    ctx.fillStyle = '#5a3f28';
+    ctx.fillRect(tl.x + tile * 0.05, top, tile * 0.07, tile * 1.7);
+    ctx.fillRect(tl.x + w - tile * 0.12, top, tile * 0.07, tile * 1.7);
+    // canopy
+    const stripes = 6;
+    for (let i = 0; i < stripes; i++) {
+      ctx.fillStyle = awning ? (i % 2 ? '#f1e7cf' : '#c8553d') : i % 2 ? '#d9cba6' : '#c9b98f';
+      ctx.fillRect(tl.x - tile * 0.1 + (i * (w + tile * 0.2)) / stripes, top - tile * 0.28, (w + tile * 0.2) / stripes + 1, tile * 0.3);
+    }
+    for (let i = 0; i < stripes; i++) {
+      ctx.fillStyle = awning ? (i % 2 ? '#f1e7cf' : '#c8553d') : i % 2 ? '#d9cba6' : '#c9b98f';
+      ctx.beginPath();
+      const x0 = tl.x - tile * 0.1 + (i * (w + tile * 0.2)) / stripes;
+      const ww = (w + tile * 0.2) / stripes;
+      ctx.arc(x0 + ww / 2, top + tile * 0.02, ww / 2, 0, Math.PI);
+      ctx.fill();
+    }
+    // table
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(tl.x, tl.y + tile * 0.75, w, tile * 0.12);
+    ctx.fillStyle = '#7a5636';
+    ctx.fillRect(tl.x, tl.y + tile * 0.18, w, tile * 0.2);
+    ctx.fillStyle = '#946a44';
+    ctx.fillRect(tl.x, tl.y + tile * 0.1, w, tile * 0.1);
+    ctx.fillStyle = '#5a3f28';
+    ctx.fillRect(tl.x + tile * 0.1, tl.y + tile * 0.38, tile * 0.06, tile * 0.4);
+    ctx.fillRect(tl.x + w - tile * 0.16, tl.y + tile * 0.38, tile * 0.06, tile * 0.4);
+    // wares: potted plants of species the player has found (or a few commons)
+    const found = Object.keys(state.collection).filter((id) => PLANTS[id]);
+    const wares = (found.length ? found : ['pothos', 'spiderPlant', 'snakePlant']).slice(0, crates ? 5 : 3);
+    wares.forEach((id, i) => {
+      const px = tl.x + tile * 0.3 + (i * (w - tile * 0.6)) / Math.max(1, wares.length - 1);
+      const py = tl.y + tile * 0.02;
+      this.drawPot(px, py, tile, crates ? (i % 2 ? 'speckled' : 'terracotta') : 'terracotta', 0.7);
+      this.drawPlantSprite(px, py + tile * 0.02, tile * 0.7, id, PLANTS[id].variants[0].id, 2.2, 11 + i, 'pot', now);
+    });
+    if (crates) {
+      ctx.fillStyle = '#a07a4a';
+      ctx.fillRect(tl.x - tile * 0.35, tl.y + tile * 0.4, tile * 0.4, tile * 0.35);
+      ctx.fillRect(tl.x + w - tile * 0.05, tl.y + tile * 0.4, tile * 0.4, tile * 0.35);
+    }
+    // chalkboard: today's demand, shown as a little picture of the plant
+    const bx = tl.x + w + tile * 0.1;
+    const by = tl.y - tile * 0.35;
+    ctx.fillStyle = '#5a3f28';
+    ctx.fillRect(bx + tile * 0.18, by + tile * 0.5, tile * 0.05, tile * 0.55);
+    ctx.fillStyle = '#2d3a33';
+    ctx.fillRect(bx, by, tile * 0.42, tile * 0.52);
+    ctx.strokeStyle = '#8a6a44';
+    ctx.lineWidth = Math.max(1, tile * 0.03);
+    ctx.strokeRect(bx, by, tile * 0.42, tile * 0.52);
+    const want = demandSpecies(state);
+    this.drawPlantSprite(bx + tile * 0.21, by + tile * 0.42, tile * 0.5, want, PLANTS[want].variants[0].id, 2, 5, 'ground', now);
+    ctx.fillStyle = '#e8e2c8';
+    ctx.font = `bold ${Math.max(8, Math.round(tile * 0.13))}px Georgia`;
+    ctx.textAlign = 'center';
+    ctx.fillText('WANTED', bx + tile * 0.21, by + tile * 0.12);
+  }
+
+  private drawDecor(camera: Camera, d: PlacedDecor, state: GameState, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const s = camera.worldToScreen(d.x * TILE_SIZE, d.y * TILE_SIZE);
+    switch (d.decorId) {
+      case 'steppingStones':
+        for (let i = 0; i < 3; i++) {
+          ctx.fillStyle = lerpColor('#9a9484', '#b8b09c', hash2(d.x * 3 + i, d.y));
+          ctx.beginPath();
+          ctx.ellipse(s.x + (i - 1) * tile * 0.26, s.y + (i % 2) * tile * 0.12 - tile * 0.05, tile * 0.13, tile * 0.08, 0.2 * i, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      case 'picketFence': {
+        ctx.fillStyle = '#efe9da';
+        ctx.fillRect(s.x - tile * 0.5, s.y - tile * 0.2, tile, tile * 0.05);
+        ctx.fillRect(s.x - tile * 0.5, s.y - tile * 0.06, tile, tile * 0.05);
+        for (let i = 0; i < 5; i++) {
+          const px = s.x - tile * 0.45 + i * tile * 0.22;
+          ctx.beginPath();
+          ctx.moveTo(px, s.y + tile * 0.05);
+          ctx.lineTo(px, s.y - tile * 0.3);
+          ctx.lineTo(px + tile * 0.04, s.y - tile * 0.36);
+          ctx.lineTo(px + tile * 0.08, s.y - tile * 0.3);
+          ctx.lineTo(px + tile * 0.08, s.y + tile * 0.05);
+          ctx.fill();
+        }
+        break;
+      }
+      case 'gardenLantern': {
+        ctx.fillStyle = '#3a3026';
+        ctx.fillRect(s.x - tile * 0.025, s.y - tile * 0.5, tile * 0.05, tile * 0.5);
+        const night = isNight(state.clock.totalMinutes);
+        ctx.fillStyle = night ? 'rgba(255,214,120,0.95)' : 'rgba(230,220,190,0.8)';
+        ctx.fillRect(s.x - tile * 0.07, s.y - tile * 0.66, tile * 0.14, tile * 0.16);
+        ctx.strokeStyle = '#3a3026';
+        ctx.lineWidth = Math.max(1, tile * 0.02);
+        ctx.strokeRect(s.x - tile * 0.07, s.y - tile * 0.66, tile * 0.14, tile * 0.16);
+        break;
+      }
+      case 'birdbath': {
+        ctx.fillStyle = '#a8a292';
+        ctx.fillRect(s.x - tile * 0.06, s.y - tile * 0.3, tile * 0.12, tile * 0.3);
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y - tile * 0.32, tile * 0.26, tile * 0.09, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = lerpColor('#6fa8b8', '#9fd0dc', 0.5 + 0.5 * Math.sin(now * 0.002));
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y - tile * 0.33, tile * 0.2, tile * 0.06, 0, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'gardenBench': {
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(s.x - tile * 0.45, s.y - tile * 0.02, tile * 0.9, tile * 0.08);
+        ctx.fillStyle = '#6b4a2e';
+        ctx.fillRect(s.x - tile * 0.42, s.y - tile * 0.2, tile * 0.05, tile * 0.2);
+        ctx.fillRect(s.x + tile * 0.37, s.y - tile * 0.2, tile * 0.05, tile * 0.2);
+        ctx.fillStyle = '#8f6540';
+        ctx.fillRect(s.x - tile * 0.46, s.y - tile * 0.26, tile * 0.92, tile * 0.08);
+        ctx.fillRect(s.x - tile * 0.46, s.y - tile * 0.48, tile * 0.92, tile * 0.07);
+        ctx.fillRect(s.x - tile * 0.46, s.y - tile * 0.37, tile * 0.92, tile * 0.05);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Butterflies and bees drift around the player's flowering and colourful
+   * plants — a living sign that what they planted is doing something.
+   */
+  private drawPollinators(camera: Camera, state: GameState, bounds: { minX: number; maxX: number; minY: number; maxY: number }, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    let drawn = 0;
+    for (const p of Object.values(state.plants)) {
+      if (drawn >= 12) break;
+      if (p.location.kind !== 'wild') continue;
+      const { x, y } = p.location;
+      if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue;
+      const def = PLANTS[p.defId];
+      if (!def || (def.landscape !== 'flower' && def.landscape !== 'color') || stageFloat(p.growth) < 2) continue;
+      if (p.seed % 3 !== 0 && def.landscape !== 'flower') continue;
+      const look = lookFor(p.defId, p.variantId);
+      const ph = now * 0.0011 + (p.seed % 50);
+      const bx = x + Math.sin(ph) * 0.7;
+      const by = y - 0.6 + Math.cos(ph * 1.3) * 0.35;
+      const sc = camera.worldToScreen(bx * TILE_SIZE, by * TILE_SIZE);
+      const flap = Math.abs(Math.sin(now * 0.025 + p.seed)) * tile * 0.06 + tile * 0.01;
+      ctx.fillStyle = `hsla(${(look.accentHue + 40) % 360},70%,72%,0.9)`;
+      ctx.beginPath();
+      ctx.ellipse(sc.x - flap * 0.6, sc.y, flap, tile * 0.045, 0.3, 0, Math.PI * 2);
+      ctx.ellipse(sc.x + flap * 0.6, sc.y, flap, tile * 0.045, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#2a2018';
+      ctx.fillRect(sc.x - 0.75, sc.y - tile * 0.03, 1.5, tile * 0.06);
+      drawn++;
+    }
+  }
+
+  /** Light sources that punch through the night: garden lanterns and glowing plants. */
+  private drawNightLights(camera: Camera, state: GameState, bounds: { minX: number; maxX: number; minY: number; maxY: number }, now: number) {
+    const darkness = 1 - daylightFactor(state.clock.totalMinutes);
+    if (darkness < 0.2) return;
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = (wx: number, wy: number, r: number, color: [number, number, number], a: number) => {
+      if (wx < bounds.minX - 3 || wx > bounds.maxX + 3 || wy < bounds.minY - 3 || wy > bounds.maxY + 3) return;
+      const s = camera.worldToScreen(wx * TILE_SIZE, wy * TILE_SIZE);
+      const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r * tile);
+      g.addColorStop(0, `rgba(${color[0]},${color[1]},${color[2]},${a * darkness})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(s.x - r * tile, s.y - r * tile, r * tile * 2, r * tile * 2);
+    };
+    for (const d of state.decor) if (d.decorId === 'gardenLantern') glow(d.x, d.y - 0.55, 2.2, [255, 190, 100], 0.45);
+    for (const p of Object.values(state.plants)) {
+      if (p.location.kind !== 'wild') continue;
+      const look = lookFor(p.defId, p.variantId);
+      if (look.variegation !== 'glow' || !look.variegationColor) continue;
+      const pulse = 0.8 + 0.2 * Math.sin(now * 0.002 + p.seed);
+      const c = look.variegationColor[0] < 100 ? ([255, 170, 70] as [number, number, number]) : ([110, 190, 255] as [number, number, number]);
+      glow(p.location.x, p.location.y - 0.4, 1 + stageFloat(p.growth) * 0.35, c, 0.4 * pulse);
+    }
+    if (state.tools.lantern && !state.player.inGreenhouse) glow(state.player.x + 0.2, state.player.y - 0.3, 3, [255, 200, 120], 0.3);
+    ctx.restore();
   }
 
   private drawFox(camera: Camera, x: number, y: number, now: number) {
@@ -489,214 +895,464 @@ export class Renderer {
 
   /**
    * Ellen: a field botanist, not a generic sprite — vest, backpack, wide
-   * hat, satchel with a hand lens, and the recurring handmade detail, a
-   * crocheted scarf. `crouching` renders her brief collect/examine pose.
+   * hat, satchel with a hand lens, a long dark ponytail, and the recurring
+   * handmade detail, a crocheted scarf. `crouching` renders her brief
+   * collect/examine pose.
+   *
+   * Layering depends on facing: from the front her face is always on top and
+   * the ponytail hangs behind her; from behind the ponytail falls down her
+   * back over the pack; in profile it streams off the back of her head.
    */
   private drawEllen(camera: Camera, x: number, y: number, facing: Facing, now: number, moving: boolean, crouching: boolean) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
     const dir = Renderer.DIR[facing];
-    const sideFlip = facing === 'left' ? -1 : 1;
-    const facingBack = facing === 'up';
+    const s = facing === 'left' ? -1 : 1;
+    const isSide = facing === 'left' || facing === 'right';
+    const isBack = facing === 'up';
+    const isFront = facing === 'down';
 
     const walkPhase = moving ? now * 0.013 : now * 0.003;
     const walkAmp = moving ? 1 : 0.3;
-    const bob = Math.sin(walkPhase) * tile * 0.02 * walkAmp;
-    const legSwing = moving ? Math.sin(walkPhase * 2) * tile * 0.06 : 0;
+    const bob = Math.abs(Math.sin(walkPhase)) * -tile * 0.025 * walkAmp;
+    const stride = moving ? Math.sin(walkPhase) : 0;
     const squash = crouching ? 0.72 : 1;
     const lift = crouching ? tile * 0.1 : 0;
 
     const cx = screen.x;
     const cy = screen.y + bob + lift;
+    const footY = screen.y + tile * 0.25;
 
     // A thin dark outline on every silhouette-defining shape, so she reads
     // as a distinct figure against any background at small zoom instead of
     // blurring into a same-toned blob.
     const OUTLINE = 'rgba(28,20,12,0.55)';
-    const outlineWidth = Math.max(1, tile * 0.018);
+    const outlineWidth = Math.max(1, tile * 0.016);
+    const outline = () => {
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = outlineWidth;
+      ctx.stroke();
+    };
+
+    // Slim, upright proportions: narrow shoulders, a clearly tapered waist,
+    // and legs rather than a single pants blob. Profile is narrower still.
+    const shoulderY = cy - tile * 0.17 * squash;
+    const waistY = cy + tile * 0.06 * squash;
+    const hipY = cy + tile * 0.12 * squash;
+    const shoulderW = tile * (isSide ? 0.075 : 0.11);
+    const waistW = tile * (isSide ? 0.058 : 0.068);
+    const hipW = tile * (isSide ? 0.062 : 0.074);
+    const headR = tile * 0.1;
+    const headY = cy - tile * 0.3 * squash;
 
     // shadow
     ctx.fillStyle = 'rgba(0,0,0,0.24)';
     ctx.beginPath();
-    ctx.ellipse(cx, screen.y + tile * 0.26, tile * 0.19, tile * 0.08, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, screen.y + tile * 0.26, tile * (isSide ? 0.13 : 0.12), tile * 0.05, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // backpack, slung opposite the way she's facing
-    const packX = cx - dir[0] * tile * 0.16;
-    const packY = cy - dir[1] * tile * 0.1 - tile * 0.06;
-    ctx.fillStyle = ELLEN_APPEARANCE.backpack;
-    ctx.beginPath();
-    ctx.ellipse(packX, packY, tile * 0.14, tile * 0.17 * squash, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = outlineWidth;
-    ctx.stroke();
-    ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
-    ctx.lineWidth = Math.max(1, tile * 0.02);
-    ctx.beginPath();
-    ctx.moveTo(packX - tile * 0.12, packY - tile * 0.1);
-    ctx.lineTo(packX + tile * 0.12, packY - tile * 0.1);
-    ctx.stroke();
+    const tailSway = Math.sin(walkPhase - 0.8) * tile * 0.03 * walkAmp;
 
-    // boots, a narrower stance to match a leaner build
-    ctx.fillStyle = ELLEN_APPEARANCE.boots;
-    ctx.beginPath();
-    ctx.ellipse(cx - tile * 0.06, screen.y + tile * 0.24 + legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(cx + tile * 0.06, screen.y + tile * 0.24 - legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    const drawPack = () => {
+      const packX = isSide ? cx - s * tile * 0.1 : cx;
+      const packY = cy - tile * 0.04 * squash;
+      const packW = tile * (isSide ? 0.065 : 0.1);
+      const packH = tile * 0.13 * squash;
+      ctx.fillStyle = ELLEN_APPEARANCE.backpack;
+      ctx.beginPath();
+      ctx.roundRect(packX - packW, packY - packH, packW * 2, packH * 2, tile * 0.04);
+      ctx.fill();
+      outline();
+      // flap + buckle
+      ctx.fillStyle = ELLEN_APPEARANCE.backpackStrap;
+      ctx.beginPath();
+      ctx.roundRect(packX - packW, packY - packH, packW * 2, packH * 0.7, tile * 0.04);
+      ctx.fill();
+      if (isBack) {
+        ctx.fillStyle = '#cbb78a';
+        ctx.fillRect(packX - tile * 0.012, packY - packH * 0.35, tile * 0.024, tile * 0.03);
+      }
+    };
 
-    // pants sliver, narrowed to meet the tapered waist above
-    ctx.fillStyle = ELLEN_APPEARANCE.pants;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + tile * 0.19 * squash, tile * 0.115, tile * 0.1 * squash, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    const drawLegs = () => {
+      const legW = Math.max(2, tile * 0.05);
+      ctx.lineCap = 'round';
+      const legs: Array<[number, number]> = isSide
+        ? [[-1, -stride], [1, stride]]
+        : [[-1, stride], [1, -stride]];
+      for (const [side, swing] of legs) {
+        const topX = isSide ? cx + side * tile * 0.012 : cx + side * tile * 0.038;
+        const footX = isSide ? topX + s * swing * tile * 0.07 : topX;
+        const fy = isSide ? footY : footY - Math.max(0, swing) * tile * 0.03;
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = legW + outlineWidth * 2;
+        ctx.beginPath();
+        ctx.moveTo(topX, hipY);
+        ctx.lineTo(footX, fy - tile * 0.03);
+        ctx.stroke();
+        ctx.strokeStyle = ELLEN_APPEARANCE.pants;
+        ctx.lineWidth = legW;
+        ctx.stroke();
+        // boot
+        ctx.fillStyle = ELLEN_APPEARANCE.boots;
+        ctx.beginPath();
+        if (isSide) {
+          ctx.ellipse(footX + s * tile * 0.015, fy, tile * 0.045, tile * 0.03, 0, 0, Math.PI * 2);
+        } else {
+          ctx.ellipse(footX, fy, tile * 0.034, tile * 0.034, 0, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        outline();
+      }
+      ctx.lineCap = 'butt';
+    };
 
-    // vest / torso — tapered from shoulders to waist rather than a single
-    // round blob, so she reads as fit and upright instead of dumpy.
-    const shoulderY = cy - tile * 0.19 * squash;
-    const waistY = cy + tile * 0.17 * squash;
-    const shoulderW = tile * 0.155;
-    const waistW = tile * 0.095;
-    ctx.fillStyle = ELLEN_APPEARANCE.vest;
-    ctx.beginPath();
-    ctx.moveTo(cx - shoulderW, shoulderY);
-    ctx.quadraticCurveTo(cx - shoulderW * 0.9, cy - tile * 0.02 * squash, cx - waistW, waistY);
-    ctx.lineTo(cx + waistW, waistY);
-    ctx.quadraticCurveTo(cx + shoulderW * 0.9, cy - tile * 0.02 * squash, cx + shoulderW, shoulderY);
-    ctx.quadraticCurveTo(cx, shoulderY - tile * 0.035 * squash, cx - shoulderW, shoulderY);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = outlineWidth;
-    ctx.stroke();
-    ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
-    ctx.lineWidth = Math.max(1, tile * 0.02);
-    ctx.beginPath();
-    ctx.moveTo(cx, shoulderY);
-    ctx.lineTo(cx, waistY - tile * 0.02 * squash);
-    ctx.stroke();
-
-    // shirt collar
-    ctx.fillStyle = ELLEN_APPEARANCE.shirt;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - tile * 0.16 * squash, tile * 0.07, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // crocheted scarf — the recurring handmade touch
-    ctx.strokeStyle = ELLEN_APPEARANCE.crochetScarf;
-    ctx.lineWidth = Math.max(2, tile * 0.045);
-    ctx.beginPath();
-    ctx.arc(cx, cy - tile * 0.15 * squash, tile * 0.1, 0.15 * Math.PI, 0.85 * Math.PI);
-    ctx.stroke();
-    ctx.strokeStyle = ELLEN_APPEARANCE.crochetScarfAlt;
-    ctx.lineWidth = Math.max(1, tile * 0.015);
-    for (let i = 0; i < 4; i++) {
-      const a = 0.22 * Math.PI + i * 0.16 * Math.PI;
-      const sx = cx + Math.cos(a) * tile * 0.1;
-      const sy = cy - tile * 0.15 * squash + Math.sin(a) * tile * 0.1;
+    // Slim shirt-sleeved arms, swinging opposite the legs.
+    const drawArm = (side: number, swing: number) => {
+      const armW = Math.max(2, tile * 0.04);
+      const sx = isSide ? cx + side * tile * 0.01 : cx + side * (shoulderW - tile * 0.01);
+      const sy = shoulderY + tile * 0.025;
+      const hx = isSide ? sx + s * swing * tile * 0.08 : sx + side * tile * 0.022;
+      const hy = isSide ? cy + tile * 0.07 * squash : cy + tile * 0.07 * squash - swing * tile * 0.025;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = armW + outlineWidth * 2;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + Math.cos(a) * tile * 0.02, sy + Math.sin(a) * tile * 0.02);
+      ctx.lineTo(hx, hy);
       ctx.stroke();
-    }
+      ctx.strokeStyle = ELLEN_APPEARANCE.shirt;
+      ctx.lineWidth = armW;
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      ctx.fillStyle = ELLEN_APPEARANCE.skin;
+      ctx.beginPath();
+      ctx.arc(hx, hy + tile * 0.012, tile * 0.024, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const drawTorso = () => {
+      ctx.fillStyle = ELLEN_APPEARANCE.vest;
+      ctx.beginPath();
+      ctx.moveTo(cx - shoulderW, shoulderY);
+      ctx.quadraticCurveTo(cx - waistW * 1.05, cy - tile * 0.04 * squash, cx - waistW, waistY);
+      ctx.quadraticCurveTo(cx - hipW, (waistY + hipY) / 2, cx - hipW, hipY);
+      ctx.lineTo(cx + hipW, hipY);
+      ctx.quadraticCurveTo(cx + hipW, (waistY + hipY) / 2, cx + waistW, waistY);
+      ctx.quadraticCurveTo(cx + waistW * 1.05, cy - tile * 0.04 * squash, cx + shoulderW, shoulderY);
+      ctx.quadraticCurveTo(cx, shoulderY - tile * 0.03 * squash, cx - shoulderW, shoulderY);
+      ctx.closePath();
+      ctx.fill();
+      outline();
+      // belt line
+      ctx.fillStyle = ELLEN_APPEARANCE.pants;
+      ctx.fillRect(cx - waistW, waistY - tile * 0.008, waistW * 2, tile * 0.03);
+      if (isFront) {
+        // open vest over the shirt
+        ctx.fillStyle = ELLEN_APPEARANCE.shirt;
+        ctx.beginPath();
+        ctx.moveTo(cx - tile * 0.03, shoulderY);
+        ctx.lineTo(cx + tile * 0.03, shoulderY);
+        ctx.lineTo(cx, waistY - tile * 0.01);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
+        ctx.lineWidth = Math.max(1, tile * 0.015);
+        ctx.stroke();
+      } else if (isSide) {
+        ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
+        ctx.lineWidth = Math.max(1, tile * 0.015);
+        ctx.beginPath();
+        ctx.moveTo(cx + s * shoulderW * 0.7, shoulderY + tile * 0.01);
+        ctx.lineTo(cx + s * waistW * 0.8, waistY - tile * 0.01);
+        ctx.stroke();
+      }
+    };
+
+    // crocheted scarf — the recurring handmade touch
+    const drawScarf = () => {
+      const scarfY = shoulderY - tile * 0.005;
+      ctx.fillStyle = ELLEN_APPEARANCE.crochetScarf;
+      ctx.beginPath();
+      ctx.ellipse(cx, scarfY, tile * (isSide ? 0.055 : 0.07), tile * 0.03, 0, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+      if (!isBack) {
+        // a trailing end, knotted at the front
+        const endX = cx + (isSide ? s * tile * 0.035 : tile * 0.03);
+        ctx.beginPath();
+        ctx.moveTo(endX - tile * 0.018, scarfY);
+        ctx.lineTo(endX + tile * 0.018, scarfY);
+        ctx.lineTo(endX + tile * 0.012 + tailSway * 0.3, scarfY + tile * 0.1);
+        ctx.lineTo(endX - tile * 0.02 + tailSway * 0.3, scarfY + tile * 0.09);
+        ctx.closePath();
+        ctx.fill();
+        outline();
+      }
+      ctx.fillStyle = ELLEN_APPEARANCE.crochetScarfAlt;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.arc(cx + i * tile * (isSide ? 0.02 : 0.026), scarfY, Math.max(0.6, tile * 0.008), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
 
     // satchel + hand lens at the hip
-    const hipX = cx + sideFlip * tile * 0.13;
-    ctx.fillStyle = ELLEN_APPEARANCE.pouch;
-    ctx.beginPath();
-    ctx.ellipse(hipX, cy + tile * 0.05, tile * 0.06, tile * 0.07, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#cbb78a';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(hipX, cy + tile * 0.01, tile * 0.03, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = ELLEN_APPEARANCE.lensGlint;
-    ctx.beginPath();
-    ctx.arc(hipX, cy + tile * 0.01, tile * 0.015, 0, Math.PI * 2);
-    ctx.fill();
-
-    // head + face
-    const headY = cy - tile * 0.32 * squash;
-    ctx.fillStyle = ELLEN_APPEARANCE.skin;
-    ctx.beginPath();
-    ctx.arc(cx, headY, tile * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = ELLEN_APPEARANCE.hair;
-    ctx.beginPath();
-    ctx.arc(cx - dir[0] * tile * 0.02, headY + tile * 0.06, tile * 0.06, 0, Math.PI * 2);
-    ctx.fill();
-
-    // wide-brim field hat, sized to frame the head rather than bury it
-    ctx.fillStyle = ELLEN_APPEARANCE.hat;
-    ctx.beginPath();
-    ctx.ellipse(cx, headY - tile * 0.05, tile * 0.16, tile * 0.06, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = outlineWidth;
-    ctx.stroke();
-    ctx.fillStyle = ELLEN_APPEARANCE.hat;
-    ctx.beginPath();
-    ctx.ellipse(cx - dir[0] * tile * 0.02, headY - tile * 0.1, tile * 0.09, tile * 0.07, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = ELLEN_APPEARANCE.hatBand;
-    ctx.lineWidth = Math.max(1, tile * 0.025);
-    ctx.beginPath();
-    ctx.ellipse(cx - dir[0] * tile * 0.02, headY - tile * 0.045, tile * 0.09, tile * 0.035, 0, 0, Math.PI);
-    ctx.stroke();
-
-    // long dark ponytail, spilling out from under the back of the hat
-    const tailBaseX = cx - dir[0] * tile * 0.03;
-    const tailBaseY = headY + tile * 0.03;
-    const tailSway = Math.sin(walkPhase) * tile * 0.025 * walkAmp;
-    ctx.strokeStyle = ELLEN_APPEARANCE.hair;
-    ctx.lineWidth = Math.max(2, tile * 0.05);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(tailBaseX, tailBaseY);
-    ctx.quadraticCurveTo(
-      tailBaseX - dir[0] * tile * 0.03 + tailSway,
-      tailBaseY + tile * 0.15,
-      tailBaseX - dir[0] * tile * 0.05 + tailSway * 1.4,
-      tailBaseY + tile * 0.28
-    );
-    ctx.stroke();
-    ctx.lineCap = 'butt';
-
-    // eyes, drawn last so the hat brim never paints over her face
-    if (!facingBack) {
-      ctx.fillStyle = '#2a2018';
-      ctx.beginPath();
-      ctx.arc(cx + dir[0] * tile * 0.05 - tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.015, 0, Math.PI * 2);
-      ctx.arc(cx + dir[0] * tile * 0.05 + tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.015, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // backpack straps, visible over the shoulders from the front
-    if (facing === 'down') {
+    const drawSatchel = () => {
+      const hipX = isSide ? cx + s * tile * 0.03 : cx + tile * 0.1;
+      const py = hipY - tile * 0.02;
       ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
-      ctx.lineWidth = Math.max(1, tile * 0.025);
+      ctx.lineWidth = Math.max(1, tile * 0.014);
       ctx.beginPath();
-      ctx.moveTo(cx - tile * 0.1, cy - tile * 0.18 * squash);
-      ctx.lineTo(cx - tile * 0.05, cy + tile * 0.05);
-      ctx.moveTo(cx + tile * 0.1, cy - tile * 0.18 * squash);
-      ctx.lineTo(cx + tile * 0.05, cy + tile * 0.05);
+      ctx.moveTo(isSide ? cx - s * tile * 0.03 : cx - tile * 0.08, shoulderY + tile * 0.01);
+      ctx.lineTo(hipX, py - tile * 0.04);
       ctx.stroke();
+      ctx.fillStyle = ELLEN_APPEARANCE.pouch;
+      ctx.beginPath();
+      ctx.roundRect(hipX - tile * 0.04, py - tile * 0.04, tile * 0.08, tile * 0.07, tile * 0.02);
+      ctx.fill();
+      outline();
+      ctx.strokeStyle = '#cbb78a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(hipX, py - tile * 0.005, tile * 0.02, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = ELLEN_APPEARANCE.lensGlint;
+      ctx.beginPath();
+      ctx.arc(hipX, py - tile * 0.005, tile * 0.01, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    // long dark ponytail, gathered with a crocheted tie
+    const drawPonytail = (base: [number, number], ctrl: [number, number], tip: [number, number], width: number) => {
+      this.fillTaperedStrand(base, ctrl, tip, width, width * 0.35, ELLEN_APPEARANCE.hair, OUTLINE, outlineWidth);
+      ctx.fillStyle = ELLEN_APPEARANCE.crochetScarf;
+      ctx.beginPath();
+      ctx.arc(base[0], base[1], width * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+    };
+
+    const drawHead = () => {
+      // neck
+      ctx.fillStyle = ELLEN_APPEARANCE.skin;
+      ctx.fillRect(cx - tile * 0.025, headY + headR * 0.6, tile * 0.05, shoulderY - headY - headR * 0.4);
+
+      // hair mass (the whole back of her head)
+      ctx.fillStyle = ELLEN_APPEARANCE.hair;
+      ctx.beginPath();
+      ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+      if (isBack) return;
+
+      // face, set toward whichever way she's looking
+      const faceX = cx + (isSide ? s * headR * 0.28 : 0);
+      ctx.fillStyle = ELLEN_APPEARANCE.skin;
+      ctx.beginPath();
+      ctx.ellipse(faceX, headY + headR * 0.14, headR * (isSide ? 0.72 : 0.8), headR * 0.84, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if (isSide) {
+        // nose + ear
+        ctx.beginPath();
+        ctx.arc(cx + s * headR * 0.95, headY + headR * 0.22, headR * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx - s * headR * 0.1, headY + headR * 0.25, headR * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // side-swept fringe under the brim
+      ctx.fillStyle = ELLEN_APPEARANCE.hair;
+      ctx.beginPath();
+      if (isSide) {
+        ctx.moveTo(cx - s * headR * 0.2, headY - headR * 0.75);
+        ctx.quadraticCurveTo(cx + s * headR * 0.9, headY - headR * 0.75, cx + s * headR * 0.95, headY - headR * 0.25);
+        ctx.quadraticCurveTo(cx + s * headR * 0.4, headY - headR * 0.35, cx - s * headR * 0.05, headY - headR * 0.1);
+      } else {
+        ctx.moveTo(cx - headR * 0.85, headY + headR * 0.1);
+        ctx.quadraticCurveTo(cx - headR * 0.6, headY - headR * 0.75, cx + headR * 0.2, headY - headR * 0.72);
+        ctx.quadraticCurveTo(cx + headR * 0.75, headY - headR * 0.6, cx + headR * 0.88, headY - headR * 0.05);
+        ctx.quadraticCurveTo(cx + headR * 0.5, headY - headR * 0.4, cx - headR * 0.1, headY - headR * 0.35);
+        ctx.quadraticCurveTo(cx - headR * 0.55, headY - headR * 0.2, cx - headR * 0.85, headY + headR * 0.1);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // eyes, brows, blush, mouth — all below the brim, never under it
+      const eyeY = headY + headR * 0.12;
+      const eyeR = Math.max(1, headR * 0.13);
+      const eyes = isSide ? [cx + s * headR * 0.55] : [cx - headR * 0.36, cx + headR * 0.36];
+      ctx.fillStyle = '#2a2018';
+      for (const ex of eyes) {
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY, eyeR, eyeR * 1.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (tile >= 40) {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.arc(ex + eyeR * 0.35, eyeY - eyeR * 0.45, eyeR * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.strokeStyle = ELLEN_APPEARANCE.hair;
+        ctx.lineWidth = Math.max(1, headR * 0.08);
+        ctx.lineCap = 'round';
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.moveTo(ex - eyeR * 1.2, eyeY - eyeR * 2.1);
+          ctx.lineTo(ex + eyeR * 1.2, eyeY - eyeR * 2.3);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      }
+      ctx.fillStyle = ELLEN_APPEARANCE.blush;
+      const blushX = isSide ? [cx + s * headR * 0.45] : [cx - headR * 0.52, cx + headR * 0.52];
+      for (const bx of blushX) {
+        ctx.beginPath();
+        ctx.ellipse(bx, headY + headR * 0.45, headR * 0.17, headR * 0.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#8a4a3a';
+      ctx.lineWidth = Math.max(1, headR * 0.08);
+      ctx.beginPath();
+      const mouthX = isSide ? cx + s * headR * 0.62 : cx;
+      ctx.arc(mouthX, headY + headR * 0.5, headR * 0.16, 0.2 * Math.PI, 0.8 * Math.PI);
+      ctx.stroke();
+    };
+
+    // wide-brim field hat, sitting high enough to frame the face
+    const drawHat = () => {
+      const brimY = headY - headR * 0.62;
+      ctx.fillStyle = ELLEN_APPEARANCE.hat;
+      ctx.beginPath();
+      ctx.ellipse(cx + (isSide ? s * tile * 0.012 : 0), brimY, tile * (isSide ? 0.15 : 0.16), tile * 0.042, 0, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+      ctx.beginPath();
+      ctx.moveTo(cx - tile * 0.075, brimY);
+      ctx.quadraticCurveTo(cx - tile * 0.075, brimY - tile * 0.1, cx, brimY - tile * 0.1);
+      ctx.quadraticCurveTo(cx + tile * 0.075, brimY - tile * 0.1, cx + tile * 0.075, brimY);
+      ctx.closePath();
+      ctx.fill();
+      outline();
+      ctx.fillStyle = ELLEN_APPEARANCE.hatBand;
+      ctx.fillRect(cx - tile * 0.075, brimY - tile * 0.03, tile * 0.15, tile * 0.024);
+    };
+
+    const armSwing = stride;
+    if (isBack) {
+      drawLegs();
+      drawArm(-1, -armSwing);
+      drawArm(1, armSwing);
+      drawTorso();
+      drawScarf();
+      drawPack();
+      drawHead();
+      drawHat();
+      drawPonytail(
+        [cx, headY + headR * 0.35],
+        [cx + tailSway * 0.5, headY + tile * 0.14],
+        [cx + tailSway, headY + tile * 0.3],
+        tile * 0.055
+      );
+    } else if (isSide) {
+      drawPack();
+      drawArm(-1, -armSwing);
+      drawLegs();
+      drawTorso();
+      drawScarf();
+      drawSatchel();
+      drawPonytail(
+        [cx - s * headR * 0.85, headY - headR * 0.05],
+        [cx - s * tile * 0.17, headY + tile * 0.04],
+        [cx - s * tile * (moving ? 0.19 : 0.13) + tailSway, headY + tile * (moving ? 0.2 : 0.25)],
+        tile * 0.05
+      );
+      drawHead();
+      drawHat();
+      drawArm(1, armSwing);
+    } else {
+      // Front: the ponytail hangs behind her, peeking out past her shoulder
+      // as it sways, so it never crosses her face.
+      drawPonytail(
+        [cx + headR * 0.4, headY + headR * 0.2],
+        [cx + tile * 0.1 + tailSway * 0.5, headY + tile * 0.12],
+        [cx + tile * 0.1 + tailSway, headY + tile * 0.26],
+        tile * 0.05
+      );
+      drawLegs();
+      drawTorso();
+      drawArm(-1, -armSwing);
+      drawArm(1, armSwing);
+      drawScarf();
+      drawSatchel();
+      // backpack straps over the shoulders
+      ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
+      ctx.lineWidth = Math.max(1, tile * 0.02);
+      ctx.beginPath();
+      ctx.moveTo(cx - shoulderW * 0.72, shoulderY + tile * 0.01);
+      ctx.lineTo(cx - waistW * 0.75, waistY - tile * 0.02);
+      ctx.moveTo(cx + shoulderW * 0.72, shoulderY + tile * 0.01);
+      ctx.lineTo(cx + waistW * 0.75, waistY - tile * 0.02);
+      ctx.stroke();
+      drawHead();
+      drawHat();
     }
 
     // reaching hand while crouched/collecting
     if (crouching) {
       ctx.fillStyle = ELLEN_APPEARANCE.skin;
       ctx.beginPath();
-      ctx.arc(cx + dir[0] * tile * 0.22, cy + dir[1] * tile * 0.14 + tile * 0.08, tile * 0.045, 0, Math.PI * 2);
+      ctx.arc(cx + dir[0] * tile * 0.2, cy + dir[1] * tile * 0.14 + tile * 0.08, tile * 0.035, 0, Math.PI * 2);
       ctx.fill();
+      outline();
     }
+  }
+
+  /**
+   * A strand of hair along a quadratic curve that tapers from `w0` at the
+   * base to `w1` at the tip, with a slight fullness through the middle.
+   */
+  private fillTaperedStrand(
+    p0: [number, number],
+    c: [number, number],
+    p1: [number, number],
+    w0: number,
+    w1: number,
+    fill: string,
+    stroke: string,
+    strokeWidth: number
+  ) {
+    const { ctx } = this;
+    const steps = 12;
+    const left: Array<[number, number]> = [];
+    const right: Array<[number, number]> = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const mt = 1 - t;
+      const px = mt * mt * p0[0] + 2 * mt * t * c[0] + t * t * p1[0];
+      const py = mt * mt * p0[1] + 2 * mt * t * c[1] + t * t * p1[1];
+      const tx = 2 * mt * (c[0] - p0[0]) + 2 * t * (p1[0] - c[0]);
+      const ty = 2 * mt * (c[1] - p0[1]) + 2 * t * (p1[1] - c[1]);
+      const len = Math.hypot(tx, ty) || 1;
+      const half = ((w0 + (w1 - w0) * t) * (1 + 0.3 * Math.sin(Math.PI * t))) / 2;
+      left.push([px - (ty / len) * half, py + (tx / len) * half]);
+      right.push([px + (ty / len) * half, py - (tx / len) * half]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(left[0][0], left[0][1]);
+    for (const [px, py] of left) ctx.lineTo(px, py);
+    ctx.arc(p1[0], p1[1], w1 / 2, Math.atan2(left[steps][1] - p1[1], left[steps][0] - p1[0]), Math.atan2(right[steps][1] - p1[1], right[steps][0] - p1[0]), true);
+    for (let i = steps; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
   }
 
   /** Scout: Ellen's scruffy one-eyed field companion. */
@@ -1141,68 +1797,6 @@ export class Renderer {
   }
 
   /**
-   * Small wandering creature icons scaled by the same ecosystem population
-   * numbers driving the simulation, so relationships read visually instead
-   * of only as numbers behind the scenes. Generic per creature `kind` —
-   * new species need no new rendering code.
-   */
-  private drawRoamingCreatures(
-    camera: Camera,
-    state: GameState,
-    zone: ZoneId,
-    bounds: { minX: number; maxX: number; minY: number; maxY: number },
-    now: number
-  ) {
-    const pops = state.ecosystem[zone];
-    if (!pops) return;
-    const tile = TILE_SIZE * camera.zoom;
-    let drawn = 0;
-    for (const speciesId of Object.keys(pops)) {
-      if (drawn >= 8) break;
-      const creature = CREATURES[speciesId];
-      if (!creature) continue;
-      const pop = pops[speciesId];
-      if (pop < 22) continue;
-      if (creature.nocturnal && !isNight(state.clock.totalMinutes)) continue;
-      const count = Math.min(3, Math.max(1, Math.round((pop / 100) * 3)));
-      for (let i = 0; i < count && drawn < 8; i++) {
-        const seedA = hash2(speciesId.charCodeAt(0) + i * 3, speciesId.length * 7 + i);
-        const seedB = hash2(seedA * 97, i * 5 + speciesId.charCodeAt(speciesId.length - 1));
-        const centerX = bounds.minX + seedA * (bounds.maxX - bounds.minX);
-        const centerY = bounds.minY + seedB * (bounds.maxY - bounds.minY);
-        const wx = centerX + Math.sin(now * 0.0009 + i * 2.1 + seedA * 6) * 1.4;
-        const wy = centerY + Math.cos(now * 0.0011 + i * 1.7 + seedB * 6) * 1.4;
-        const screen = camera.worldToScreen(wx * TILE_SIZE, wy * TILE_SIZE);
-        this.drawCreatureIcon(screen.x, screen.y, tile, creature.kind, now + i * 400);
-        drawn++;
-      }
-    }
-  }
-
-  private drawCreatureIcon(x: number, y: number, tile: number, kind: 'insect' | 'animal', now: number) {
-    const { ctx } = this;
-    if (kind === 'insect') {
-      const flutter = Math.sin(now * 0.02) * tile * 0.03;
-      ctx.fillStyle = 'rgba(40,40,30,0.85)';
-      ctx.beginPath();
-      ctx.arc(x, y, tile * 0.025, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(220,220,255,0.55)';
-      ctx.beginPath();
-      ctx.ellipse(x - tile * 0.03, y - flutter, tile * 0.025, tile * 0.014, 0.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(x + tile * 0.03, y + flutter, tile * 0.025, tile * 0.014, -0.5, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = 'rgba(90,70,50,0.7)';
-      ctx.beginPath();
-      ctx.ellipse(x, y, tile * 0.05, tile * 0.032, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  /**
    * Tasteful, capped-count atmosphere: drifting pollen in the shaded
    * zones, a couple of wandering butterflies over open flowers, and
    * falling leaves under the canopy when it's dry. Screen-space and cheap,
@@ -1302,7 +1896,7 @@ export class Renderer {
     camera.viewW = outerCamera.viewW;
     camera.viewH = outerCamera.viewH;
     const shortAxis = Math.min(camera.viewW, camera.viewH);
-    const targetTilesVisible = 7;
+    const targetTilesVisible = 9.5;
     const fitWholeRoom = Math.min(
       camera.viewW / (GREENHOUSE_GRID_W * TILE_SIZE),
       camera.viewH / (GREENHOUSE_GRID_H * TILE_SIZE)
@@ -1361,21 +1955,44 @@ export class Renderer {
     ctx.fillStyle = 'rgba(150,200,255,0.25)';
     ctx.fillRect(exitScreen.x - tile * 0.3, exitScreen.y, tile * 1.6, tile);
 
+    this.sprites.beginFrame();
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.drawGreenhouseProps(camera, now);
+    if (!state.owned.includes('sunRoom')) {
+      for (const c of STORAGE_CRATES) this.drawCrate(camera, c.x, c.y);
+    }
 
-    for (const station of STATIONS) {
-      this.drawStation(camera, state, station, now);
+    const plantAt = (kind: 'nursery' | 'display', id: string) =>
+      Object.values(state.plants).find((p) => (kind === 'nursery' ? p.location.kind === 'nursery' && p.location.bedId === id : p.location.kind === 'display' && p.location.slotId === id));
+
+    const drawables: { y: number; draw: () => void }[] = [];
+    for (const bed of NURSERY_BEDS) {
+      if (bed.requires && !state.owned.includes(bed.requires)) continue;
+      drawables.push({ y: bed.y + 0.5, draw: () => this.drawNurseryBed(camera, bed.x, bed.y, plantAt('nursery', bed.id), now) });
+    }
+    const hanging: DisplaySlot[] = [];
+    for (const slot of DISPLAY_SLOTS) {
+      if (slot.requires && !state.owned.includes(slot.requires)) continue;
+      if (slot.kind === 'hanging') {
+        hanging.push(slot);
+        continue;
+      }
+      drawables.push({ y: slot.y + 0.5, draw: () => this.drawDisplaySlot(camera, slot, plantAt('display', slot.id), now) });
     }
 
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
-    this.drawScout(camera, state.scout, now);
-    if (state.scott.zone === 'greenhouse') {
-      this.drawScott(camera, state.scott, now);
-    }
-    this.drawCat(camera, state.cat, now);
-    this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching);
+    drawables.push({ y: state.scout.y, draw: () => this.drawScout(camera, state.scout, now) });
+    if (state.scott.zone === 'greenhouse') drawables.push({ y: state.scott.y, draw: () => this.drawScott(camera, state.scott, now) });
+    drawables.push({ y: state.cat.y, draw: () => this.drawCat(camera, state.cat, now) });
+    drawables.push({ y: state.player.y, draw: () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching) });
+    drawables.sort((a, b) => a.y - b.y);
+    for (const d of drawables) d.draw();
+    // Hanging pots are overhead, so they draw over everyone.
+    for (const slot of hanging) this.drawDisplaySlot(camera, slot, plantAt('display', slot.id), now);
+
+    if (state.owned.includes('growLights')) this.drawGrowLights(camera, now);
 
     // Warm ambient tint + light shafts
     ctx.fillStyle = 'rgba(255,200,130,0.05)';
@@ -1450,148 +2067,150 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // Hanging pots, suspended from the roof line.
-    const hangSway = Math.sin(now * 0.0012) * tile * 0.02;
-    for (const [hx, hy] of [
-      [5, 1],
-      [9, 1],
-      [13, 1],
-    ] as const) {
-      const s = at(hx, hy);
-      const px = s.x + hangSway;
-      const py = s.y - tile * 0.55;
-      ctx.strokeStyle = 'rgba(60,50,40,0.6)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(px, s.y - tile * 0.9);
-      ctx.lineTo(px, py);
-      ctx.stroke();
-      ctx.fillStyle = '#8a5a3c';
-      ctx.beginPath();
-      ctx.moveTo(px - tile * 0.13, py);
-      ctx.lineTo(px + tile * 0.13, py);
-      ctx.lineTo(px + tile * 0.09, py + tile * 0.16);
-      ctx.lineTo(px - tile * 0.09, py + tile * 0.16);
-      ctx.closePath();
-      ctx.fill();
-      const green = lerpColor('#3f6b3a', '#5a8a4c', hash2(hx, hy));
-      ctx.fillStyle = green;
-      ctx.beginPath();
-      ctx.arc(px, py - tile * 0.06, tile * 0.14, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
 
-  private drawStation(camera: Camera, state: GameState, station: { id: string; x: number; y: number; kind: string }, now: number) {
+  private drawNurseryBed(camera: Camera, x: number, y: number, plant: OwnedPlant | undefined, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
-    const screen = camera.worldToScreen((station.x + 0.5) * TILE_SIZE, (station.y + 0.5) * TILE_SIZE);
-
+    const s = camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.beginPath();
-    ctx.ellipse(screen.x, screen.y + tile * 0.28, tile * 0.32, tile * 0.1, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    switch (station.kind) {
-      case 'growBed': {
-        ctx.fillStyle = '#4a3323';
-        ctx.fillRect(screen.x - tile * 0.32, screen.y - tile * 0.22, tile * 0.64, tile * 0.5);
-        ctx.strokeStyle = '#2c1f15';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(screen.x - tile * 0.32, screen.y - tile * 0.22, tile * 0.64, tile * 0.5);
-        const instId = state.stationOccupancy[station.id];
-        if (instId) {
-          const inst = state.plantInstances[instId];
-          if (inst) this.drawPlantIcon(screen.x, screen.y - tile * 0.08, tile, inst, PLANTS[inst.defId]);
-        }
-        break;
-      }
-      case 'propagationBench':
-        ctx.fillStyle = '#5a4530';
-        ctx.fillRect(screen.x - tile * 0.34, screen.y - tile * 0.12, tile * 0.68, tile * 0.24);
-        ctx.fillStyle = '#7a9c8a';
-        ctx.beginPath();
-        ctx.arc(screen.x - tile * 0.12, screen.y - tile * 0.18, tile * 0.08, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(screen.x + tile * 0.12, screen.y - tile * 0.18, tile * 0.08, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      case 'seedStorage':
-        ctx.fillStyle = '#6b5335';
-        ctx.fillRect(screen.x - tile * 0.28, screen.y - tile * 0.3, tile * 0.56, tile * 0.56);
-        for (let i = 0; i < 3; i++) {
-          ctx.fillStyle = ['#d9a441', '#a8c96a', '#c96a34'][i];
-          ctx.fillRect(screen.x - tile * 0.2 + i * tile * 0.16, screen.y - tile * 0.2, tile * 0.12, tile * 0.36);
-        }
-        break;
-      case 'soilStation':
-        ctx.fillStyle = '#4a3020';
-        ctx.beginPath();
-        ctx.ellipse(screen.x, screen.y, tile * 0.28, tile * 0.2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      case 'compost':
-        ctx.fillStyle = '#3a2f1f';
-        ctx.fillRect(screen.x - tile * 0.26, screen.y - tile * 0.2, tile * 0.52, tile * 0.4);
-        ctx.fillStyle = '#6a8a4a';
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y - tile * 0.06, tile * 0.14, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      case 'research':
-        ctx.fillStyle = '#5a4530';
-        ctx.fillRect(screen.x - tile * 0.3, screen.y - tile * 0.16, tile * 0.6, tile * 0.32);
-        ctx.strokeStyle = '#cbd9d2';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y - tile * 0.24, tile * 0.1, 0, Math.PI * 2);
-        ctx.stroke();
-        break;
-      case 'display':
-        ctx.fillStyle = '#5a4530';
-        ctx.fillRect(screen.x - tile * 0.3, screen.y - tile * 0.28, tile * 0.6, tile * 0.5);
-        {
-          const completed = Object.values(state.plantInstances).filter((p) => p.stage === 'COMPLETE');
-          completed.slice(0, 3).forEach((inst, i) => {
-            const hue = inst.traits.colorHue;
-            ctx.fillStyle = `hsl(${hue},55%,55%)`;
-            ctx.beginPath();
-            ctx.arc(screen.x - tile * 0.16 + i * tile * 0.16, screen.y - tile * 0.1, tile * 0.06, 0, Math.PI * 2);
-            ctx.fill();
-          });
-        }
-        break;
+    ctx.fillRect(s.x - tile * 0.4, s.y + tile * 0.26, tile * 0.8, tile * 0.1);
+    ctx.fillStyle = '#6b4a2e';
+    ctx.fillRect(s.x - tile * 0.42, s.y - tile * 0.1, tile * 0.84, tile * 0.38);
+    ctx.fillStyle = '#3d2a1a';
+    ctx.fillRect(s.x - tile * 0.36, s.y - tile * 0.12, tile * 0.72, tile * 0.16);
+    ctx.strokeStyle = '#4a3220';
+    ctx.lineWidth = Math.max(1, tile * 0.03);
+    ctx.strokeRect(s.x - tile * 0.42, s.y - tile * 0.1, tile * 0.84, tile * 0.38);
+    // little seed-tray grid
+    ctx.strokeStyle = 'rgba(30,20,10,0.4)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(s.x - tile * 0.42 + i * tile * 0.21, s.y + tile * 0.04);
+      ctx.lineTo(s.x - tile * 0.42 + i * tile * 0.21, s.y + tile * 0.28);
+      ctx.stroke();
     }
-
-    const pulse = 0.4 + 0.3 * Math.sin(now * 0.002 + station.x);
-    ctx.strokeStyle = `rgba(95,201,184,${0.15 + pulse * 0.1})`;
+    if (plant) this.drawPlantSprite(s.x, s.y - tile * 0.02, tile * 0.85, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'pot', now);
   }
 
-  private drawPlantIcon(x: number, y: number, tile: number, inst: { stage: string; traits: { colorHue: number; size: number } }, def?: { name: string }) {
+  private drawDisplaySlot(camera: Camera, slot: DisplaySlot, plant: OwnedPlant | undefined, now: number) {
     const { ctx } = this;
-    const hue = inst.traits.colorHue;
-    const stageScale: Record<string, number> = { WILD: 0.3, CULTIVATED: 0.45, IMPROVED: 0.65, MATURE: 0.85, COMPLETE: 1 };
-    const scale = stageScale[inst.stage] ?? 0.5;
-    const size = tile * 0.22 * scale * (0.7 + inst.traits.size / 200);
-    ctx.strokeStyle = '#3a5a30';
-    ctx.lineWidth = Math.max(1, tile * 0.04);
-    ctx.beginPath();
-    ctx.moveTo(x, y + size * 0.6);
-    ctx.lineTo(x, y - size * 0.6);
-    ctx.stroke();
-    ctx.fillStyle = `hsl(${hue}, 55%, 58%)`;
-    ctx.beginPath();
-    ctx.arc(x, y - size * 0.6, size * 0.5, 0, Math.PI * 2);
-    ctx.fill();
-    if (inst.stage === 'MATURE' || inst.stage === 'COMPLETE') {
-      ctx.fillStyle = `hsl(${hue}, 60%, 70%)`;
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * Math.PI * 2;
+    const tile = TILE_SIZE * camera.zoom;
+    const s = camera.worldToScreen((slot.x + 0.5) * TILE_SIZE, (slot.y + 0.5) * TILE_SIZE);
+    let potY = s.y;
+    let mode: PlantMode = 'pot';
+    switch (slot.kind) {
+      case 'stand':
+      case 'sunroom': {
+        // round wooden plant stand
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
         ctx.beginPath();
-        ctx.arc(x + Math.cos(a) * size * 0.4, y - size * 0.6 + Math.sin(a) * size * 0.4, size * 0.22, 0, Math.PI * 2);
+        ctx.ellipse(s.x, s.y + tile * 0.32, tile * 0.28, tile * 0.08, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.fillStyle = slot.kind === 'sunroom' ? '#d8cdb4' : '#7a5636';
+        for (const dx of [-0.16, 0.13]) ctx.fillRect(s.x + dx * tile, s.y + tile * 0.06, tile * 0.04, tile * 0.28);
+        ctx.fillStyle = slot.kind === 'sunroom' ? '#efe6d0' : '#946a44';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y + tile * 0.06, tile * 0.24, tile * 0.07, 0, 0, Math.PI * 2);
+        ctx.fill();
+        potY = s.y - tile * 0.2;
+        break;
+      }
+      case 'tiered': {
+        ctx.fillStyle = '#2f2f2c';
+        const rise = (slot.y % 4) * 0.04;
+        ctx.fillRect(s.x - tile * 0.3, s.y + tile * 0.1 - rise * tile, tile * 0.6, tile * 0.05);
+        ctx.fillRect(s.x - tile * 0.28, s.y + tile * 0.1 - rise * tile, tile * 0.03, tile * (0.25 + rise));
+        ctx.fillRect(s.x + tile * 0.25, s.y + tile * 0.1 - rise * tile, tile * 0.03, tile * (0.25 + rise));
+        potY = s.y - tile * 0.16 - rise * tile;
+        break;
+      }
+      case 'shelf': {
+        ctx.fillStyle = '#6b4a2e';
+        ctx.fillRect(s.x - tile * 0.45, s.y + tile * 0.08, tile * 0.9, tile * 0.08);
+        ctx.fillStyle = '#4a3220';
+        ctx.fillRect(s.x - tile * 0.45, s.y + tile * 0.16, tile * 0.08, tile * 0.14);
+        potY = s.y - tile * 0.18;
+        break;
+      }
+      case 'hanging': {
+        const sway = Math.sin(now * 0.0012 + slot.x) * tile * 0.02;
+        ctx.strokeStyle = 'rgba(60,50,40,0.7)';
+        ctx.lineWidth = 1;
+        potY = s.y - tile * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(s.x + sway, s.y - tile * 1.0);
+        ctx.lineTo(s.x + sway - tile * 0.14, potY);
+        ctx.moveTo(s.x + sway, s.y - tile * 1.0);
+        ctx.lineTo(s.x + sway + tile * 0.14, potY);
+        ctx.stroke();
+        mode = 'hanging';
+        if (!plant) {
+          ctx.fillStyle = '#5a4030';
+          ctx.beginPath();
+          ctx.arc(s.x + sway, s.y - tile * 1.0, tile * 0.03, 0, Math.PI * 2);
+          ctx.fill();
+          return;
+        }
+        this.drawPot(s.x + sway, potY, tile, plant.location.kind === 'display' ? plant.location.potId : 'terracotta', 0.9);
+        this.drawPlantSprite(s.x + sway, potY + tile * 0.02, tile * 0.9, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, mode, now);
+        return;
       }
     }
+    if (!plant) {
+      // An empty spot waiting for something special.
+      ctx.strokeStyle = 'rgba(240,230,200,0.25)';
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(s.x, potY + tile * 0.12, tile * 0.18, tile * 0.07, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return;
+    }
+    const potId = plant.location.kind === 'display' ? plant.location.potId : 'terracotta';
+    this.drawPot(s.x, potY, tile, potId);
+    this.drawPlantSprite(s.x, potY + tile * 0.02, tile, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, mode, now);
+    if (rarityRank(specimenRarity(plant.defId, plant.variantId)) >= 3) this.drawSparkle(s.x, potY - tile * 0.5, tile, now, '#ffe9a8', 2);
+  }
+
+  private drawCrate(camera: Camera, x: number, y: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const s = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
+    ctx.fillStyle = '#7c5c3a';
+    ctx.fillRect(s.x + tile * 0.06, s.y + tile * 0.1, tile * 0.88, tile * 0.8);
+    ctx.strokeStyle = '#4e3822';
+    ctx.lineWidth = Math.max(1, tile * 0.03);
+    ctx.strokeRect(s.x + tile * 0.06, s.y + tile * 0.1, tile * 0.88, tile * 0.8);
+    ctx.beginPath();
+    ctx.moveTo(s.x + tile * 0.06, s.y + tile * 0.1);
+    ctx.lineTo(s.x + tile * 0.94, s.y + tile * 0.9);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(220,210,190,0.18)';
+    ctx.fillRect(s.x + tile * 0.1, s.y + tile * 0.12, tile * 0.3, tile * 0.08);
+  }
+
+  private drawGrowLights(camera: Camera, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [lx, ly] of [
+      [3, 3],
+      [5, 3],
+      [12, 4],
+      [12, 7],
+    ] as const) {
+      const s = camera.worldToScreen(lx * TILE_SIZE, ly * TILE_SIZE);
+      const flicker = 0.9 + 0.1 * Math.sin(now * 0.003 + lx);
+      const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, tile * 2.2);
+      g.addColorStop(0, `rgba(255,170,220,${0.12 * flicker})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(s.x - tile * 2.2, s.y - tile * 2.2, tile * 4.4, tile * 4.4);
+    }
+    ctx.restore();
   }
 }

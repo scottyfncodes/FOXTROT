@@ -1,39 +1,45 @@
-import type { GameState } from '../state';
+import type { GameState, OwnedPlant } from '../state';
 import { makeUid } from '../state';
 import { loadOrCreate, saveGame, resetGame } from './SaveManager';
-import { advanceClock, isNight } from './Clock';
+import { advanceClock } from './Clock';
 import { Camera } from './Camera';
 import { Input } from './Input';
 import { AudioManager } from './AudioManager';
 import { Renderer } from '../world/Renderer';
 import { generateObstacles, buildBlockingSet, type Obstacle } from '../world/Obstacles';
-import { isBlockedOutdoor, isBlockedIndoor } from '../world/Collision';
+import { isBlockedOutdoor, isBlockedIndoor, indoorBlockingSet } from '../world/Collision';
 import { tryMove } from '../world/Movement';
-import { GREENHOUSE_DOOR, PLAYER_START, zoneAt, TILE_SIZE } from '../data/worldMap';
-import { GREENHOUSE_EXIT, STATIONS } from '../data/stations';
-import type { StationDef } from '../types';
-import { DISCOVERY_POINTS } from '../data/discoveryPoints';
+import { GREENHOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, GREENHOUSE_FOOTPRINT } from '../data/worldMap';
+import { GREENHOUSE_EXIT, NURSERY_BEDS, DISPLAY_SLOTS } from '../data/stations';
+import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
 import { TOOL_PICKUPS } from '../data/toolPickups';
-import { PLANTS } from '../data/plants';
-import { FUNGI } from '../data/fungi';
-import { MATERIALS } from '../data/materials';
-import { TOOLS } from '../data/tools';
-import { isDiscoveryAvailable, collectAt } from '../systems/collection';
-import { tickEcosystem, initEcosystem, detectEcologicalAlerts, introduceSpecies } from '../systems/ecosystem';
-import { tickPlantGrowth, plantSpecimen, rollTraits, DEFAULT_CONDITIONS, GROWTH_TIME_SCALE } from '../systems/plantGrowth';
+import { PLANTS, specimenName, specimenRarity, rarityRank, RARITY_LABEL, fullName } from '../data/plants';
+import { findShopItem, type DecorId } from '../data/shop';
+import { ZONES } from '../data/zones';
+import type { OutdoorZoneId, ZoneId } from '../types';
 import { tickFox } from '../systems/fox';
 import { tickScout } from '../systems/scout';
 import { tickScott } from '../systems/scott';
 import { tickCat } from '../systems/cat';
-import { recordCultivated, recordDeveloped, recordMastered, recordPropagated, recordVariant } from '../systems/journal';
-import { tickObservation } from '../systems/observation';
-import { meetsRequirement, unlockTool } from '../systems/tools';
-import { addItem, inventoryFull, removeItem } from '../systems/inventory';
-import { attemptPropagation } from '../systems/propagation';
-import type { GrowConditions, GrowthStage, ZoneId } from '../types';
-import { ZONES } from '../data/zones';
+import { spotContent, collectSpot } from '../systems/spots';
+import { advanceWorld, canPlantAt, computeLushness, type LushField } from '../systems/wild';
+import { STAGE_LABEL, stageIndexOf } from '../systems/growth';
+import { hasFound, recordFound, isEstablished } from '../systems/collection';
+import {
+  takeCutting,
+  cuttingBlockReason,
+  potInNursery,
+  placeOnDisplay,
+  plantOutdoors,
+  liftPlant,
+  setPot,
+  creditGrown,
+  occupantOf,
+} from '../systems/propagation';
+import { sellItem, buyItem } from '../systems/market';
+import { placeDecor, pickUpDecor, nearestDecor } from '../systems/decor';
 
-export type InteractableKind = 'discoveryPoint' | 'toolPickup' | 'station' | 'greenhouseDoor' | 'greenhouseExit';
+export type InteractableKind = 'spot' | 'wildPlant' | 'market' | 'lantern' | 'greenhouseDoor' | 'greenhouseExit' | 'bed' | 'display';
 
 export interface Interactable {
   kind: InteractableKind;
@@ -47,21 +53,29 @@ export interface Interactable {
 export interface ToastEvent {
   id: string;
   text: string;
-  kind: 'info' | 'discovery' | 'growth';
+  kind: 'info' | 'discovery' | 'growth' | 'hint' | 'coins';
 }
 
 const AUTOSAVE_MS = 8000;
 const MOVE_SPEED = 3.4; // tiles per second
 const INTERACT_RANGE = 1.3;
+const NOTICE_RANGE = 2.2;
+const LUSH_REFRESH_MS = 1500;
 
-const STAGE_RANK: Record<GrowthStage, number> = { WILD: 0, CULTIVATED: 1, IMPROVED: 2, MATURE: 3, COMPLETE: 4 };
-
-function welcomeBackMessage(gameMinutes: number, plantsThatGrew: number): string {
+function spanText(gameMinutes: number): string {
   const hours = gameMinutes / 60;
-  const span = hours >= 36 ? `${Math.round(hours / 24)} days` : hours >= 20 ? 'about a day' : hours >= 1.5 ? `${Math.round(hours)} hours` : 'a little while';
-  if (plantsThatGrew === 0) return `Welcome back — ${span} passed out here.`;
-  const plants = plantsThatGrew === 1 ? 'one of your plants' : `${plantsThatGrew} of your plants`;
-  return `Welcome back — ${span} passed, and ${plants} grew while you were away.`;
+  return hours >= 36 ? `${Math.round(hours / 24)} days` : hours >= 20 ? 'about a day' : hours >= 1.5 ? `${Math.round(hours)} hours` : 'a little while';
+}
+
+/** "the Meadow" — for use mid-sentence. */
+export function zoneLabel(z: ZoneId): string {
+  return ZONES[z].name.replace(/^The /, 'the ');
+}
+
+function listZones(zones: string[]): string {
+  const names = zones.map((z) => ZONES[z as ZoneId].name.replace(/^The /, 'the '));
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 export class Game {
@@ -75,17 +89,19 @@ export class Game {
   canvas: HTMLCanvasElement;
   obstacles: Obstacle[];
   blockingSet: Set<string>;
+  indoorSolid: Set<string>;
   nearest: Interactable | null = null;
+  lush: LushField;
   onToast: ((t: ToastEvent) => void) | null = null;
   onStateTouched: (() => void) | null = null;
-  onOpenStation: ((stationId: string) => void) | null = null;
+  onOpenGreenhouse: ((target: { kind: 'bed' | 'display'; id: string }) => void) | null = null;
+  onOpenMarket: (() => void) | null = null;
   onFrame: (() => void) | null = null;
   private lastFrame = performance.now();
   private autosaveAcc = 0;
-  private alertAcc = 0;
-  private observeAcc = 0;
-  private seenAlertIds = new Set<string>();
-  private ecosystemCarry = 0;
+  private spreadCarry = 0;
+  private lushAcc = 0;
+  private lushDirty = true;
   private started = false;
   private rafId = 0;
   /** Game-minute timestamp until which Ellen renders in her brief collect/crouch pose. */
@@ -100,10 +116,10 @@ export class Game {
     const { state, isNew } = loadOrCreate();
     this.state = state;
     this.isNew = isNew;
-    if (Object.keys(this.state.ecosystem).length === 0) initEcosystem(this.state);
-    this.seenAlertIds = new Set(this.state.toastSeen);
     this.obstacles = generateObstacles();
     this.blockingSet = buildBlockingSet(this.obstacles);
+    this.indoorSolid = indoorBlockingSet(this.state.owned);
+    this.lush = computeLushness(this.state);
 
     this.input.onInteract(() => this.interactWithNearest());
     window.addEventListener('resize', this.handleResize);
@@ -136,6 +152,9 @@ export class Game {
   start() {
     this.started = true;
     this.lastFrame = performance.now();
+    if (this.isNew) {
+      this.hint('start', 'Wild houseplants grow in patches all over the valley. Walk up to one and take a cutting.');
+    }
     const loop = (now: number) => {
       const dtMs = Math.min(100, now - this.lastFrame);
       this.lastFrame = now;
@@ -159,42 +178,102 @@ export class Game {
     this.onToast?.({ id: makeUid('toast'), text, kind });
   }
 
+  /** One-time guidance, shown the first time it's relevant and never again. */
+  hint(id: string, text: string): boolean {
+    if (this.state.hints.includes(id)) return false;
+    this.state.hints.push(id);
+    this.pushToast(text, 'hint');
+    return true;
+  }
+
+  /** Open outdoor ground: no tree/rock, not the house, stall or a wild patch. */
+  isOpenGround = (tx: number, ty: number): boolean => {
+    if (this.blockingSet.has(`${tx},${ty}`)) return false;
+    if (rectContains(GREENHOUSE_FOOTPRINT, tx, ty) || rectContains(MARKET_STALL, tx, ty)) return false;
+    if (tx === GREENHOUSE_DOOR.x && (ty === GREENHOUSE_DOOR.y || ty === GREENHOUSE_DOOR.y + 1)) return false;
+    return !DISCOVERY_SPOTS.some((s) => s.x === tx && s.y === ty);
+  };
+
+  /** Advances the living world by `elapsed` game-minutes and reports what changed. */
+  private simulate(elapsed: number, offline: boolean) {
+    const result = advanceWorld(this.state, elapsed, this.spreadCarry, this.isOpenGround);
+    this.spreadCarry = result.carry;
+    const now = this.state.clock.totalMinutes;
+    if (result.ups.length || result.spreads.length) this.lushDirty = true;
+
+    const grew = new Set<string>();
+    for (const up of result.ups) {
+      const plant = this.state.plants[up.plantId];
+      if (!plant) continue;
+      grew.add(plant.id);
+      const established = creditGrown(this.state, plant.id, now);
+      const def = PLANTS[plant.defId];
+      if (established) {
+        const first = this.hint(
+          'established',
+          `${def.name} is established! Lift one into your basket, then give it a pot in the greenhouse gallery — or plant it out in the wild, where it will grow and spread on its own.`
+        );
+        if (!first) this.pushToast(`${def.name} is now established — you know it well enough to display it or plant it out.`, 'discovery');
+      }
+      if (offline) continue;
+      const name = specimenName(plant.defId, plant.variantId);
+      if (plant.location.kind === 'nursery' || plant.location.kind === 'display') {
+        if (up.to === 'young') {
+          this.pushToast(`Your ${name} cutting has rooted.`, 'growth');
+          this.hint('rooted', 'Rooted plants can give cuttings of their own. Grow two of a species to establish it.');
+        } else this.pushToast(`Your ${name} is now ${STAGE_LABEL[up.to].toLowerCase()}.`, 'growth');
+      } else if (up.to === 'large' && !plant.bornWild) {
+        this.pushToast(`Your ${name} in ${zoneLabel(plant.location.zone)} has grown large — it may start to spread.`, 'growth');
+      } else if (up.to === 'specimen' && !plant.bornWild) {
+        this.pushToast(`Your ${name} in ${zoneLabel(plant.location.zone)} is a magnificent specimen now.`, 'growth');
+      }
+    }
+
+    const sports = result.spreads.filter((s) => this.state.plants[s.childId]?.unnoticed);
+    if (!offline) {
+      if (result.spreads.length > 0) {
+        const child = this.state.plants[result.spreads[0].childId];
+        if (child?.location.kind === 'wild') {
+          this.hint('spread', `A ${PLANTS[child.defId].name} seedling has come up by itself in ${zoneLabel(child.location.zone)}. Your plants are spreading.`);
+        }
+      }
+      for (const s of sports) {
+        const child = this.state.plants[s.childId];
+        if (child?.location.kind === 'wild') this.pushToast(`Something unusual has sprouted among your ${PLANTS[child.defId].name} plants in ${zoneLabel(child.location.zone)}…`, 'discovery');
+      }
+    }
+
+    if (offline) {
+      const zones = [...new Set(result.spreads.map((s) => this.state.plants[s.childId]).filter((p) => p?.location.kind === 'wild').map((p) => (p!.location as { zone: string }).zone))];
+      const parts: string[] = [];
+      if (grew.size > 0) parts.push(grew.size === 1 ? 'one of your plants grew' : `${grew.size} of your plants grew`);
+      if (result.spreads.length > 0) parts.push(`${result.spreads.length} new seedling${result.spreads.length === 1 ? '' : 's'} came up in ${listZones(zones)}`);
+      const body = parts.length ? `: ${parts.join(', and ')}` : '';
+      this.pushToast(`Welcome back — ${spanText(elapsed)} passed${body}.`, 'info');
+      if (sports.length > 0) this.pushToast(`And something you’ve never seen before is growing among them. Go and look.`, 'discovery');
+    }
+  }
+
   private update(dtMs: number) {
     const dtSeconds = dtMs / 1000;
     // Wall-clock time, not the rAF timestamp: rAF time restarts near zero on
     // every page load, so it can't measure how long the player was away.
     const clockResult = advanceClock(this.state, Date.now());
-    const elapsedMinutes = clockResult.elapsedMinutes;
+    if (clockResult.elapsedMinutes > 0) this.simulate(clockResult.elapsedMinutes, clockResult.wasOffline);
 
-    if (elapsedMinutes > 0) {
-      this.ecosystemCarry = tickEcosystem(this.state, this.ecosystemCarry + elapsedMinutes);
-      let plantsThatGrew = 0;
-      for (const instance of Object.values(this.state.plantInstances)) {
-        if (instance.harvested || instance.stage === 'COMPLETE') continue;
-        const def = PLANTS[instance.defId];
-        if (!def) continue;
-        const result = tickPlantGrowth(def, instance, elapsedMinutes * GROWTH_TIME_SCALE);
-        if (!result.stageAdvanced) continue;
-        plantsThatGrew += 1;
-        const now = this.state.clock.totalMinutes;
-        if (STAGE_RANK[result.newStage] >= STAGE_RANK.IMPROVED) recordDeveloped(this.state, def.id, 'plant', now);
-        if (result.completed) {
-          recordMastered(this.state, def.id, 'plant', now);
-          if (!clockResult.wasOffline) this.pushToast(`${def.name} has reached its full potential — COMPLETE.`, 'growth');
-        } else if (!clockResult.wasOffline) {
-          this.pushToast(`${def.name} is now ${result.newStage.toLowerCase()}.`, 'growth');
-        }
-      }
-      if (clockResult.wasOffline) this.pushToast(welcomeBackMessage(elapsedMinutes, plantsThatGrew), 'info');
+    this.lushAcc += dtMs;
+    if (this.lushDirty && this.lushAcc > LUSH_REFRESH_MS) {
+      this.lush = computeLushness(this.state);
+      this.lushDirty = false;
+      this.lushAcc = 0;
     }
 
-    // Movement
     const move = this.input.getMoveVector();
     if (move.x !== 0 || move.y !== 0) {
       const dx = move.x * MOVE_SPEED * dtSeconds;
       const dy = move.y * MOVE_SPEED * dtSeconds;
       const blocked = this.state.player.inGreenhouse
-        ? (x: number, y: number) => isBlockedIndoor(x, y)
+        ? (x: number, y: number) => isBlockedIndoor(x, y, this.indoorSolid)
         : (x: number, y: number) => isBlockedOutdoor(x, y, this.blockingSet);
       const next = tryMove(this.state.player.x, this.state.player.y, dx, dy, blocked);
       this.state.player.x = next.x;
@@ -210,6 +289,7 @@ export class Game {
     this.updateNearestInteractable();
 
     if (!this.state.player.inGreenhouse) {
+      this.noticeNearbySports();
       const zone = zoneAt(Math.floor(this.state.player.x), Math.floor(this.state.player.y));
       const foxResult = tickFox(this.state, {
         playerZone: zone,
@@ -218,19 +298,14 @@ export class Game {
         inGreenhouse: false,
         dtSeconds,
         now: this.state.clock.totalMinutes,
-        discoveryPoints: DISCOVERY_POINTS,
+        discoveryPoints: DISCOVERY_SPOTS,
         rand: Math.random,
       });
       if (foxResult.revealedDiscoveryId) {
-        this.pushToast('The fox lingers here, watching something you can\'t quite see yet.', 'info');
+        this.pushToast('The fox lingers here, watching something growing in the shadows.', 'discovery');
         this.audio.playToolChime();
       }
       this.audio.setZone(zone, this.state.weather.condition === 'rain', dtSeconds);
-      this.observeAcc += elapsedMinutes;
-      if (this.observeAcc > 5) {
-        this.observeAcc = 0;
-        tickObservation(this.state, zone, this.state.clock.totalMinutes);
-      }
     } else {
       this.audio.setZone('greenhouse', false, dtSeconds);
     }
@@ -242,30 +317,11 @@ export class Game {
       playerMoving: move.x !== 0 || move.y !== 0,
       dtSeconds,
       now: this.state.clock.totalMinutes,
-      nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUndiscovered(),
+      nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUnseen(),
       rand: Math.random,
     });
-
-    // Scott potters around on his own clock, entirely independent of where
-    // Ellen and Scout are.
     tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random });
-
-    // The cat never leaves the greenhouse, so she ticks regardless of zone —
-    // she's simply not drawn while the player is outdoors.
     tickCat(this.state.cat, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random });
-
-    this.alertAcc += elapsedMinutes;
-    if (this.alertAcc > 15) {
-      this.alertAcc = 0;
-      const alerts = detectEcologicalAlerts(this.state);
-      for (const alert of alerts) {
-        if (!this.seenAlertIds.has(alert.id)) {
-          this.seenAlertIds.add(alert.id);
-          this.state.toastSeen.push(alert.id);
-          this.pushToast(alert.message, 'info');
-        }
-      }
-    }
 
     this.autosaveAcc += dtMs;
     if (this.autosaveAcc > AUTOSAVE_MS) {
@@ -274,19 +330,40 @@ export class Game {
     }
   }
 
-  private findNearbyUndiscovered(): { x: number; y: number } | null {
+  /**
+   * Walking up to a sport that came up by itself among your plants is a
+   * discovery in its own right: "what is that thing?"
+   */
+  private noticeNearbySports() {
+    const p = this.state.player;
+    for (const plant of Object.values(this.state.plants)) {
+      if (!plant.unnoticed || plant.location.kind !== 'wild') continue;
+      if (Math.hypot(plant.location.x - p.x, plant.location.y - p.y) > NOTICE_RANGE) continue;
+      plant.unnoticed = false;
+      const found = recordFound(this.state, plant.defId, plant.variantId, this.state.clock.totalMinutes);
+      const rarity = RARITY_LABEL[specimenRarity(plant.defId, plant.variantId)];
+      this.audio.playDiscoveryChime();
+      this.pushToast(
+        found.newVariant || found.newSpecies
+          ? `New variant: ${fullName(plant.defId, plant.variantId)} (${rarity}) — it sprouted by itself among your plants!`
+          : `A ${specimenName(plant.defId, plant.variantId)} has come up among your plants.`,
+        'discovery'
+      );
+      this.onStateTouched?.();
+    }
+  }
+
+  private findNearbyUnseen(): { x: number; y: number } | null {
     const p = this.state.player;
     let best: { x: number; y: number } | null = null;
-    let bestDist = 2.4;
-    for (const dp of DISCOVERY_POINTS) {
-      if (dp.foxLed && !this.state.discoveryPoints[dp.id]?.revealed) continue;
-      const entry = this.state.journal[dp.specimenId];
-      if (entry && entry.level !== 'UNDISCOVERED') continue;
-      const d = Math.hypot(p.x - (dp.x + 0.5), p.y - (dp.y + 0.5));
-      if (d < bestDist) {
-        bestDist = d;
-        best = { x: dp.x + 0.5, y: dp.y + 0.5 };
-      }
+    let bestDist = 2.6;
+    for (const spot of DISCOVERY_SPOTS) {
+      const d = Math.hypot(p.x - (spot.x + 0.5), p.y - (spot.y + 0.5));
+      if (d >= bestDist) continue;
+      const c = spotContent(this.state, spot);
+      if (!c || hasFound(this.state, c.defId, c.variantId)) continue;
+      bestDist = d;
+      best = { x: spot.x + 0.5, y: spot.y + 0.5 };
     }
     return best;
   }
@@ -307,6 +384,9 @@ export class Game {
     p.y = GREENHOUSE_EXIT.y - 1.5;
     p.facing = 'up';
     this.bringScoutAlong();
+    if (this.state.basket.some((b) => b.growth === 0)) {
+      this.hint('pot', 'Pot your cutting in one of the nursery beds on the left. It will root and grow on its own.');
+    }
   }
 
   private exitGreenhouse() {
@@ -333,126 +413,229 @@ export class Game {
     const p = this.state.player;
     let best: Interactable | null = null;
     let bestDist = INTERACT_RANGE;
+    const now = this.state.clock.totalMinutes;
 
-    const consider = (i: Interactable, x: number, y: number) => {
-      const d = Math.hypot(p.x - (x + 0.5), p.y - (y + 0.5));
-      if (d < bestDist) {
+    const consider = (i: Interactable, cx: number, cy: number, range = INTERACT_RANGE) => {
+      const d = Math.hypot(p.x - cx, p.y - cy);
+      if (d < Math.min(bestDist, range)) {
         bestDist = d;
         best = i;
       }
     };
 
     if (!p.inGreenhouse) {
-      for (const dp of DISCOVERY_POINTS) {
-        const available = isDiscoveryAvailable(this.state, dp);
-        if (dp.foxLed && !this.state.discoveryPoints[dp.id]?.revealed) continue;
-        const def = dp.specimenKind === 'plant' ? PLANTS[dp.specimenId] : dp.specimenKind === 'fungus' ? FUNGI[dp.specimenId] : MATERIALS[dp.specimenId];
-        const known = this.state.journal[dp.specimenId]?.level && this.state.journal[dp.specimenId].level !== 'UNDISCOVERED';
-        const label = available ? `Collect ${known ? def?.name ?? '???' : '???'}` : 'Not ready to collect yet';
-        consider({ kind: 'discoveryPoint', id: dp.id, x: dp.x, y: dp.y, label, available }, dp.x, dp.y);
+      for (const spot of DISCOVERY_SPOTS) {
+        const c = spotContent(this.state, spot);
+        if (!c) continue;
+        const seen = hasFound(this.state, c.defId, c.variantId);
+        const known = hasFound(this.state, c.defId);
+        const label = seen ? `Take a cutting — ${specimenName(c.defId, c.variantId)}` : known ? `Take a cutting — an unusual ${PLANTS[c.defId].name}?` : 'Take a cutting — something you’ve never seen';
+        consider({ kind: 'spot', id: spot.id, x: spot.x, y: spot.y, label, available: true }, spot.x + 0.5, spot.y + 0.5);
+      }
+      for (const plant of Object.values(this.state.plants)) {
+        if (plant.location.kind !== 'wild') continue;
+        const block = cuttingBlockReason(this.state, plant, now);
+        const name = specimenName(plant.defId, plant.variantId);
+        const label =
+          block === 'not-rooted'
+            ? `${name} seedling — too young for cuttings`
+            : block === 'recovering'
+              ? `${name} — recovering from its last cutting`
+              : `Take a cutting from ${name}`;
+        consider({ kind: 'wildPlant', id: plant.id, x: plant.location.x, y: plant.location.y, label, available: !block || block === 'basket-full' }, plant.location.x, plant.location.y, 1.0);
       }
       for (const tp of TOOL_PICKUPS) {
-        if ((this.state.tools[tp.tool] ?? 0) >= tp.tier) continue;
-        if (!meetsRequirement(this.state, tp.requiresToolTier)) continue;
-        consider({ kind: 'toolPickup', id: tp.id, x: tp.x, y: tp.y, label: `Pick up ${TOOLS[tp.tool].tiers[tp.tier - 1].name}`, available: true }, tp.x, tp.y);
+        if (this.state.tools[tp.tool]) continue;
+        consider({ kind: 'lantern', id: tp.id, x: tp.x, y: tp.y, label: 'Pick up the old lantern', available: true }, tp.x + 0.5, tp.y + 0.5);
       }
+      const mx = MARKET_STALL.x + MARKET_STALL.w / 2;
+      const my = MARKET_STALL.y + 1.1;
+      consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Farmer’s Market', available: true }, mx, my, 1.6);
       if (Math.hypot(p.x - (GREENHOUSE_DOOR.x + 0.5), p.y - (GREENHOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
         best = { kind: 'greenhouseDoor', id: 'door', x: GREENHOUSE_DOOR.x, y: GREENHOUSE_DOOR.y, label: 'Enter the Greenhouse', available: true };
       }
     } else {
-      for (const station of STATIONS) {
-        consider({ kind: 'station', id: station.id, x: station.x, y: station.y, label: this.stationLabel(station), available: true }, station.x, station.y);
+      for (const bed of NURSERY_BEDS) {
+        if (bed.requires && !this.state.owned.includes(bed.requires)) continue;
+        const plant = occupantOf(this.state, { bedId: bed.id });
+        const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : 'Empty nursery bed';
+        consider({ kind: 'bed', id: bed.id, x: bed.x, y: bed.y, label, available: true }, bed.x + 0.5, bed.y + 0.5);
+      }
+      for (const slot of DISPLAY_SLOTS) {
+        if (slot.requires && !this.state.owned.includes(slot.requires)) continue;
+        const plant = occupantOf(this.state, { slotId: slot.id });
+        const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : 'Empty display spot';
+        const cy = slot.kind === 'hanging' ? slot.y + 1.2 : slot.y + 0.5;
+        consider({ kind: 'display', id: slot.id, x: slot.x, y: slot.y, label, available: true }, slot.x + 0.5, cy);
       }
       consider(
         { kind: 'greenhouseExit', id: 'exit', x: GREENHOUSE_EXIT.x, y: GREENHOUSE_EXIT.y, label: 'Step Outside', available: true },
-        GREENHOUSE_EXIT.x,
-        GREENHOUSE_EXIT.y
+        GREENHOUSE_EXIT.x + 0.5,
+        GREENHOUSE_EXIT.y + 0.5
       );
     }
-
     this.nearest = best;
-  }
-
-  private stationLabel(station: StationDef): string {
-    const occupied = this.state.stationOccupancy[station.id];
-    if (station.kind === 'growBed') {
-      if (!occupied) return 'Empty Growing Bed';
-      const inst = this.state.plantInstances[occupied];
-      const def = PLANTS[inst.defId];
-      return `${def?.name ?? 'Plant'} — ${inst.stage}`;
-    }
-    const names: Record<string, string> = {
-      propagationBench: 'Propagation Bench',
-      seedStorage: 'Seed Storage',
-      soilStation: 'Soil Station',
-      compost: 'Compost Bin',
-      research: 'Research Bench',
-      display: 'Specimen Display',
-    };
-    return names[station.kind] ?? station.name;
   }
 
   interactWithNearest() {
     this.audio.init();
     const n = this.nearest;
     if (!n) return;
-    if (n.kind === 'discoveryPoint') {
-      const dp = DISCOVERY_POINTS.find((d) => d.id === n.id)!;
-      const result = collectAt(this.state, dp);
-      if (result.success) {
-        this.actionAnimUntil = this.state.clock.totalMinutes + 1.4;
+    const now = this.state.clock.totalMinutes;
+    if (n.kind === 'spot') {
+      const spot = DISCOVERY_SPOTS.find((d) => d.id === n.id)!;
+      const result = collectSpot(this.state, spot, now);
+      if (result.ok && result.content) {
+        this.actionAnimUntil = now + 1.4;
         this.audio.playDiscoveryChime();
-        const def = dp.specimenKind === 'plant' ? PLANTS[dp.specimenId] : dp.specimenKind === 'fungus' ? FUNGI[dp.specimenId] : MATERIALS[dp.specimenId];
-        const name = result.isNewIdentification || result.isNewDiscovery ? def?.name ?? 'something new' : def && 'name' in def ? def.name : 'a specimen';
-        this.pushToast(result.isNewDiscovery ? `New discovery: ${name}` : `Collected ${name}`, result.isNewDiscovery ? 'discovery' : 'info');
-      } else if (result.reason === 'inventory-full') {
+        const { defId, variantId } = result.content;
+        const name = specimenName(defId, variantId);
+        const rarity = specimenRarity(defId, variantId);
+        const rare = rarityRank(rarity) >= 2 ? ` ${RARITY_LABEL[rarity]}!` : '';
+        if (result.newSpecies) this.pushToast(`New discovery: ${name}.${rare}`, 'discovery');
+        else if (result.newVariant) this.pushToast(`New variant: ${fullName(defId, variantId)}.${rare}`, 'discovery');
+        else this.pushToast(`Took a cutting of ${name}.`, 'info');
+        this.hint('firstCutting', 'Bring your cutting home to the greenhouse and pot it in a nursery bed.');
+        if (this.state.basket.length >= 3) this.hint('market', 'The market stall down the path buys plants — and sells pots, shelves and more. Rare plants fetch a lot.');
+        this.lushDirty = true;
+      } else if (result.reason === 'basket-full') {
         this.pushToast('Your basket is full.', 'info');
       }
-    } else if (n.kind === 'toolPickup') {
-      const tp = TOOL_PICKUPS.find((t) => t.id === n.id)!;
-      unlockTool(this.state, tp.tool, tp.tier);
+    } else if (n.kind === 'wildPlant') {
+      this.cutFrom(n.id);
+    } else if (n.kind === 'lantern') {
+      this.state.tools.lantern = 1;
       this.audio.playToolChime();
-      this.pushToast(`Found: ${TOOLS[tp.tool].tiers[tp.tier - 1].name}. ${tp.flavor}`, 'discovery');
+      this.pushToast(`Found an old lantern. ${TOOL_PICKUPS[0].flavor}`, 'discovery');
+    } else if (n.kind === 'market') {
+      this.onOpenMarket?.();
     } else if (n.kind === 'greenhouseDoor') {
       this.enterGreenhouse();
     } else if (n.kind === 'greenhouseExit') {
       this.exitGreenhouse();
-    } else if (n.kind === 'station') {
-      this.onOpenStation?.(n.id);
+    } else if (n.kind === 'bed' || n.kind === 'display') {
+      this.onOpenGreenhouse?.({ kind: n.kind, id: n.id });
     }
     this.onStateTouched?.();
   }
 
-  // ---- Greenhouse actions invoked by UI ----
+  // ---- Actions invoked by the UI ----
 
-  plantAtStation(stationId: string, inventoryUid: string, conditions: GrowConditions = DEFAULT_CONDITIONS) {
-    const item = this.state.inventory.find((i) => i.uid === inventoryUid);
-    if (!item || item.kind !== 'plant' || !item.traits) return;
-    if (this.state.stationOccupancy[stationId]) return;
-    plantSpecimen(this.state, item.defId, item.traits, stationId, this.state.clock.totalMinutes, conditions);
-    removeItem(this.state, inventoryUid);
-    recordCultivated(this.state, item.defId, 'plant', this.state.clock.totalMinutes);
-    this.pushToast(`Planted ${PLANTS[item.defId]?.name}.`, 'growth');
+  cutFrom(plantId: string) {
+    const plant = this.state.plants[plantId];
+    if (!plant) return;
+    const now = this.state.clock.totalMinutes;
+    const block = cuttingBlockReason(this.state, plant, now);
+    if (block === 'basket-full') return this.pushToast('Your basket is full.', 'info');
+    if (block === 'not-rooted') return this.pushToast('It needs to root and grow a little before you can take cuttings.', 'info');
+    if (block === 'recovering') return this.pushToast('It’s still recovering from the last cutting.', 'info');
+    const res = takeCutting(this.state, plantId, now);
+    if (!res) return;
+    this.actionAnimUntil = now + 1.4;
+    this.audio.playDiscoveryChime();
+    const name = specimenName(res.item.defId, res.item.variantId);
+    if (res.sport) {
+      const rarity = RARITY_LABEL[specimenRarity(res.item.defId, res.item.variantId)];
+      this.pushToast(`${res.newVariant ? 'New variant! ' : ''}This cutting came out different — a ${fullName(res.item.defId, res.item.variantId)} (${rarity}).`, 'discovery');
+    } else {
+      this.pushToast(`Took a cutting of ${name}.`, 'info');
+    }
     this.onStateTouched?.();
   }
 
-  setStationConditions(stationId: string, conditions: GrowConditions) {
-    const instId = this.state.stationOccupancy[stationId];
-    if (!instId) return;
-    const inst = this.state.plantInstances[instId];
-    inst.conditions = conditions;
+  potInBed(uid: string, bedId: string) {
+    const plant = potInNursery(this.state, uid, bedId, this.state.clock.totalMinutes);
+    if (!plant) return;
+    this.pushToast(`Potted ${specimenName(plant.defId, plant.variantId)} in the nursery.`, 'growth');
     this.onStateTouched?.();
   }
 
-  harvestStation(stationId: string) {
-    const instId = this.state.stationOccupancy[stationId];
-    if (!instId) return;
-    const inst = this.state.plantInstances[instId];
-    if (inst.stage !== 'COMPLETE') return;
-    inst.harvested = true;
-    this.state.stationOccupancy[stationId] = null;
-    this.pushToast(`${PLANTS[inst.defId]?.name} moved to your collection.`, 'info');
+  display(uid: string, slotId: string, potId: string) {
+    const plant = placeOnDisplay(this.state, uid, slotId, potId, this.state.clock.totalMinutes);
+    if (!plant) return;
+    this.pushToast(`${specimenName(plant.defId, plant.variantId)} is on display. It will keep growing here.`, 'growth');
     this.onStateTouched?.();
+  }
+
+  lift(plantId: string) {
+    const item = liftPlant(this.state, plantId, this.state.clock.totalMinutes);
+    if (!item) return this.pushToast('Your basket is full.', 'info');
+    this.pushToast(`Lifted ${specimenName(item.defId, item.variantId)} into your basket.`, 'info');
+    this.onStateTouched?.();
+  }
+
+  changePot(plantId: string, potId: string) {
+    setPot(this.state, plantId, potId);
+    this.onStateTouched?.();
+  }
+
+  /** Where a plant would go if planted right now: just ahead of Ellen's feet. */
+  plantingSpot(): { x: number; y: number; zone: OutdoorZoneId } | null {
+    const p = this.state.player;
+    if (p.inGreenhouse) return null;
+    const off: Record<string, [number, number]> = { up: [0, -0.7], down: [0, 0.6], left: [-0.7, 0.1], right: [0.7, 0.1] };
+    const [dx, dy] = off[p.facing];
+    const x = p.x + dx;
+    const y = p.y + dy;
+    const zone = zoneAt(Math.floor(x), Math.floor(y));
+    if (zone === 'greenhouse' || !canPlantAt(this.state, x, y, this.isOpenGround)) return null;
+    return { x, y, zone };
+  }
+
+  plantHere(uid: string) {
+    const where = this.plantingSpot();
+    if (!where) return this.pushToast('There’s no room to plant right here. Try a patch of open ground.', 'info');
+    const plant = plantOutdoors(this.state, uid, where.x, where.y, where.zone, this.state.clock.totalMinutes);
+    if (!plant) return;
+    this.lushDirty = true;
+    this.lushAcc = LUSH_REFRESH_MS;
+    this.actionAnimUntil = this.state.clock.totalMinutes + 1.4;
+    const native = PLANTS[plant.defId].habitat.includes(where.zone);
+    this.pushToast(
+      `Planted ${specimenName(plant.defId, plant.variantId)} in ${zoneLabel(where.zone)}.${native ? ' It’s at home here and will grow fast.' : ''}`,
+      'growth'
+    );
+    this.hint('plantedOut', 'It’s part of the landscape now. It will grow on its own — and once it’s large, it will start to spread.');
+    this.onStateTouched?.();
+  }
+
+  sell(uid: string) {
+    const item = this.state.basket.find((i) => i.uid === uid);
+    const price = sellItem(this.state, uid, this.state.clock.totalMinutes);
+    if (price === null || !item) return;
+    this.audio.playToolChime();
+    this.pushToast(`Sold ${specimenName(item.defId, item.variantId)} for ${price} coins.`, 'coins');
+    this.onStateTouched?.();
+  }
+
+  buy(itemId: string) {
+    if (!buyItem(this.state, itemId)) return;
+    const item = findShopItem(itemId)!;
+    this.indoorSolid = indoorBlockingSet(this.state.owned);
+    this.audio.playToolChime();
+    this.pushToast(
+      item.category === 'garden' ? `Bought ${item.name}. Place it outdoors from your basket.` : item.category === 'greenhouse' ? `${item.name} — done. Go and see.` : `Bought ${item.name}.`,
+      'coins'
+    );
+    this.onStateTouched?.();
+  }
+
+  placeDecorHere(decorId: DecorId) {
+    const p = this.state.player;
+    if (p.inGreenhouse) return;
+    const x = p.x;
+    const y = p.y + 0.4;
+    if (!this.isOpenGround(Math.floor(x), Math.floor(y))) return this.pushToast('Not enough room here.', 'info');
+    if (placeDecor(this.state, decorId, x, y)) this.onStateTouched?.();
+  }
+
+  nearbyDecor() {
+    return this.state.player.inGreenhouse ? null : nearestDecor(this.state, this.state.player.x, this.state.player.y + 0.4, 1.2);
+  }
+
+  pickUpNearbyDecor() {
+    const d = this.nearbyDecor();
+    if (d && pickUpDecor(this.state, d.id)) this.onStateTouched?.();
   }
 
   /** The outdoor zone Ellen is standing in, or null while she's indoors. */
@@ -461,64 +644,15 @@ export class Game {
     return zoneAt(Math.floor(this.state.player.x), Math.floor(this.state.player.y));
   }
 
-  hasIntroduced(defId: string, zone: ZoneId): boolean {
-    return this.state.wildIntroductions.some((w) => w.defId === defId && w.zone === zone);
-  }
-
-  introduceToWild(inventoryUidOrInstanceId: string, fromPlantInstance: boolean) {
-    const zone = this.currentOutdoorZone();
-    if (!zone) return;
-    let defId: string | null = null;
-    if (fromPlantInstance) {
-      const inst = this.state.plantInstances[inventoryUidOrInstanceId];
-      if (!inst || inst.stage !== 'COMPLETE') return;
-      defId = inst.defId;
-    } else {
-      const item = this.state.inventory.find((i) => i.uid === inventoryUidOrInstanceId);
-      if (!item) return;
-      defId = item.defId;
-    }
-    const name = PLANTS[defId]?.name ?? defId;
-    if (this.hasIntroduced(defId, zone)) {
-      this.pushToast(`${name} already grows wild in ${ZONES[zone].name}.`, 'info');
-      return;
-    }
-    if (!fromPlantInstance) removeItem(this.state, inventoryUidOrInstanceId);
-    introduceSpecies(this.state, defId, zone, 18, this.state.clock.totalMinutes);
-    this.pushToast(`Introduced ${name} to ${ZONES[zone].name}. The ecosystem will respond in time.`, 'info');
-    this.onStateTouched?.();
-  }
-
-  propagateAtBench(instanceIdA: string, instanceIdB: string) {
-    const a = this.state.plantInstances[instanceIdA];
-    const b = this.state.plantInstances[instanceIdB];
-    if (!a || !b) return;
-    const defA = PLANTS[a.defId];
-    const defB = PLANTS[b.defId];
-    if (!defA || !defB) return;
-    const result = attemptPropagation({ instance: a, def: defA }, { instance: b, def: defB }, (id) => PLANTS[id]);
-    if (result.success && result.resultDefId && result.traits) {
-      const added = addItem(this.state, result.resultDefId, 'plant', this.state.clock.totalMinutes, { traits: result.traits });
-      if (added) {
-        recordPropagated(this.state, a.defId, 'plant', this.state.clock.totalMinutes);
-        recordPropagated(this.state, b.defId, 'plant', this.state.clock.totalMinutes);
-        if (result.isVariant) recordVariant(this.state, result.resultDefId, 'plant', this.state.clock.totalMinutes);
-        this.pushToast(result.message, result.isKnownRecipe || result.isVariant ? 'discovery' : 'growth');
-        this.audio.playDiscoveryChime();
-      } else {
-        this.pushToast('Your basket is full — make room before propagating.', 'info');
-      }
-    } else {
-      this.pushToast(result.message, 'info');
-    }
-    this.onStateTouched?.();
+  isEstablished(defId: string) {
+    return isEstablished(this.state, defId);
   }
 
   resetToNewGame() {
     this.state = resetGame();
-    initEcosystem(this.state);
-    this.seenAlertIds.clear();
-    this.ecosystemCarry = 0;
+    this.spreadCarry = 0;
+    this.indoorSolid = indoorBlockingSet(this.state.owned);
+    this.lush = computeLushness(this.state);
     saveGame(this.state);
     this.onStateTouched?.();
   }
@@ -529,7 +663,11 @@ export class Game {
     if (this.state.player.inGreenhouse) {
       this.renderer.renderIndoor(this.camera, this.state, now, crouching);
     } else {
-      this.renderer.renderOutdoor(this.camera, this.state, this.obstacles, now, crouching);
+      this.renderer.renderOutdoor(this.camera, this.state, this.obstacles, now, crouching, this.lush);
     }
   }
+}
+
+function stageName(plant: OwnedPlant) {
+  return (['cutting', 'young', 'established', 'large', 'specimen'] as const)[stageIndexOf(plant.growth)];
 }

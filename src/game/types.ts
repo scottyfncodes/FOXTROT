@@ -1,6 +1,6 @@
 // Core shared types for Foxtrot's data-driven systems.
-// Adding new content (plants, creatures, tools, zones) means adding data,
-// not touching these types or the systems that consume them.
+// Adding new content (species, variants, shop items, spots) means adding
+// data, not touching these types or the systems that consume them.
 
 export type ZoneId =
   | 'greenhouse'
@@ -11,150 +11,104 @@ export type ZoneId =
   | 'rockyClearing'
   | 'overgrownClearing';
 
-export type LightPref = 'fullSun' | 'partialShade' | 'fullShade';
-export type WaterPref = 'dry' | 'moist' | 'wet';
-export type TempPref = 'cool' | 'temperate' | 'warm';
-export type NutrientPref = 'lean' | 'moderate' | 'rich';
-export type SoilType = 'sandy' | 'loam' | 'clay' | 'peaty';
+export type OutdoorZoneId = Exclude<ZoneId, 'greenhouse'>;
 
-export interface GrowConditions {
-  soil: SoilType;
-  water: WaterPref;
-  light: LightPref;
-  temp: TempPref;
-  nutrients: NutrientPref;
-}
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'veryRare' | 'extremelyRare';
 
-/** Traits are 0-100 unless noted; they roll with variance and can mutate on propagation. */
-export interface TraitSet {
-  growthRate: number; // higher = faster stage progression
+/**
+ * How a plant is drawn. Each form is a distinct silhouette so a landscape
+ * reads differently depending on what the player planted there.
+ */
+export type PlantForm =
+  | 'fern' // feathery arching fronds
+  | 'splitleaf' // big fenestrated leaves (monstera)
+  | 'heart' // broad heart/arrow leaves on petioles (philodendron, alocasia)
+  | 'trailing' // vines that drape and creep (pothos, hoya)
+  | 'strappy' // arching ribbon leaves (spider plant)
+  | 'spear' // stiff upright blades (snake plant)
+  | 'rosette' // stacked round succulent rosette (echeveria)
+  | 'coin' // round leaves on long stems (pilea)
+  | 'patterned' // broad oval showpiece leaves (calathea, begonia)
+  | 'beads' // strings of pearls
+  | 'bloom'; // upright clump topped with flowers (peace lily, orchid)
+
+/**
+ * What kind of landscape a species pushes an area toward once it's
+ * planted out in numbers. Drives ground tint and ambient detail.
+ */
+export type LandscapeCharacter = 'fern' | 'jungle' | 'vine' | 'flower' | 'arid' | 'color' | 'strange';
+
+export type Variegation = 'none' | 'marble' | 'splash' | 'edge' | 'speckle' | 'stripe' | 'veins' | 'glow';
+
+export interface PlantLook {
+  /** Base leaf hue/saturation/lightness. */
+  hue: number;
+  sat: number;
+  light: number;
+  /** Accent: flowers, undersides, veins, stems. */
+  accentHue: number;
+  accentSat?: number;
+  accentLight?: number;
+  variegation: Variegation;
+  /** Colour used by variegation patterns, as `h s l` numbers. */
+  variegationColor?: [number, number, number];
+  /** Scales the whole plant. */
   size: number;
-  colorHue: number; // 0-360, purely cosmetic but inheritable
-  hardiness: number; // tolerance for imperfect conditions
-  yield: number; // seeds/cuttings produced on propagation
-  waterTolerance: number; // range width around preferred water
-  lightTolerance: number;
-  pollinatorAttraction: number; // draws pollinators, boosts local ecosystem
-  quality: number; // derived overall score, computed not stored directly
+  /** Leaf shape tweak: >1 wider leaves, <1 narrower. */
+  leafWidth?: number;
+  /** Adds ruffled/wavy leaf edges. */
+  ruffled?: boolean;
+  /** Draws flowers at established+ stages. */
+  flowers?: boolean;
 }
 
-export type GrowthStage = 'WILD' | 'CULTIVATED' | 'IMPROVED' | 'MATURE' | 'COMPLETE';
-
-export type DiscoveryLevel =
-  | 'UNDISCOVERED'
-  | 'DISCOVERED'
-  | 'IDENTIFIED'
-  | 'CULTIVATED'
-  | 'DEVELOPED'
-  | 'MASTERED'
-  | 'PROPAGATED'
-  | 'VARIANT_DISCOVERED';
-
-export type SpecimenKind = 'plant' | 'fungus' | 'insect' | 'animal' | 'material' | 'unknown';
-
-export type ToolId = 'basket' | 'shears' | 'lens' | 'trowel' | 'lantern' | 'fieldKit';
-
-export interface ToolTierDef {
-  tier: number;
+export interface VariantDef {
+  id: string;
   name: string;
+  rarity: Rarity;
   description: string;
-  /** What this tier unlocks, shown to the player as a capability, not a gate. */
-  unlocks: string[];
+  /** Partial overrides of the species look. */
+  look: Partial<PlantLook>;
 }
 
-export interface ToolDef {
-  id: ToolId;
-  name: string;
-  description: string;
-  tiers: ToolTierDef[];
-}
-
-export type CollectMethod = 'pluck' | 'shears' | 'trowel' | 'byHand' | 'observe';
+export type SpotCondition = 'night' | 'rain' | null;
 
 export interface PlantDef {
   id: string;
   name: string;
-  kind: 'plant';
-  rarity: 'common' | 'uncommon' | 'rare' | 'unknown';
-  zones: ZoneId[];
+  latin: string;
+  form: PlantForm;
+  rarity: Rarity;
+  /** Regions where it grows wild, and where it thrives when planted out. */
+  habitat: OutdoorZoneId[];
+  landscape: LandscapeCharacter;
   description: string;
-  /** Shown before identification. */
-  silhouetteHint: string;
-  preferredConditions: GrowConditions;
-  baseTraits: Partial<TraitSet>;
-  collectMethod: CollectMethod;
-  requiresToolTier?: { tool: ToolId; tier: number };
-  /** Seeds may exist as a separate collectible found elsewhere in the wild. */
-  seedFoundSeparately?: boolean;
-  weatherRequirement?: 'rain' | 'clear' | 'night' | null;
-  stageDurations: Record<Exclude<GrowthStage, 'WILD'>, number>; // in game-minutes of matched conditions
-  propagatesTo?: string[]; // known hybrid results (for discovered recipes)
-  ecologyNotes: { known: string[]; unknown: string[] };
+  /** Shown in the collection before the species has been found. */
+  hint: string;
+  look: PlantLook;
+  /** First entry is always the standard form. */
+  variants: VariantDef[];
+  /** 0.6 (slow) – 1.4 (fast) growth multiplier. */
+  growthRate: number;
+  /** 0–1: how readily it seeds or creeps into new ground outdoors. */
+  spread: number;
+  /** Only found in the wild under these conditions. */
+  appearsWhen?: SpotCondition;
+  /** Needs the lantern to be noticed at all. */
+  needsLantern?: boolean;
+  /** Only ever found where the fox leads. */
+  foxOnly?: boolean;
 }
 
-export interface FungusDef {
-  id: string;
-  name: string;
-  kind: 'fungus';
-  rarity: 'common' | 'uncommon' | 'rare';
-  zones: ZoneId[];
-  description: string;
-  silhouetteHint: string;
-  weatherRequirement: 'rain' | 'clear' | 'night' | null;
-  requiresToolTier?: { tool: ToolId; tier: number };
-  ecologyNotes: { known: string[]; unknown: string[] };
-}
+export type ToolId = 'basket' | 'lantern';
 
-export type RelationType =
-  | 'predation'
-  | 'pollination'
-  | 'competition'
-  | 'shelter'
-  | 'soilEffect'
-  | 'foodSource';
-
-export interface EcosystemRelationship {
+export interface DiscoverySpot {
   id: string;
-  source: string; // species id (creature or plant)
-  target: string;
-  type: RelationType;
-  /** Positive = source benefits target's population; negative = suppresses it. */
-  effect: number;
-  description: string;
-  discovered: boolean;
-}
-
-export interface CreatureDef {
-  id: string;
-  name: string;
-  kind: 'insect' | 'animal';
-  zones: ZoneId[];
-  description: string;
-  silhouetteHint: string;
-  nocturnal?: boolean;
-  requiresToolTier?: { tool: ToolId; tier: number };
-  basePopulation: number;
-  ecologyNotes: { known: string[]; unknown: string[] };
-}
-
-export interface DiscoveryPoint {
-  id: string;
-  zone: ZoneId;
+  zone: OutdoorZoneId;
   x: number;
   y: number;
-  specimenId: string;
-  specimenKind: SpecimenKind;
-  requiresWeather?: 'rain' | 'clear' | 'night' | null;
-  requiresToolTier?: { tool: ToolId; tier: number };
-  /** If true, only revealed after the fox has led the player near it once. */
+  /** A fox-led spot stays hidden until the fox has shown it to you. */
   foxLed?: boolean;
-  respawns?: boolean; // seeds/materials that can be found again
-}
-
-export interface StationDef {
-  id: string;
-  name: string;
-  x: number;
-  y: number;
-  kind: 'growBed' | 'propagationBench' | 'seedStorage' | 'soilStation' | 'compost' | 'research' | 'display';
+  /** Restricts what can appear here to these species (otherwise the zone's habitat pool). */
+  pool?: string[];
 }
