@@ -19,6 +19,7 @@ export const ELLEN_APPEARANCE = {
   crochetScarf: '#c96a5a',
   crochetScarfAlt: '#e0a35a',
   lensGlint: '#cfe8e0',
+  blush: 'rgba(214,112,100,0.4)',
 };
 
 export const SCOUT_APPEARANCE = {

@@ -489,214 +489,464 @@ export class Renderer {
 
   /**
    * Ellen: a field botanist, not a generic sprite — vest, backpack, wide
-   * hat, satchel with a hand lens, and the recurring handmade detail, a
-   * crocheted scarf. `crouching` renders her brief collect/examine pose.
+   * hat, satchel with a hand lens, a long dark ponytail, and the recurring
+   * handmade detail, a crocheted scarf. `crouching` renders her brief
+   * collect/examine pose.
+   *
+   * Layering depends on facing: from the front her face is always on top and
+   * the ponytail hangs behind her; from behind the ponytail falls down her
+   * back over the pack; in profile it streams off the back of her head.
    */
   private drawEllen(camera: Camera, x: number, y: number, facing: Facing, now: number, moving: boolean, crouching: boolean) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
     const dir = Renderer.DIR[facing];
-    const sideFlip = facing === 'left' ? -1 : 1;
-    const facingBack = facing === 'up';
+    const s = facing === 'left' ? -1 : 1;
+    const isSide = facing === 'left' || facing === 'right';
+    const isBack = facing === 'up';
+    const isFront = facing === 'down';
 
     const walkPhase = moving ? now * 0.013 : now * 0.003;
     const walkAmp = moving ? 1 : 0.3;
-    const bob = Math.sin(walkPhase) * tile * 0.02 * walkAmp;
-    const legSwing = moving ? Math.sin(walkPhase * 2) * tile * 0.06 : 0;
+    const bob = Math.abs(Math.sin(walkPhase)) * -tile * 0.025 * walkAmp;
+    const stride = moving ? Math.sin(walkPhase) : 0;
     const squash = crouching ? 0.72 : 1;
     const lift = crouching ? tile * 0.1 : 0;
 
     const cx = screen.x;
     const cy = screen.y + bob + lift;
+    const footY = screen.y + tile * 0.25;
 
     // A thin dark outline on every silhouette-defining shape, so she reads
     // as a distinct figure against any background at small zoom instead of
     // blurring into a same-toned blob.
     const OUTLINE = 'rgba(28,20,12,0.55)';
-    const outlineWidth = Math.max(1, tile * 0.018);
+    const outlineWidth = Math.max(1, tile * 0.016);
+    const outline = () => {
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = outlineWidth;
+      ctx.stroke();
+    };
+
+    // Slim, upright proportions: narrow shoulders, a clearly tapered waist,
+    // and legs rather than a single pants blob. Profile is narrower still.
+    const shoulderY = cy - tile * 0.17 * squash;
+    const waistY = cy + tile * 0.06 * squash;
+    const hipY = cy + tile * 0.12 * squash;
+    const shoulderW = tile * (isSide ? 0.075 : 0.11);
+    const waistW = tile * (isSide ? 0.058 : 0.068);
+    const hipW = tile * (isSide ? 0.062 : 0.074);
+    const headR = tile * 0.1;
+    const headY = cy - tile * 0.3 * squash;
 
     // shadow
     ctx.fillStyle = 'rgba(0,0,0,0.24)';
     ctx.beginPath();
-    ctx.ellipse(cx, screen.y + tile * 0.26, tile * 0.19, tile * 0.08, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, screen.y + tile * 0.26, tile * (isSide ? 0.13 : 0.12), tile * 0.05, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // backpack, slung opposite the way she's facing
-    const packX = cx - dir[0] * tile * 0.16;
-    const packY = cy - dir[1] * tile * 0.1 - tile * 0.06;
-    ctx.fillStyle = ELLEN_APPEARANCE.backpack;
-    ctx.beginPath();
-    ctx.ellipse(packX, packY, tile * 0.14, tile * 0.17 * squash, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = outlineWidth;
-    ctx.stroke();
-    ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
-    ctx.lineWidth = Math.max(1, tile * 0.02);
-    ctx.beginPath();
-    ctx.moveTo(packX - tile * 0.12, packY - tile * 0.1);
-    ctx.lineTo(packX + tile * 0.12, packY - tile * 0.1);
-    ctx.stroke();
+    const tailSway = Math.sin(walkPhase - 0.8) * tile * 0.03 * walkAmp;
 
-    // boots, a narrower stance to match a leaner build
-    ctx.fillStyle = ELLEN_APPEARANCE.boots;
-    ctx.beginPath();
-    ctx.ellipse(cx - tile * 0.06, screen.y + tile * 0.24 + legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(cx + tile * 0.06, screen.y + tile * 0.24 - legSwing, tile * 0.06, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    const drawPack = () => {
+      const packX = isSide ? cx - s * tile * 0.1 : cx;
+      const packY = cy - tile * 0.04 * squash;
+      const packW = tile * (isSide ? 0.065 : 0.1);
+      const packH = tile * 0.13 * squash;
+      ctx.fillStyle = ELLEN_APPEARANCE.backpack;
+      ctx.beginPath();
+      ctx.roundRect(packX - packW, packY - packH, packW * 2, packH * 2, tile * 0.04);
+      ctx.fill();
+      outline();
+      // flap + buckle
+      ctx.fillStyle = ELLEN_APPEARANCE.backpackStrap;
+      ctx.beginPath();
+      ctx.roundRect(packX - packW, packY - packH, packW * 2, packH * 0.7, tile * 0.04);
+      ctx.fill();
+      if (isBack) {
+        ctx.fillStyle = '#cbb78a';
+        ctx.fillRect(packX - tile * 0.012, packY - packH * 0.35, tile * 0.024, tile * 0.03);
+      }
+    };
 
-    // pants sliver, narrowed to meet the tapered waist above
-    ctx.fillStyle = ELLEN_APPEARANCE.pants;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + tile * 0.19 * squash, tile * 0.115, tile * 0.1 * squash, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    const drawLegs = () => {
+      const legW = Math.max(2, tile * 0.05);
+      ctx.lineCap = 'round';
+      const legs: Array<[number, number]> = isSide
+        ? [[-1, -stride], [1, stride]]
+        : [[-1, stride], [1, -stride]];
+      for (const [side, swing] of legs) {
+        const topX = isSide ? cx + side * tile * 0.012 : cx + side * tile * 0.038;
+        const footX = isSide ? topX + s * swing * tile * 0.07 : topX;
+        const fy = isSide ? footY : footY - Math.max(0, swing) * tile * 0.03;
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = legW + outlineWidth * 2;
+        ctx.beginPath();
+        ctx.moveTo(topX, hipY);
+        ctx.lineTo(footX, fy - tile * 0.03);
+        ctx.stroke();
+        ctx.strokeStyle = ELLEN_APPEARANCE.pants;
+        ctx.lineWidth = legW;
+        ctx.stroke();
+        // boot
+        ctx.fillStyle = ELLEN_APPEARANCE.boots;
+        ctx.beginPath();
+        if (isSide) {
+          ctx.ellipse(footX + s * tile * 0.015, fy, tile * 0.045, tile * 0.03, 0, 0, Math.PI * 2);
+        } else {
+          ctx.ellipse(footX, fy, tile * 0.034, tile * 0.034, 0, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        outline();
+      }
+      ctx.lineCap = 'butt';
+    };
 
-    // vest / torso — tapered from shoulders to waist rather than a single
-    // round blob, so she reads as fit and upright instead of dumpy.
-    const shoulderY = cy - tile * 0.19 * squash;
-    const waistY = cy + tile * 0.17 * squash;
-    const shoulderW = tile * 0.155;
-    const waistW = tile * 0.095;
-    ctx.fillStyle = ELLEN_APPEARANCE.vest;
-    ctx.beginPath();
-    ctx.moveTo(cx - shoulderW, shoulderY);
-    ctx.quadraticCurveTo(cx - shoulderW * 0.9, cy - tile * 0.02 * squash, cx - waistW, waistY);
-    ctx.lineTo(cx + waistW, waistY);
-    ctx.quadraticCurveTo(cx + shoulderW * 0.9, cy - tile * 0.02 * squash, cx + shoulderW, shoulderY);
-    ctx.quadraticCurveTo(cx, shoulderY - tile * 0.035 * squash, cx - shoulderW, shoulderY);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = outlineWidth;
-    ctx.stroke();
-    ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
-    ctx.lineWidth = Math.max(1, tile * 0.02);
-    ctx.beginPath();
-    ctx.moveTo(cx, shoulderY);
-    ctx.lineTo(cx, waistY - tile * 0.02 * squash);
-    ctx.stroke();
-
-    // shirt collar
-    ctx.fillStyle = ELLEN_APPEARANCE.shirt;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - tile * 0.16 * squash, tile * 0.07, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // crocheted scarf — the recurring handmade touch
-    ctx.strokeStyle = ELLEN_APPEARANCE.crochetScarf;
-    ctx.lineWidth = Math.max(2, tile * 0.045);
-    ctx.beginPath();
-    ctx.arc(cx, cy - tile * 0.15 * squash, tile * 0.1, 0.15 * Math.PI, 0.85 * Math.PI);
-    ctx.stroke();
-    ctx.strokeStyle = ELLEN_APPEARANCE.crochetScarfAlt;
-    ctx.lineWidth = Math.max(1, tile * 0.015);
-    for (let i = 0; i < 4; i++) {
-      const a = 0.22 * Math.PI + i * 0.16 * Math.PI;
-      const sx = cx + Math.cos(a) * tile * 0.1;
-      const sy = cy - tile * 0.15 * squash + Math.sin(a) * tile * 0.1;
+    // Slim shirt-sleeved arms, swinging opposite the legs.
+    const drawArm = (side: number, swing: number) => {
+      const armW = Math.max(2, tile * 0.04);
+      const sx = isSide ? cx + side * tile * 0.01 : cx + side * (shoulderW - tile * 0.01);
+      const sy = shoulderY + tile * 0.025;
+      const hx = isSide ? sx + s * swing * tile * 0.08 : sx + side * tile * 0.022;
+      const hy = isSide ? cy + tile * 0.07 * squash : cy + tile * 0.07 * squash - swing * tile * 0.025;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = armW + outlineWidth * 2;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + Math.cos(a) * tile * 0.02, sy + Math.sin(a) * tile * 0.02);
+      ctx.lineTo(hx, hy);
       ctx.stroke();
-    }
+      ctx.strokeStyle = ELLEN_APPEARANCE.shirt;
+      ctx.lineWidth = armW;
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      ctx.fillStyle = ELLEN_APPEARANCE.skin;
+      ctx.beginPath();
+      ctx.arc(hx, hy + tile * 0.012, tile * 0.024, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const drawTorso = () => {
+      ctx.fillStyle = ELLEN_APPEARANCE.vest;
+      ctx.beginPath();
+      ctx.moveTo(cx - shoulderW, shoulderY);
+      ctx.quadraticCurveTo(cx - waistW * 1.05, cy - tile * 0.04 * squash, cx - waistW, waistY);
+      ctx.quadraticCurveTo(cx - hipW, (waistY + hipY) / 2, cx - hipW, hipY);
+      ctx.lineTo(cx + hipW, hipY);
+      ctx.quadraticCurveTo(cx + hipW, (waistY + hipY) / 2, cx + waistW, waistY);
+      ctx.quadraticCurveTo(cx + waistW * 1.05, cy - tile * 0.04 * squash, cx + shoulderW, shoulderY);
+      ctx.quadraticCurveTo(cx, shoulderY - tile * 0.03 * squash, cx - shoulderW, shoulderY);
+      ctx.closePath();
+      ctx.fill();
+      outline();
+      // belt line
+      ctx.fillStyle = ELLEN_APPEARANCE.pants;
+      ctx.fillRect(cx - waistW, waistY - tile * 0.008, waistW * 2, tile * 0.03);
+      if (isFront) {
+        // open vest over the shirt
+        ctx.fillStyle = ELLEN_APPEARANCE.shirt;
+        ctx.beginPath();
+        ctx.moveTo(cx - tile * 0.03, shoulderY);
+        ctx.lineTo(cx + tile * 0.03, shoulderY);
+        ctx.lineTo(cx, waistY - tile * 0.01);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
+        ctx.lineWidth = Math.max(1, tile * 0.015);
+        ctx.stroke();
+      } else if (isSide) {
+        ctx.strokeStyle = ELLEN_APPEARANCE.vestTrim;
+        ctx.lineWidth = Math.max(1, tile * 0.015);
+        ctx.beginPath();
+        ctx.moveTo(cx + s * shoulderW * 0.7, shoulderY + tile * 0.01);
+        ctx.lineTo(cx + s * waistW * 0.8, waistY - tile * 0.01);
+        ctx.stroke();
+      }
+    };
+
+    // crocheted scarf — the recurring handmade touch
+    const drawScarf = () => {
+      const scarfY = shoulderY - tile * 0.005;
+      ctx.fillStyle = ELLEN_APPEARANCE.crochetScarf;
+      ctx.beginPath();
+      ctx.ellipse(cx, scarfY, tile * (isSide ? 0.055 : 0.07), tile * 0.03, 0, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+      if (!isBack) {
+        // a trailing end, knotted at the front
+        const endX = cx + (isSide ? s * tile * 0.035 : tile * 0.03);
+        ctx.beginPath();
+        ctx.moveTo(endX - tile * 0.018, scarfY);
+        ctx.lineTo(endX + tile * 0.018, scarfY);
+        ctx.lineTo(endX + tile * 0.012 + tailSway * 0.3, scarfY + tile * 0.1);
+        ctx.lineTo(endX - tile * 0.02 + tailSway * 0.3, scarfY + tile * 0.09);
+        ctx.closePath();
+        ctx.fill();
+        outline();
+      }
+      ctx.fillStyle = ELLEN_APPEARANCE.crochetScarfAlt;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.arc(cx + i * tile * (isSide ? 0.02 : 0.026), scarfY, Math.max(0.6, tile * 0.008), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
 
     // satchel + hand lens at the hip
-    const hipX = cx + sideFlip * tile * 0.13;
-    ctx.fillStyle = ELLEN_APPEARANCE.pouch;
-    ctx.beginPath();
-    ctx.ellipse(hipX, cy + tile * 0.05, tile * 0.06, tile * 0.07, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#cbb78a';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(hipX, cy + tile * 0.01, tile * 0.03, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = ELLEN_APPEARANCE.lensGlint;
-    ctx.beginPath();
-    ctx.arc(hipX, cy + tile * 0.01, tile * 0.015, 0, Math.PI * 2);
-    ctx.fill();
-
-    // head + face
-    const headY = cy - tile * 0.32 * squash;
-    ctx.fillStyle = ELLEN_APPEARANCE.skin;
-    ctx.beginPath();
-    ctx.arc(cx, headY, tile * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = ELLEN_APPEARANCE.hair;
-    ctx.beginPath();
-    ctx.arc(cx - dir[0] * tile * 0.02, headY + tile * 0.06, tile * 0.06, 0, Math.PI * 2);
-    ctx.fill();
-
-    // wide-brim field hat, sized to frame the head rather than bury it
-    ctx.fillStyle = ELLEN_APPEARANCE.hat;
-    ctx.beginPath();
-    ctx.ellipse(cx, headY - tile * 0.05, tile * 0.16, tile * 0.06, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = outlineWidth;
-    ctx.stroke();
-    ctx.fillStyle = ELLEN_APPEARANCE.hat;
-    ctx.beginPath();
-    ctx.ellipse(cx - dir[0] * tile * 0.02, headY - tile * 0.1, tile * 0.09, tile * 0.07, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = ELLEN_APPEARANCE.hatBand;
-    ctx.lineWidth = Math.max(1, tile * 0.025);
-    ctx.beginPath();
-    ctx.ellipse(cx - dir[0] * tile * 0.02, headY - tile * 0.045, tile * 0.09, tile * 0.035, 0, 0, Math.PI);
-    ctx.stroke();
-
-    // long dark ponytail, spilling out from under the back of the hat
-    const tailBaseX = cx - dir[0] * tile * 0.03;
-    const tailBaseY = headY + tile * 0.03;
-    const tailSway = Math.sin(walkPhase) * tile * 0.025 * walkAmp;
-    ctx.strokeStyle = ELLEN_APPEARANCE.hair;
-    ctx.lineWidth = Math.max(2, tile * 0.05);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(tailBaseX, tailBaseY);
-    ctx.quadraticCurveTo(
-      tailBaseX - dir[0] * tile * 0.03 + tailSway,
-      tailBaseY + tile * 0.15,
-      tailBaseX - dir[0] * tile * 0.05 + tailSway * 1.4,
-      tailBaseY + tile * 0.28
-    );
-    ctx.stroke();
-    ctx.lineCap = 'butt';
-
-    // eyes, drawn last so the hat brim never paints over her face
-    if (!facingBack) {
-      ctx.fillStyle = '#2a2018';
-      ctx.beginPath();
-      ctx.arc(cx + dir[0] * tile * 0.05 - tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.015, 0, Math.PI * 2);
-      ctx.arc(cx + dir[0] * tile * 0.05 + tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.015, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // backpack straps, visible over the shoulders from the front
-    if (facing === 'down') {
+    const drawSatchel = () => {
+      const hipX = isSide ? cx + s * tile * 0.03 : cx + tile * 0.1;
+      const py = hipY - tile * 0.02;
       ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
-      ctx.lineWidth = Math.max(1, tile * 0.025);
+      ctx.lineWidth = Math.max(1, tile * 0.014);
       ctx.beginPath();
-      ctx.moveTo(cx - tile * 0.1, cy - tile * 0.18 * squash);
-      ctx.lineTo(cx - tile * 0.05, cy + tile * 0.05);
-      ctx.moveTo(cx + tile * 0.1, cy - tile * 0.18 * squash);
-      ctx.lineTo(cx + tile * 0.05, cy + tile * 0.05);
+      ctx.moveTo(isSide ? cx - s * tile * 0.03 : cx - tile * 0.08, shoulderY + tile * 0.01);
+      ctx.lineTo(hipX, py - tile * 0.04);
       ctx.stroke();
+      ctx.fillStyle = ELLEN_APPEARANCE.pouch;
+      ctx.beginPath();
+      ctx.roundRect(hipX - tile * 0.04, py - tile * 0.04, tile * 0.08, tile * 0.07, tile * 0.02);
+      ctx.fill();
+      outline();
+      ctx.strokeStyle = '#cbb78a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(hipX, py - tile * 0.005, tile * 0.02, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = ELLEN_APPEARANCE.lensGlint;
+      ctx.beginPath();
+      ctx.arc(hipX, py - tile * 0.005, tile * 0.01, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    // long dark ponytail, gathered with a crocheted tie
+    const drawPonytail = (base: [number, number], ctrl: [number, number], tip: [number, number], width: number) => {
+      this.fillTaperedStrand(base, ctrl, tip, width, width * 0.35, ELLEN_APPEARANCE.hair, OUTLINE, outlineWidth);
+      ctx.fillStyle = ELLEN_APPEARANCE.crochetScarf;
+      ctx.beginPath();
+      ctx.arc(base[0], base[1], width * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+    };
+
+    const drawHead = () => {
+      // neck
+      ctx.fillStyle = ELLEN_APPEARANCE.skin;
+      ctx.fillRect(cx - tile * 0.025, headY + headR * 0.6, tile * 0.05, shoulderY - headY - headR * 0.4);
+
+      // hair mass (the whole back of her head)
+      ctx.fillStyle = ELLEN_APPEARANCE.hair;
+      ctx.beginPath();
+      ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+      if (isBack) return;
+
+      // face, set toward whichever way she's looking
+      const faceX = cx + (isSide ? s * headR * 0.28 : 0);
+      ctx.fillStyle = ELLEN_APPEARANCE.skin;
+      ctx.beginPath();
+      ctx.ellipse(faceX, headY + headR * 0.14, headR * (isSide ? 0.72 : 0.8), headR * 0.84, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if (isSide) {
+        // nose + ear
+        ctx.beginPath();
+        ctx.arc(cx + s * headR * 0.95, headY + headR * 0.22, headR * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx - s * headR * 0.1, headY + headR * 0.25, headR * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // side-swept fringe under the brim
+      ctx.fillStyle = ELLEN_APPEARANCE.hair;
+      ctx.beginPath();
+      if (isSide) {
+        ctx.moveTo(cx - s * headR * 0.2, headY - headR * 0.75);
+        ctx.quadraticCurveTo(cx + s * headR * 0.9, headY - headR * 0.75, cx + s * headR * 0.95, headY - headR * 0.25);
+        ctx.quadraticCurveTo(cx + s * headR * 0.4, headY - headR * 0.35, cx - s * headR * 0.05, headY - headR * 0.1);
+      } else {
+        ctx.moveTo(cx - headR * 0.85, headY + headR * 0.1);
+        ctx.quadraticCurveTo(cx - headR * 0.6, headY - headR * 0.75, cx + headR * 0.2, headY - headR * 0.72);
+        ctx.quadraticCurveTo(cx + headR * 0.75, headY - headR * 0.6, cx + headR * 0.88, headY - headR * 0.05);
+        ctx.quadraticCurveTo(cx + headR * 0.5, headY - headR * 0.4, cx - headR * 0.1, headY - headR * 0.35);
+        ctx.quadraticCurveTo(cx - headR * 0.55, headY - headR * 0.2, cx - headR * 0.85, headY + headR * 0.1);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // eyes, brows, blush, mouth — all below the brim, never under it
+      const eyeY = headY + headR * 0.12;
+      const eyeR = Math.max(1, headR * 0.13);
+      const eyes = isSide ? [cx + s * headR * 0.55] : [cx - headR * 0.36, cx + headR * 0.36];
+      ctx.fillStyle = '#2a2018';
+      for (const ex of eyes) {
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY, eyeR, eyeR * 1.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (tile >= 40) {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.arc(ex + eyeR * 0.35, eyeY - eyeR * 0.45, eyeR * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.strokeStyle = ELLEN_APPEARANCE.hair;
+        ctx.lineWidth = Math.max(1, headR * 0.08);
+        ctx.lineCap = 'round';
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.moveTo(ex - eyeR * 1.2, eyeY - eyeR * 2.1);
+          ctx.lineTo(ex + eyeR * 1.2, eyeY - eyeR * 2.3);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      }
+      ctx.fillStyle = ELLEN_APPEARANCE.blush;
+      const blushX = isSide ? [cx + s * headR * 0.45] : [cx - headR * 0.52, cx + headR * 0.52];
+      for (const bx of blushX) {
+        ctx.beginPath();
+        ctx.ellipse(bx, headY + headR * 0.45, headR * 0.17, headR * 0.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#8a4a3a';
+      ctx.lineWidth = Math.max(1, headR * 0.08);
+      ctx.beginPath();
+      const mouthX = isSide ? cx + s * headR * 0.62 : cx;
+      ctx.arc(mouthX, headY + headR * 0.5, headR * 0.16, 0.2 * Math.PI, 0.8 * Math.PI);
+      ctx.stroke();
+    };
+
+    // wide-brim field hat, sitting high enough to frame the face
+    const drawHat = () => {
+      const brimY = headY - headR * 0.62;
+      ctx.fillStyle = ELLEN_APPEARANCE.hat;
+      ctx.beginPath();
+      ctx.ellipse(cx + (isSide ? s * tile * 0.012 : 0), brimY, tile * (isSide ? 0.15 : 0.16), tile * 0.042, 0, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+      ctx.beginPath();
+      ctx.moveTo(cx - tile * 0.075, brimY);
+      ctx.quadraticCurveTo(cx - tile * 0.075, brimY - tile * 0.1, cx, brimY - tile * 0.1);
+      ctx.quadraticCurveTo(cx + tile * 0.075, brimY - tile * 0.1, cx + tile * 0.075, brimY);
+      ctx.closePath();
+      ctx.fill();
+      outline();
+      ctx.fillStyle = ELLEN_APPEARANCE.hatBand;
+      ctx.fillRect(cx - tile * 0.075, brimY - tile * 0.03, tile * 0.15, tile * 0.024);
+    };
+
+    const armSwing = stride;
+    if (isBack) {
+      drawLegs();
+      drawArm(-1, -armSwing);
+      drawArm(1, armSwing);
+      drawTorso();
+      drawScarf();
+      drawPack();
+      drawHead();
+      drawHat();
+      drawPonytail(
+        [cx, headY + headR * 0.35],
+        [cx + tailSway * 0.5, headY + tile * 0.14],
+        [cx + tailSway, headY + tile * 0.3],
+        tile * 0.055
+      );
+    } else if (isSide) {
+      drawPack();
+      drawArm(-1, -armSwing);
+      drawLegs();
+      drawTorso();
+      drawScarf();
+      drawSatchel();
+      drawPonytail(
+        [cx - s * headR * 0.85, headY - headR * 0.05],
+        [cx - s * tile * 0.17, headY + tile * 0.04],
+        [cx - s * tile * (moving ? 0.19 : 0.13) + tailSway, headY + tile * (moving ? 0.2 : 0.25)],
+        tile * 0.05
+      );
+      drawHead();
+      drawHat();
+      drawArm(1, armSwing);
+    } else {
+      // Front: the ponytail hangs behind her, peeking out past her shoulder
+      // as it sways, so it never crosses her face.
+      drawPonytail(
+        [cx + headR * 0.4, headY + headR * 0.2],
+        [cx + tile * 0.1 + tailSway * 0.5, headY + tile * 0.12],
+        [cx + tile * 0.1 + tailSway, headY + tile * 0.26],
+        tile * 0.05
+      );
+      drawLegs();
+      drawTorso();
+      drawArm(-1, -armSwing);
+      drawArm(1, armSwing);
+      drawScarf();
+      drawSatchel();
+      // backpack straps over the shoulders
+      ctx.strokeStyle = ELLEN_APPEARANCE.backpackStrap;
+      ctx.lineWidth = Math.max(1, tile * 0.02);
+      ctx.beginPath();
+      ctx.moveTo(cx - shoulderW * 0.72, shoulderY + tile * 0.01);
+      ctx.lineTo(cx - waistW * 0.75, waistY - tile * 0.02);
+      ctx.moveTo(cx + shoulderW * 0.72, shoulderY + tile * 0.01);
+      ctx.lineTo(cx + waistW * 0.75, waistY - tile * 0.02);
+      ctx.stroke();
+      drawHead();
+      drawHat();
     }
 
     // reaching hand while crouched/collecting
     if (crouching) {
       ctx.fillStyle = ELLEN_APPEARANCE.skin;
       ctx.beginPath();
-      ctx.arc(cx + dir[0] * tile * 0.22, cy + dir[1] * tile * 0.14 + tile * 0.08, tile * 0.045, 0, Math.PI * 2);
+      ctx.arc(cx + dir[0] * tile * 0.2, cy + dir[1] * tile * 0.14 + tile * 0.08, tile * 0.035, 0, Math.PI * 2);
       ctx.fill();
+      outline();
     }
+  }
+
+  /**
+   * A strand of hair along a quadratic curve that tapers from `w0` at the
+   * base to `w1` at the tip, with a slight fullness through the middle.
+   */
+  private fillTaperedStrand(
+    p0: [number, number],
+    c: [number, number],
+    p1: [number, number],
+    w0: number,
+    w1: number,
+    fill: string,
+    stroke: string,
+    strokeWidth: number
+  ) {
+    const { ctx } = this;
+    const steps = 12;
+    const left: Array<[number, number]> = [];
+    const right: Array<[number, number]> = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const mt = 1 - t;
+      const px = mt * mt * p0[0] + 2 * mt * t * c[0] + t * t * p1[0];
+      const py = mt * mt * p0[1] + 2 * mt * t * c[1] + t * t * p1[1];
+      const tx = 2 * mt * (c[0] - p0[0]) + 2 * t * (p1[0] - c[0]);
+      const ty = 2 * mt * (c[1] - p0[1]) + 2 * t * (p1[1] - c[1]);
+      const len = Math.hypot(tx, ty) || 1;
+      const half = ((w0 + (w1 - w0) * t) * (1 + 0.3 * Math.sin(Math.PI * t))) / 2;
+      left.push([px - (ty / len) * half, py + (tx / len) * half]);
+      right.push([px + (ty / len) * half, py - (tx / len) * half]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(left[0][0], left[0][1]);
+    for (const [px, py] of left) ctx.lineTo(px, py);
+    ctx.arc(p1[0], p1[1], w1 / 2, Math.atan2(left[steps][1] - p1[1], left[steps][0] - p1[0]), Math.atan2(right[steps][1] - p1[1], right[steps][0] - p1[0]), true);
+    for (let i = steps; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
   }
 
   /** Scout: Ellen's scruffy one-eyed field companion. */
