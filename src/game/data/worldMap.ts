@@ -33,6 +33,8 @@ export const ZONE_RECTS: { zone: ZoneId; rect: Rect }[] = [
 export const GREENHOUSE_FOOTPRINT: Rect = { x: 60, y: 32, w: 10, h: 8 };
 export const GREENHOUSE_DOOR = { x: 65, y: 40 };
 export const PLAYER_START = { x: 65, y: 43 };
+/** The farmer's market stall: two tiles wide, just down the path from home. */
+export const MARKET_STALL: Rect = { x: 69, y: 42, w: 2, h: 1 };
 
 export function rectContains(r: Rect, x: number, y: number): boolean {
   return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;

@@ -1,14 +1,16 @@
 import type { Game } from '../game/engine/Game';
 import { Panel } from './Panel';
 import { el } from './dom';
-import { PLANTS } from '../game/data/plants';
-import { FUNGI } from '../game/data/fungi';
-import { MATERIALS } from '../game/data/materials';
-import { TOOLS } from '../game/data/tools';
-import { basketCapacity } from '../game/systems/tools';
+import { PLANTS, specimenName, specimenRarity } from '../game/data/plants';
+import { SHOP_ITEMS, DECOR_IDS } from '../game/data/shop';
+import { basketCapacity } from '../game/systems/basket';
+import { ESTABLISH_THRESHOLD } from '../game/systems/collection';
+import { placementBlockReason } from '../game/systems/propagation';
+import { STAGE_LABEL, stageFloat, stageOf } from '../game/systems/growth';
+import { button, note, portrait, rarityBadge } from './common';
 
 export class BasketPanel {
-  panel = new Panel('Field Basket');
+  panel = new Panel('Basket');
 
   constructor(private game: Game) {}
 
@@ -17,52 +19,86 @@ export class BasketPanel {
     this.panel.open();
   }
 
+  refresh() {
+    if (this.panel.isOpen) this.render();
+  }
+
   private render() {
     const state = this.game.state;
     this.panel.clearBody();
-    this.panel.setTitle(`Field Basket (${state.inventory.length}/${basketCapacity(state)})`);
+    this.panel.setTitle(`Basket (${state.basket.length}/${basketCapacity(state)})`);
+    const outdoors = !state.player.inGreenhouse;
+    const spot = outdoors ? this.game.plantingSpot() : null;
 
-    if (state.inventory.length === 0) {
-      this.panel.body.appendChild(el('div', 'empty-state', 'Empty. The wilderness is out there.'));
+    if (state.basket.length === 0) {
+      this.panel.body.appendChild(el('div', 'empty-state', 'Empty. Go and see what’s growing out there.'));
     } else {
       const list = el('div', 'entry-list');
-      for (const item of state.inventory) {
-        const def = item.kind === 'plant' ? PLANTS[item.defId] : item.kind === 'fungus' ? FUNGI[item.defId] : MATERIALS[item.defId];
-        const row = el('div', 'entry-row');
-        const swatch = el('div', 'entry-swatch');
-        const hue = item.traits?.colorHue ?? 160;
-        swatch.style.background = item.kind === 'plant' ? `hsl(${hue},45%,45%)` : item.kind === 'fungus' ? '#c9b98a' : '#a89a7c';
+      for (const item of state.basket) {
+        const row = el('div', 'entry-row plant-row');
         const info = el('div', 'entry-info');
-        const nameLine = def?.name ?? item.defId;
-        const sub = item.count > 1 ? `x${item.count}` : item.quality ? `Quality ${item.quality}` : item.kind;
-        info.append(el('div', 'entry-name', nameLine), el('div', 'entry-sub', sub));
-        row.append(swatch, info);
+        const stage = stageOf(item.growth);
+        info.append(
+          el('div', 'entry-name', specimenName(item.defId, item.variantId)),
+          el('div', 'entry-sub', stage === 'cutting' ? 'Fresh cutting' : `${STAGE_LABEL[stage]} plant, potted`)
+        );
+        info.appendChild(rarityBadge(specimenRarity(item.defId, item.variantId)));
+        const block = placementBlockReason(state, item);
+        const actions = el('div', 'row-actions');
+        if (block === 'not-rooted') {
+          info.appendChild(note('Pot it in a nursery bed so it can root.', 'row-note'));
+        } else if (block === 'not-established') {
+          const grown = state.collection[item.defId]?.grown ?? 0;
+          info.appendChild(note(`Grow ${ESTABLISH_THRESHOLD} ${PLANTS[item.defId].name} to establish it (${grown}/${ESTABLISH_THRESHOLD}) — then it can go on display or out in the wild.`, 'row-note'));
+        } else if (outdoors) {
+          actions.appendChild(
+            button(spot ? 'Plant here' : 'No room here', () => {
+              this.game.plantHere(item.uid);
+              this.render();
+            }, 'primary-btn small', !spot)
+          );
+        } else {
+          info.appendChild(note('Ready: give it a display spot, or plant it out in the wild.', 'row-note'));
+        }
+        row.append(portrait(item.defId, item.variantId, Math.max(0.6, stageFloat(item.growth)), item.seed, 56), info, actions);
         list.appendChild(row);
       }
       this.panel.body.appendChild(list);
     }
 
-    const toolsHeader = el('h4', undefined, 'Tools');
-    toolsHeader.style.marginTop = '18px';
-    toolsHeader.style.fontSize = '12px';
-    toolsHeader.style.color = 'var(--accent)';
-    toolsHeader.style.textTransform = 'uppercase';
-    toolsHeader.style.letterSpacing = '0.06em';
-    this.panel.body.appendChild(toolsHeader);
-    const toolList = el('div', 'entry-list');
-    for (const tool of Object.values(TOOLS)) {
-      const tier = state.tools[tool.id] ?? 0;
-      const row = el('div', 'entry-row');
-      const info = el('div', 'entry-info');
-      const tierDef = tier > 0 ? tool.tiers[tier - 1] : null;
-      info.append(
-        el('div', 'entry-name', tierDef ? `${tool.name} — ${tierDef.name}` : `${tool.name} (not yet found)`),
-        el('div', 'entry-sub', tierDef ? tierDef.unlocks.join(', ') : tool.description)
-      );
-      row.appendChild(info);
-      if (tier === 0) row.style.opacity = '0.45';
-      toolList.appendChild(row);
+    // Garden decor bought at the market, waiting to be placed.
+    const stocked = DECOR_IDS.filter((id) => (state.decorStock[id] ?? 0) > 0);
+    const nearby = this.game.nearbyDecor();
+    if (stocked.length || nearby) {
+      this.panel.body.appendChild(el('h4', 'section-head', 'Garden Decor'));
+      const list = el('div', 'entry-list');
+      for (const id of stocked) {
+        const item = SHOP_ITEMS.find((s) => s.id === id)!;
+        const row = el('div', 'entry-row');
+        const info = el('div', 'entry-info');
+        info.append(el('div', 'entry-name', `${item.name} ×${state.decorStock[id]}`), el('div', 'entry-sub', outdoors ? 'Placed where you’re standing.' : 'Step outside to place it.'));
+        row.append(info, button('Place', () => {
+          this.game.placeDecorHere(id);
+          this.render();
+        }, 'secondary-btn', !outdoors));
+        list.appendChild(row);
+      }
+      if (nearby) {
+        const name = SHOP_ITEMS.find((s) => s.id === nearby.decorId)?.name ?? 'decor';
+        const row = el('div', 'entry-row');
+        const info = el('div', 'entry-info');
+        info.append(el('div', 'entry-name', `Nearby: ${name}`), el('div', 'entry-sub', 'Pick it up to move it somewhere else.'));
+        row.append(info, button('Pick up', () => {
+          this.game.pickUpNearbyDecor();
+          this.render();
+        }, 'secondary-btn'));
+        list.appendChild(row);
+      }
+      this.panel.body.appendChild(list);
     }
-    this.panel.body.appendChild(toolList);
+
+    if (state.tools.lantern) {
+      this.panel.body.appendChild(note('You carry an old lantern: some plants only show themselves in its light, after dark.'));
+    }
   }
 }

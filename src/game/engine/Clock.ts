@@ -7,7 +7,7 @@ import type { GameState, WeatherCondition } from '../state';
 export const GAME_MINUTES_PER_REAL_SECOND = 2;
 export const MINUTES_PER_DAY = 1440;
 // Cap how much time we simulate for a single "welcome back" catch-up so an
-// abandoned tab doesn't spin the ecosystem through weeks of ticks at once.
+// abandoned tab doesn't spin the world through weeks of growth at once.
 export const OFFLINE_CAP_MINUTES = 3 * MINUTES_PER_DAY;
 
 export const DAWN = 5 * 60;

@@ -1,0 +1,306 @@
+import type { GameState, OwnedPlant } from '../state';
+import { makeUid } from '../state';
+import type { LandscapeCharacter, OutdoorZoneId } from '../types';
+import { PLANTS, lookFor } from '../data/plants';
+import { GRID_W, GRID_H, zoneAt, isWater } from '../data/worldMap';
+import { stageFloat, stageIndexOf, tickGrowth, type StageUp } from './growth';
+import { rollSport } from './propagation';
+import { hasFound } from './collection';
+
+// Plants the player puts outdoors aren't decorations: once they're large
+// they start seeding, creeping and throwing out runners into the ground
+// around them, and every so often one of those new plants comes up as
+// something different. Left alone long enough, a region disappears under
+// whatever the player chose to plant there.
+
+/** Game-minutes between spread checks. */
+export const SPREAD_STEP = 60;
+export const WILD_ZONE_CAP = 140;
+/** No single species takes over a region completely: there's always room for the next thing. */
+export const WILD_SPECIES_ZONE_CAP = 55;
+export const WILD_TOTAL_CAP = 560;
+const SEEDLING_SPORT_CHANCE = 0.035;
+const MIN_SPACING = 0.85;
+const CROWD_RADIUS = 2;
+const CROWD_LIMIT = 7;
+
+export interface SpreadEvent {
+  parentId: string;
+  childId: string;
+  /** The seedling came up as a different variant from its parent. */
+  sport: boolean;
+}
+
+export type GroundCheck = (tileX: number, tileY: number) => boolean;
+
+function wildPlants(state: GameState): OwnedPlant[] {
+  return Object.values(state.plants).filter((p) => p.location.kind === 'wild');
+}
+
+function tooClose(plants: OwnedPlant[], x: number, y: number): { tooClose: boolean; crowd: number } {
+  let crowd = 0;
+  for (const p of plants) {
+    if (p.location.kind !== 'wild') continue;
+    const d = Math.hypot(p.location.x - x, p.location.y - y);
+    if (d < MIN_SPACING) return { tooClose: true, crowd };
+    if (d < CROWD_RADIUS) crowd++;
+  }
+  return { tooClose: false, crowd };
+}
+
+/** Whether a new plant could go at (x, y): open ground, not crowded, not on top of another plant. */
+export function canPlantAt(state: GameState, x: number, y: number, isOpenGround: GroundCheck): boolean {
+  const tx = Math.floor(x);
+  const ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= GRID_W || ty >= GRID_H) return false;
+  if (zoneAt(tx, ty) === 'greenhouse' || isWater(tx, ty)) return false;
+  if (!isOpenGround(tx, ty)) return false;
+  return !tooClose(wildPlants(state), x, y).tooClose;
+}
+
+/** One spread check across every outdoor plant. */
+export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: number, rand: () => number): SpreadEvent[] {
+  const events: SpreadEvent[] = [];
+  const wild = wildPlants(state);
+  if (wild.length >= WILD_TOTAL_CAP) return events;
+  const perZone: Partial<Record<OutdoorZoneId, number>> = {};
+  const perSpecies: Record<string, number> = {};
+  for (const p of wild) {
+    if (p.location.kind !== 'wild') continue;
+    perZone[p.location.zone] = (perZone[p.location.zone] ?? 0) + 1;
+    perSpecies[`${p.location.zone}:${p.defId}`] = (perSpecies[`${p.location.zone}:${p.defId}`] ?? 0) + 1;
+  }
+
+  for (const parent of wild) {
+    if (parent.location.kind !== 'wild') continue;
+    const stage = stageIndexOf(parent.growth);
+    if (stage < 3) continue;
+    const def = PLANTS[parent.defId];
+    if (!def) continue;
+    // Per spread step (an in-game hour): a vigorous large pothos throws out a
+    // new plant every day or two of game time; a slow aroid far less often.
+    const chance = def.spread * 0.03 * (stage >= 4 ? 1.5 : 1);
+    if (rand() >= chance) continue;
+
+    const reach = def.form === 'trailing' || def.form === 'beads' ? 1.35 : 1;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const a = rand() * Math.PI * 2;
+      const d = (1.1 + rand() * 1.7) * reach;
+      const x = parent.location.x + Math.cos(a) * d;
+      const y = parent.location.y + Math.sin(a) * d;
+      const tx = Math.floor(x);
+      const ty = Math.floor(y);
+      if (tx < 0 || ty < 0 || tx >= GRID_W || ty >= GRID_H) continue;
+      const zone = zoneAt(tx, ty);
+      if (zone === 'greenhouse' || isWater(tx, ty) || !isOpenGround(tx, ty)) continue;
+      if ((perZone[zone] ?? 0) >= WILD_ZONE_CAP) continue;
+      if ((perSpecies[`${zone}:${parent.defId}`] ?? 0) >= WILD_SPECIES_ZONE_CAP) continue;
+      const near = tooClose(wild, x, y);
+      if (near.tooClose || near.crowd >= CROWD_LIMIT) continue;
+
+      let variantId = parent.variantId;
+      let sport = false;
+      if (rand() < SEEDLING_SPORT_CHANCE) {
+        const v = rollSport(parent.defId, parent.variantId, rand);
+        if (v) {
+          variantId = v;
+          sport = true;
+        }
+      }
+      const child: OwnedPlant = {
+        id: makeUid('plant'),
+        defId: parent.defId,
+        variantId,
+        seed: Math.floor(rand() * 1e9),
+        growth: 0,
+        location: { kind: 'wild', x, y, zone },
+        plantedAt: now,
+        lastCuttingAt: null,
+        generation: parent.generation + 1,
+        bornWild: true,
+        unnoticed: !hasFound(state, parent.defId, variantId),
+      };
+      state.plants[child.id] = child;
+      wild.push(child);
+      perZone[zone] = (perZone[zone] ?? 0) + 1;
+      perSpecies[`${zone}:${parent.defId}`] = (perSpecies[`${zone}:${parent.defId}`] ?? 0) + 1;
+      events.push({ parentId: parent.id, childId: child.id, sport });
+      break;
+    }
+    if (wild.length >= WILD_TOTAL_CAP) break;
+  }
+  return events;
+}
+
+export interface WorldAdvance {
+  ups: StageUp[];
+  spreads: SpreadEvent[];
+  carry: number;
+}
+
+/**
+ * Grows everything and lets outdoor plants spread, interleaved in
+ * SPREAD_STEP chunks so a long absence plays out the same way as the same
+ * time spent in-game: seedlings grow up and spread in their turn.
+ */
+export function advanceWorld(
+  state: GameState,
+  minutes: number,
+  carry: number,
+  isOpenGround: GroundCheck,
+  rand: () => number = Math.random
+): WorldAdvance {
+  const ups: StageUp[] = [];
+  const spreads: SpreadEvent[] = [];
+  let left = minutes;
+  let c = carry;
+  const startNow = state.clock.totalMinutes - minutes;
+  while (left > 1e-9) {
+    const dt = Math.min(left, SPREAD_STEP - c);
+    ups.push(...tickGrowth(state, dt));
+    c += dt;
+    left -= dt;
+    if (c >= SPREAD_STEP - 1e-9) {
+      c = 0;
+      spreads.push(...spreadStep(state, isOpenGround, startNow + (minutes - left), rand));
+    }
+  }
+  return { ups, spreads, carry: c };
+}
+
+// ---------------------------------------------------------------- Lushness
+
+export const CHARACTERS: LandscapeCharacter[] = ['fern', 'jungle', 'vine', 'flower', 'arid', 'color', 'strange'];
+
+export interface LushField {
+  /** 0…~2 per tile: how buried in the player's plants the ground is. */
+  lush: Float32Array;
+  /** Index into CHARACTERS of the tile's dominant landscape, or 255 for none. */
+  character: Uint8Array;
+  /** 0…1 per region: share of it that's been overgrown. */
+  zoneCover: Record<OutdoorZoneId, number>;
+  /** Number of the player's plants per region. */
+  zoneCount: Record<OutdoorZoneId, number>;
+  /** Dominant landscape per region. */
+  zoneCharacter: Partial<Record<OutdoorZoneId, LandscapeCharacter>>;
+}
+
+const OUTDOOR_ZONES: OutdoorZoneId[] = ['meadow', 'woodland', 'creek', 'dampForest', 'rockyClearing', 'overgrownClearing'];
+let tileZones: (OutdoorZoneId | null)[] | null = null;
+
+function zonesByTile(): (OutdoorZoneId | null)[] {
+  if (tileZones) return tileZones;
+  tileZones = [];
+  for (let y = 0; y < GRID_H; y++) {
+    for (let x = 0; x < GRID_W; x++) {
+      const z = zoneAt(x, y);
+      tileZones.push(z === 'greenhouse' || isWater(x, y) ? null : z);
+    }
+  }
+  return tileZones;
+}
+
+export function computeLushness(state: GameState): LushField {
+  const n = GRID_W * GRID_H;
+  const lush = new Float32Array(n);
+  const charW = new Float32Array(n * CHARACTERS.length);
+  const zoneCount = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, 0])) as Record<OutdoorZoneId, number>;
+  const zoneCharW: Record<string, number[]> = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, CHARACTERS.map(() => 0)]));
+
+  for (const p of Object.values(state.plants)) {
+    if (p.location.kind !== 'wild') continue;
+    const def = PLANTS[p.defId];
+    if (!def) continue;
+    const look = lookFor(p.defId, p.variantId);
+    const sf = stageFloat(p.growth);
+    const r = (0.7 + sf * 0.6) * Math.max(0.7, look.size);
+    const w = 0.18 + sf * 0.16;
+    const ci = CHARACTERS.indexOf(def.landscape);
+    zoneCount[p.location.zone]++;
+    zoneCharW[p.location.zone][ci] += w;
+    const { x, y } = p.location;
+    const x0 = Math.max(0, Math.floor(x - r));
+    const x1 = Math.min(GRID_W - 1, Math.floor(x + r));
+    const y0 = Math.max(0, Math.floor(y - r));
+    const y1 = Math.min(GRID_H - 1, Math.floor(y + r));
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        const d = Math.hypot(tx + 0.5 - x, ty + 0.5 - y);
+        if (d >= r) continue;
+        const v = w * (1 - d / r);
+        const i = ty * GRID_W + tx;
+        lush[i] += v;
+        charW[i * CHARACTERS.length + ci] += v;
+      }
+    }
+  }
+
+  // A light blur so overgrowth spreads over the ground in soft drifts
+  // rather than tile-shaped squares.
+  const raw = lush.slice();
+  for (let y = 0; y < GRID_H; y++) {
+    for (let x = 0; x < GRID_W; x++) {
+      let sum = 0;
+      let wsum = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          const yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= GRID_W || yy >= GRID_H) continue;
+          const w = dx === 0 && dy === 0 ? 2 : 1;
+          sum += raw[yy * GRID_W + xx] * w;
+          wsum += w;
+        }
+      }
+      lush[y * GRID_W + x] = sum / wsum;
+    }
+  }
+
+  const character = new Uint8Array(n).fill(255);
+  const zones = zonesByTile();
+  const coverSum: Record<string, number> = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, 0]));
+  const tiles: Record<string, number> = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, 0]));
+  for (let i = 0; i < n; i++) {
+    const z = zones[i];
+    if (z) {
+      tiles[z]++;
+      coverSum[z] += Math.min(1, lush[i] / 0.9);
+    }
+    if (lush[i] <= 0.02) continue;
+    let best = 0;
+    let bi = 0;
+    for (let c = 0; c < CHARACTERS.length; c++) {
+      const v = charW[i * CHARACTERS.length + c];
+      if (v > best) {
+        best = v;
+        bi = c;
+      }
+    }
+    character[i] = bi;
+  }
+  const zoneCover = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, tiles[z] ? coverSum[z] / tiles[z] : 0])) as Record<OutdoorZoneId, number>;
+  const zoneCharacter: Partial<Record<OutdoorZoneId, LandscapeCharacter>> = {};
+  for (const z of OUTDOOR_ZONES) {
+    const ws = zoneCharW[z];
+    const max = Math.max(...ws);
+    if (max > 0) zoneCharacter[z] = CHARACTERS[ws.indexOf(max)];
+  }
+  return { lush, character, zoneCover, zoneCount, zoneCharacter };
+}
+
+/** A few words describing what a region is turning into. */
+export function describeRegion(cover: number, count: number, character?: LandscapeCharacter): string {
+  if (count === 0) return 'Untouched wilderness.';
+  const what: Record<LandscapeCharacter, [string, string, string]> = {
+    fern: ['a few ferns taking hold', 'a fern glade', 'a sea of fronds'],
+    jungle: ['a little green corner', 'a leafy thicket', 'a full-blown jungle'],
+    vine: ['vines creeping in', 'a tangle of trailing vines', 'a green carpet of vines'],
+    flower: ['a scattering of blooms', 'a flowering garden', 'a riot of flowers'],
+    arid: ['a few hardy succulents', 'a succulent garden', 'a stone-and-sword desert garden'],
+    color: ['splashes of colour', 'a painted garden', 'a stained-glass carpet of colour'],
+    strange: ['something strange growing', 'an uncanny grove', 'a garden from another world'],
+  };
+  const tier = cover < 0.08 ? 0 : cover < 0.28 ? 1 : 2;
+  const label = character ? what[character][tier] : 'your plants';
+  return label.charAt(0).toUpperCase() + label.slice(1) + '.';
+}

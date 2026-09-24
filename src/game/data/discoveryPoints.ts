@@ -1,45 +1,64 @@
-import type { DiscoveryPoint } from '../types';
+import type { DiscoverySpot } from '../types';
 
-// Hand-placed collectible locations across the wilderness. Positions are in
-// overworld tiles (see worldMap.ts). Not everything is reachable
-// immediately — some require a tool tier, some only appear in certain
-// weather, and a few are only found by following the fox.
+// Hand-placed patches of ground where wild plants turn up. What grows in a
+// patch is re-rolled every SPOT_EPOCH_MINUTES (see systems/spots.ts), drawn
+// from the region's own species, weighted by rarity — so walking a familiar
+// path can still turn up something you've never seen. A few patches are
+// only ever shown to you by the fox.
 
-export const DISCOVERY_POINTS: DiscoveryPoint[] = [
+export const DISCOVERY_SPOTS: DiscoverySpot[] = [
+  // Meadow — right outside the greenhouse: the easy, friendly finds.
+  { id: 'sp-meadow-home', zone: 'meadow', x: 62, y: 45 },
+  { id: 'sp-meadow-1', zone: 'meadow', x: 58, y: 42 },
+  { id: 'sp-meadow-2', zone: 'meadow', x: 73, y: 44 },
+  { id: 'sp-meadow-3', zone: 'meadow', x: 62, y: 28 },
+  { id: 'sp-meadow-4', zone: 'meadow', x: 76, y: 33 },
+  { id: 'sp-meadow-5', zone: 'meadow', x: 84, y: 40 },
+  { id: 'sp-meadow-6', zone: 'meadow', x: 52, y: 30 },
+  { id: 'sp-meadow-7', zone: 'meadow', x: 81, y: 27 },
+  { id: 'sp-meadow-8', zone: 'meadow', x: 49, y: 38 },
+
   // Woodland
-  { id: 'dp-bluebell-1', zone: 'woodland', x: 10, y: 10, specimenId: 'bluebell', specimenKind: 'plant', respawns: true },
-  { id: 'dp-bluebell-2', zone: 'woodland', x: 25, y: 20, specimenId: 'bluebell', specimenKind: 'plant', respawns: true },
-  { id: 'dp-duskvine', zone: 'woodland', x: 18, y: 8, specimenId: 'duskvine', specimenKind: 'plant', requiresWeather: 'night', requiresToolTier: { tool: 'shears', tier: 1 }, respawns: true },
-  { id: 'dp-foxglove', zone: 'woodland', x: 30, y: 25, specimenId: 'foxgloveSpire', specimenKind: 'plant', requiresToolTier: { tool: 'shears', tier: 2 }, foxLed: true, respawns: true },
-  { id: 'dp-ashenbracket-1', zone: 'woodland', x: 5, y: 27, specimenId: 'ashenBracket', specimenKind: 'fungus', requiresToolTier: { tool: 'lens', tier: 1 }, respawns: false },
-  { id: 'dp-soil-woodland', zone: 'woodland', x: 33, y: 5, specimenId: 'soilSampleWoodland', specimenKind: 'material', requiresToolTier: { tool: 'trowel', tier: 1 }, respawns: true },
+  { id: 'sp-wood-1', zone: 'woodland', x: 10, y: 10 },
+  { id: 'sp-wood-2', zone: 'woodland', x: 25, y: 20 },
+  { id: 'sp-wood-3', zone: 'woodland', x: 18, y: 8 },
+  { id: 'sp-wood-4', zone: 'woodland', x: 30, y: 25 },
+  { id: 'sp-wood-5', zone: 'woodland', x: 6, y: 22 },
+  { id: 'sp-wood-6', zone: 'woodland', x: 33, y: 12 },
+  { id: 'sp-wood-fox', zone: 'woodland', x: 21, y: 16, foxLed: true, pool: ['foxglowAroid'] },
 
-  // Overgrown Clearing
-  { id: 'dp-lace-1', zone: 'overgrownClearing', x: 10, y: 45, specimenId: 'widowsLace', specimenKind: 'plant', requiresToolTier: { tool: 'shears', tier: 1 }, respawns: true },
-  { id: 'dp-lace-2', zone: 'overgrownClearing', x: 20, y: 55, specimenId: 'widowsLace', specimenKind: 'plant', requiresToolTier: { tool: 'shears', tier: 1 }, respawns: true },
-  { id: 'dp-nightshade', zone: 'overgrownClearing', x: 28, y: 50, specimenId: 'nightshadeBell', specimenKind: 'plant', requiresToolTier: { tool: 'fieldKit', tier: 1 }, foxLed: true, respawns: false },
-  { id: 'dp-oddpod', zone: 'overgrownClearing', x: 15, y: 38, specimenId: 'oddSeedPod', specimenKind: 'material', respawns: true },
+  // Creek banks
+  { id: 'sp-creek-1', zone: 'creek', x: 39, y: 20 },
+  { id: 'sp-creek-2', zone: 'creek', x: 44, y: 30 },
+  { id: 'sp-creek-3', zone: 'creek', x: 39, y: 40 },
+  { id: 'sp-creek-4', zone: 'creek', x: 45, y: 8 },
+  { id: 'sp-creek-5', zone: 'creek', x: 44, y: 57 },
 
   // Damp Forest
-  { id: 'dp-bluefern', zone: 'dampForest', x: 55, y: 15, specimenId: 'blueFern', specimenKind: 'plant', requiresToolTier: { tool: 'lens', tier: 2 }, respawns: false },
-  { id: 'dp-rainbell', zone: 'dampForest', x: 65, y: 18, specimenId: 'rainbellCap', specimenKind: 'fungus', requiresWeather: 'rain', respawns: true },
-  { id: 'dp-embergill', zone: 'dampForest', x: 70, y: 10, specimenId: 'embergillMushroom', specimenKind: 'fungus', requiresWeather: 'rain', requiresToolTier: { tool: 'lantern', tier: 1 }, foxLed: true, respawns: true },
-
-  // Meadow
-  { id: 'dp-clover', zone: 'meadow', x: 50, y: 28, specimenId: 'meadowClover', specimenKind: 'plant', respawns: true },
-  { id: 'dp-daisy', zone: 'meadow', x: 80, y: 30, specimenId: 'sundropDaisy', specimenKind: 'plant', respawns: true },
-  { id: 'dp-amberseed', zone: 'meadow', x: 50, y: 42, specimenId: 'amberseedGrass', specimenKind: 'plant', respawns: true },
-  { id: 'dp-soil-meadow', zone: 'meadow', x: 85, y: 26, specimenId: 'soilSampleMeadow', specimenKind: 'material', requiresToolTier: { tool: 'trowel', tier: 1 }, respawns: true },
+  { id: 'sp-damp-1', zone: 'dampForest', x: 55, y: 15 },
+  { id: 'sp-damp-2', zone: 'dampForest', x: 65, y: 18 },
+  { id: 'sp-damp-3', zone: 'dampForest', x: 70, y: 10 },
+  { id: 'sp-damp-4', zone: 'dampForest', x: 80, y: 6 },
+  { id: 'sp-damp-5', zone: 'dampForest', x: 85, y: 18 },
+  { id: 'sp-damp-6', zone: 'dampForest', x: 50, y: 21 },
+  { id: 'sp-damp-fox', zone: 'dampForest', x: 76, y: 14, foxLed: true, pool: ['foxglowAroid'] },
 
   // Rocky Clearing
-  { id: 'dp-sedum', zone: 'rockyClearing', x: 55, y: 55, specimenId: 'stonecropSedum', specimenKind: 'plant', respawns: true },
-  { id: 'dp-ashenbracket-2', zone: 'rockyClearing', x: 80, y: 50, specimenId: 'ashenBracket', specimenKind: 'fungus', requiresToolTier: { tool: 'lens', tier: 1 }, respawns: false },
-  { id: 'dp-ore', zone: 'rockyClearing', x: 75, y: 58, specimenId: 'roughOre', specimenKind: 'material', requiresToolTier: { tool: 'trowel', tier: 1 }, respawns: true },
+  { id: 'sp-rock-1', zone: 'rockyClearing', x: 55, y: 55 },
+  { id: 'sp-rock-2', zone: 'rockyClearing', x: 62, y: 50 },
+  { id: 'sp-rock-3', zone: 'rockyClearing', x: 75, y: 58 },
+  { id: 'sp-rock-4', zone: 'rockyClearing', x: 83, y: 52 },
+  { id: 'sp-rock-5', zone: 'rockyClearing', x: 68, y: 61 },
+  { id: 'sp-rock-6', zone: 'rockyClearing', x: 50, y: 60 },
 
-  // Creek
-  { id: 'dp-iris-1', zone: 'creek', x: 42, y: 20, specimenId: 'creekflagIris', specimenKind: 'plant', requiresToolTier: { tool: 'trowel', tier: 1 }, respawns: true },
-  { id: 'dp-iris-2', zone: 'creek', x: 43, y: 50, specimenId: 'creekflagIris', specimenKind: 'plant', requiresToolTier: { tool: 'trowel', tier: 1 }, respawns: true },
-  { id: 'dp-pebbles', zone: 'creek', x: 39, y: 35, specimenId: 'creekPebbles', specimenKind: 'material', respawns: true },
+  // Overgrown Clearing
+  { id: 'sp-over-1', zone: 'overgrownClearing', x: 10, y: 45 },
+  { id: 'sp-over-2', zone: 'overgrownClearing', x: 20, y: 55 },
+  { id: 'sp-over-3', zone: 'overgrownClearing', x: 15, y: 38 },
+  { id: 'sp-over-4', zone: 'overgrownClearing', x: 6, y: 58 },
+  { id: 'sp-over-5', zone: 'overgrownClearing', x: 32, y: 40 },
+  { id: 'sp-over-fox', zone: 'overgrownClearing', x: 28, y: 50, foxLed: true, pool: ['anthurium'] },
 ];
 
-export const RESPAWN_MINUTES = 20; // game-minutes before a plucked common specimen reappears
+/** Game-minutes per spot "season": a picked patch regrows (as something new) after this. */
+export const SPOT_EPOCH_MINUTES = 360;

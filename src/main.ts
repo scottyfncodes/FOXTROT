@@ -3,7 +3,8 @@ import { Game } from './game/engine/Game';
 import { HUD } from './ui/HUD';
 import { JournalPanel } from './ui/JournalPanel';
 import { BasketPanel } from './ui/BasketPanel';
-import { StationPanel } from './ui/StationPanel';
+import { GreenhousePanel } from './ui/GreenhousePanel';
+import { MarketPanel } from './ui/MarketPanel';
 import { StartOverlay } from './ui/StartOverlay';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -14,13 +15,18 @@ document.getElementById('app')!.appendChild(hud.root);
 
 const journal = new JournalPanel(game);
 const basket = new BasketPanel(game);
-const station = new StationPanel(game);
+const greenhouse = new GreenhousePanel(game);
+const market = new MarketPanel(game);
 
 hud.onJournal = () => journal.open();
 hud.onBasket = () => basket.open();
-game.onOpenStation = (stationId) => station.open(stationId);
+game.onOpenGreenhouse = (target) => greenhouse.open(target);
+game.onOpenMarket = () => market.open();
 game.onStateTouched = () => {
-  if (journal.panel.isOpen) journal.open();
+  journal.refresh();
+  basket.refresh();
+  greenhouse.refresh();
+  market.refresh();
 };
 game.onFrame = () => hud.update();
 

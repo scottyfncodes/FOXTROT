@@ -1,55 +1,38 @@
 import type { Game } from '../game/engine/Game';
 import { Panel } from './Panel';
 import { el, clear } from './dom';
-import { PLANT_LIST, PLANTS } from '../game/data/plants';
-import { FUNGI_LIST, FUNGI } from '../game/data/fungi';
-import { CREATURE_LIST, CREATURES } from '../game/data/creatures';
-import { MATERIAL_LIST, MATERIALS } from '../game/data/materials';
-import { RELATIONSHIPS } from '../game/data/relationships';
-import { detectEcologicalAlerts } from '../game/systems/ecosystem';
+import { PLANT_LIST, PLANTS, rarityRank, findVariant } from '../game/data/plants';
 import { ZONES } from '../game/data/zones';
-import type { DiscoveryLevel } from '../game/types';
+import type { OutdoorZoneId } from '../game/types';
+import { collectionTotals, speciesCounts, isEstablished, ESTABLISH_THRESHOLD } from '../game/systems/collection';
+import { describeRegion } from '../game/systems/wild';
+import { note, portrait, rarityBadge } from './common';
 
-type Tab = 'plants' | 'fungi' | 'insects' | 'animals' | 'ecosystem' | 'unknown';
+type Tab = 'plants' | 'regions';
 
-const LEVEL_LABEL: Record<DiscoveryLevel, string> = {
-  UNDISCOVERED: 'Undiscovered',
-  DISCOVERED: 'Discovered',
-  IDENTIFIED: 'Identified',
-  CULTIVATED: 'Cultivated',
-  DEVELOPED: 'Developed',
-  MASTERED: 'Mastered',
-  PROPAGATED: 'Propagated',
-  VARIANT_DISCOVERED: 'Variant Found',
-};
+const REGIONS: OutdoorZoneId[] = ['meadow', 'woodland', 'creek', 'dampForest', 'rockyClearing', 'overgrownClearing'];
 
-const TRAIT_LABELS: [string, string][] = [
-  ['growthRate', 'Growth Rate'],
-  ['size', 'Size'],
-  ['hardiness', 'Hardiness'],
-  ['yield', 'Yield'],
-  ['waterTolerance', 'Water Tolerance'],
-  ['lightTolerance', 'Light Tolerance'],
-  ['pollinatorAttraction', 'Pollinator Draw'],
-];
-
+/**
+ * Ellen's field journal, now a collection: every species in the valley,
+ * with the ones not yet found shown as silhouettes and every variant
+ * slot visible as "???" until it's been seen — so there's always a gap
+ * to wonder about.
+ */
 export class JournalPanel {
   panel = new Panel('Field Journal', { tabs: true });
   private tab: Tab = 'plants';
+  private detail: string | null = null;
 
   constructor(private game: Game) {
-    const tabs: [Tab, string][] = [
-      ['plants', 'Plants'],
-      ['fungi', 'Fungi'],
-      ['insects', 'Insects'],
-      ['animals', 'Animals'],
-      ['ecosystem', 'Ecosystem'],
-      ['unknown', 'Unknown'],
-    ];
-    for (const [id, label] of tabs) {
+    for (const [id, label] of [
+      ['plants', 'Collection'],
+      ['regions', 'Regions'],
+    ] as [Tab, string][]) {
       const btn = el('button', 'panel-tab', label);
+      btn.dataset.tab = id;
       btn.addEventListener('click', () => {
         this.tab = id;
+        this.detail = null;
         this.render();
       });
       this.panel.tabsEl.appendChild(btn);
@@ -57,227 +40,143 @@ export class JournalPanel {
   }
 
   open() {
+    this.detail = null;
     this.render();
     this.panel.open();
   }
 
-  private isIdentified(specimenId: string): boolean {
-    const entry = this.game.state.journal[specimenId];
-    return !!entry && entry.level !== 'DISCOVERED' && entry.level !== 'UNDISCOVERED';
+  refresh() {
+    if (this.panel.isOpen) this.render();
   }
 
   private render() {
-    for (const child of Array.from(this.panel.tabsEl.children)) {
-      child.classList.toggle('active', (child.textContent ?? '').toLowerCase() === this.tab);
-    }
+    for (const c of Array.from(this.panel.tabsEl.children) as HTMLElement[]) c.classList.toggle('active', c.dataset.tab === this.tab);
     this.panel.clearBody();
-    switch (this.tab) {
-      case 'plants':
-        this.renderSpeciesList('plant', PLANT_LIST, PLANTS);
-        break;
-      case 'fungi':
-        this.renderSpeciesList('fungus', FUNGI_LIST, FUNGI);
-        break;
-      case 'insects':
-        this.renderSpeciesList(
-          'insect',
-          CREATURE_LIST.filter((c) => c.kind === 'insect'),
-          CREATURES
-        );
-        break;
-      case 'animals':
-        this.renderSpeciesList(
-          'animal',
-          CREATURE_LIST.filter((c) => c.kind === 'animal'),
-          CREATURES
-        );
-        break;
-      case 'ecosystem':
-        this.renderEcosystem();
-        break;
-      case 'unknown':
-        this.renderUnknown();
-        break;
-    }
+    if (this.tab === 'regions') return this.renderRegions();
+    if (this.detail) return this.renderDetail(this.detail);
+    this.renderCollection();
   }
 
-  private renderSpeciesList(kind: string, list: { id: string; name: string; rarity?: string }[], lookup: Record<string, unknown>) {
+  private renderCollection() {
     const state = this.game.state;
-    const known = list.filter((def) => !!state.journal[def.id]);
-    if (known.length === 0) {
-      this.panel.body.appendChild(el('div', 'empty-state', 'Nothing catalogued here yet. Go explore.'));
-      return;
-    }
-    const list_ = el('div', 'entry-list');
-    for (const def of known) {
-      const entry = state.journal[def.id];
-      const identified = this.isIdentified(def.id);
-      const row = el('div', 'entry-row clickable');
-      const swatch = el('div', 'entry-swatch');
-      const hue = (def as { baseTraits?: { colorHue?: number } }).baseTraits?.colorHue ?? 160;
-      swatch.style.background = identified ? `hsl(${hue}, 45%, 45%)` : 'rgba(255,255,255,0.12)';
-      const info = el('div', 'entry-info');
-      info.append(
-        el('div', 'entry-name', identified ? def.name : '???'),
-        el('div', 'entry-sub', def.rarity ? `${cap(def.rarity)} · ${kind}` : kind)
-      );
-      const status = el('div', `entry-status${entry.level === 'DISCOVERED' ? ' unknown' : ''}`, LEVEL_LABEL[entry.level]);
-      row.append(swatch, info, status);
-      row.addEventListener('click', () => this.renderDetail(def.id, kind, lookup));
-      list_.appendChild(row);
-    }
-    this.panel.body.appendChild(list_);
-  }
-
-  private renderDetail(specimenId: string, kind: string, lookup: Record<string, unknown>) {
-    const state = this.game.state;
-    const entry = state.journal[specimenId];
-    const identified = this.isIdentified(specimenId);
-    clear(this.panel.body);
-
-    const back = el('button', 'back-link', '← Back');
-    back.addEventListener('click', () => this.render());
-    this.panel.body.appendChild(back);
-
-    const def = lookup[specimenId] as {
-      name: string;
-      description: string;
-      silhouetteHint: string;
-      rarity?: string;
-      zones?: string[];
-      ecologyNotes?: { known: string[]; unknown: string[] };
-      baseTraits?: Record<string, number>;
-    };
-
-    const wrap = el('div', 'detail-view');
-    wrap.appendChild(el('h3', undefined, identified ? def.name : '???'));
-    if (def.rarity) wrap.appendChild(el('span', 'detail-tag', cap(def.rarity)));
-    if (def.zones && def.zones.length) wrap.appendChild(el('span', 'detail-tag', def.zones.join(', ')));
-    wrap.appendChild(el('span', 'detail-tag', LEVEL_LABEL[entry.level]));
-
-    const desc = el('p', undefined, identified ? def.description : def.silhouetteHint);
-    desc.style.color = 'var(--ink-dim)';
-    desc.style.fontSize = '13px';
-    desc.style.lineHeight = '1.6';
-    wrap.appendChild(desc);
-
-    if (identified && def.ecologyNotes && (def.ecologyNotes.known.length || def.ecologyNotes.unknown.length)) {
-      const section = el('div', 'detail-section');
-      section.appendChild(el('h4', undefined, 'Known'));
-      const ul = el('ul');
-      for (const k of def.ecologyNotes.known) ul.appendChild(el('li', undefined, k));
-      if (def.ecologyNotes.known.length === 0) ul.appendChild(el('li', undefined, 'Nothing recorded yet.'));
-      section.appendChild(ul);
-      const section2 = el('div', 'detail-section');
-      section2.appendChild(el('h4', undefined, 'Unknown'));
-      const ul2 = el('ul');
-      for (const u of def.ecologyNotes.unknown) ul2.appendChild(el('li', undefined, u));
-      if (def.ecologyNotes.unknown.length === 0) ul2.appendChild(el('li', undefined, 'Fully understood — for now.'));
-      section2.appendChild(ul2);
-      wrap.append(section, section2);
-    }
-
-    if (kind === 'plant' && identified) {
-      const instances = Object.values(state.plantInstances).filter((p) => p.defId === specimenId);
-      const best = instances.sort((a, b) => b.qualityEstimate - a.qualityEstimate)[0];
-      if (best) {
-        const section = el('div', 'detail-section');
-        section.appendChild(el('h4', undefined, `Traits (Quality ${best.qualityEstimate})`));
-        for (const [key, label] of TRAIT_LABELS) {
-          const v = (best.traits as unknown as Record<string, number>)[key] ?? 0;
-          const row = el('div', 'trait-bar-row');
-          row.appendChild(el('span', 'label', label));
-          const track = el('div', 'trait-bar-track');
-          const fill = el('div', 'trait-bar-fill');
-          fill.style.width = `${Math.round(v)}%`;
-          track.appendChild(fill);
-          row.append(track);
-          section.appendChild(row);
-        }
-        wrap.appendChild(section);
-      }
-
-      const completed = instances.filter((p) => p.stage === 'COMPLETE');
-      if (completed.length > 0) {
-        const zone = this.game.currentOutdoorZone();
-        const already = zone !== null && this.game.hasIntroduced(specimenId, zone);
-        const label = !zone
-          ? 'Step outside to introduce it to the wild'
-          : already
-            ? `Already growing wild in ${ZONES[zone].name}`
-            : `Introduce to ${ZONES[zone].name}`;
-        const introBtn = el('button', 'primary-btn', label);
-        introBtn.disabled = !zone || already;
-        introBtn.addEventListener('click', () => {
-          this.game.introduceToWild(completed[0].id, true);
-          this.renderDetail(specimenId, kind, lookup);
+    const totals = collectionTotals(state);
+    this.panel.body.appendChild(
+      el('div', 'collection-summary', `${totals.species} of ${totals.totalSpecies} species · ${totals.variants} of ${totals.totalVariants} variants`)
+    );
+    const grid = el('div', 'collection-grid');
+    const sorted = [...PLANT_LIST].sort((a, b) => rarityRank(a.rarity) - rarityRank(b.rarity));
+    for (const def of sorted) {
+      const rec = state.collection[def.id];
+      const card = el('div', `collection-card${rec ? ' found clickable' : ''}`);
+      if (rec) {
+        // Show off the rarest variant found.
+        const best = [...rec.variants].sort((a, b) => rarityRank(findVariant(def.id, b)!.rarity) - rarityRank(findVariant(def.id, a)!.rarity))[0] ?? def.variants[0].id;
+        card.append(portrait(def.id, best, 3, 4, 76), el('div', 'card-name', def.name));
+        const dots = el('div', 'variant-dots');
+        for (const v of def.variants) dots.appendChild(el('span', rec.variants.includes(v.id) ? 'vdot on' : 'vdot'));
+        card.appendChild(dots);
+        if (isEstablished(state, def.id)) card.appendChild(el('div', 'card-flag', 'Established'));
+        card.addEventListener('click', () => {
+          this.detail = def.id;
+          this.render();
         });
-        wrap.appendChild(introBtn);
+      } else {
+        card.append(portrait(def.id, def.variants[0].id, 2.6, 4, 76, true), el('div', 'card-name unknown', '???'), el('div', 'card-hint', def.hint));
       }
+      grid.appendChild(card);
     }
-
-    this.panel.body.appendChild(wrap);
+    this.panel.body.appendChild(grid);
   }
 
-  private renderEcosystem() {
-    const discovered = RELATIONSHIPS.filter((r) => this.game.state.discoveredRelationships.includes(r.id));
-    const alerts = detectEcologicalAlerts(this.game.state);
-    const wrap = el('div');
-    wrap.appendChild(el('h4', undefined, 'Signs Worth Investigating'));
-    if (alerts.length === 0) {
-      wrap.appendChild(el('div', 'empty-state', 'Nothing seems out of balance right now.'));
-    } else {
-      const ul = el('ul');
-      for (const a of alerts) ul.appendChild(el('li', undefined, `${a.message} (${ZONES[a.zone].name})`));
-      wrap.appendChild(ul);
-    }
-    wrap.appendChild(el('h4', undefined, 'Relationships You\'ve Noticed'));
-    if (discovered.length === 0) {
-      wrap.appendChild(el('div', 'empty-state', 'Nothing confirmed yet — keep observing.'));
-    } else {
-      const list = el('div', 'entry-list');
-      for (const r of discovered) {
-        const row = el('div', 'entry-row');
-        const info = el('div', 'entry-info');
-        info.append(el('div', 'entry-name', r.description), el('div', 'entry-sub', r.type));
-        row.appendChild(info);
-        list.appendChild(row);
-      }
-      wrap.appendChild(list);
-    }
-    this.panel.body.appendChild(wrap);
-  }
-
-  private renderUnknown() {
+  private renderDetail(defId: string) {
     const state = this.game.state;
-    const wrap = el('div', 'entry-list');
-    let any = false;
-    for (const p of PLANT_LIST.filter((p) => p.rarity === 'unknown')) {
-      if (!state.journal[p.id]) continue;
-      any = true;
-      const row = el('div', 'entry-row');
-      const info = el('div', 'entry-info');
-      info.append(el('div', 'entry-name', '??? (unclassified plant)'), el('div', 'entry-sub', p.silhouetteHint));
-      row.appendChild(info);
-      wrap.appendChild(row);
-    }
-    for (const m of MATERIAL_LIST.filter((m) => m.unknown)) {
-      if (!state.journal[m.id]) continue;
-      any = true;
-      const row = el('div', 'entry-row');
-      const info = el('div', 'entry-info');
-      info.append(el('div', 'entry-name', m.name), el('div', 'entry-sub', m.description));
-      row.appendChild(info);
-      wrap.appendChild(row);
-    }
-    if (!any) {
-      this.panel.body.appendChild(el('div', 'empty-state', 'No unsolved mysteries catalogued yet.'));
-      return;
-    }
-    this.panel.body.appendChild(wrap);
-  }
-}
+    const def = PLANTS[defId];
+    const rec = state.collection[defId];
+    if (!def || !rec) return this.renderCollection();
+    const body = this.panel.body;
+    const back = el('button', 'back-link', '← Collection');
+    back.addEventListener('click', () => {
+      this.detail = null;
+      this.render();
+    });
+    body.appendChild(back);
 
-function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+    const head = el('div', 'plant-head');
+    const info = el('div', 'entry-info');
+    info.append(el('h3', undefined, def.name), el('div', 'latin', def.latin), rarityBadge(def.rarity));
+    const habitat = el('div', 'entry-sub', `Grows wild in ${def.habitat.map((z) => ZONES[z].name.replace(/^The /, 'the ')).join(' and ')}`);
+    info.appendChild(habitat);
+    head.append(portrait(def.id, rec.variants[0] ?? def.variants[0].id, 3.4, 4, 120), info);
+    body.appendChild(head);
+    body.appendChild(note(def.description));
+
+    const est = isEstablished(state, defId);
+    body.appendChild(
+      el('div', `establish${est ? ' done' : ''}`, est ? 'Established — you can display it and plant it out.' : `${rec.grown} of ${ESTABLISH_THRESHOLD} grown — establish it to display it or plant it out.`)
+    );
+
+    // Variant checklist: found ones are shown, the rest are "???".
+    body.appendChild(el('h4', 'section-head', 'Variants'));
+    const vlist = el('div', 'variant-list');
+    for (const v of def.variants) {
+      const found = rec.variants.includes(v.id);
+      const row = el('div', `variant-row${found ? '' : ' missing'}`);
+      if (found) {
+        row.append(portrait(def.id, v.id, 2.8, 7, 44), el('span', 'variant-name', `✓ ${v.name}`), rarityBadge(v.rarity));
+        row.title = v.description;
+      } else {
+        row.append(portrait(def.id, v.id, 2.8, 7, 44, true), el('span', 'variant-name', '???'));
+      }
+      vlist.appendChild(row);
+    }
+    body.appendChild(vlist);
+
+    const c = speciesCounts(state, defId);
+    body.appendChild(el('h4', 'section-head', 'Your plants'));
+    const stats = el('div', 'stat-grid');
+    const stat = (label: string, value: string | number) => {
+      const s = el('div', 'stat');
+      s.append(el('div', 'stat-value', String(value)), el('div', 'stat-label', label));
+      stats.appendChild(s);
+    };
+    stat('Grown', rec.grown);
+    stat('Cuttings taken', rec.propagated);
+    stat('In the nursery', c.inNursery);
+    stat('On display', c.displayed);
+    stat('Carrying', c.carrying);
+    stat('Growing wild', c.wild);
+    stat('Sold', rec.sold);
+    stat('Earned', rec.earned);
+    body.appendChild(stats);
+    if (c.wild > 0) {
+      body.appendChild(note(c.wildSprouted > 0 ? `${c.wildPlanted} you planted, and ${c.wildSprouted} that came up by themselves.` : `${c.wildPlanted} you planted out. Once they’re large, they’ll start to spread.`));
+    }
+  }
+
+  private renderRegions() {
+    const lush = this.game.lush;
+    const body = this.panel.body;
+    body.appendChild(note('What your plants are doing to the valley. Plants grow fastest in their own kind of country.'));
+    const list = el('div', 'entry-list');
+    for (const z of REGIONS) {
+      const cover = lush.zoneCover[z] ?? 0;
+      const count = lush.zoneCount[z] ?? 0;
+      const row = el('div', 'entry-row region-row');
+      const info = el('div', 'entry-info');
+      info.append(el('div', 'entry-name', ZONES[z].name), el('div', 'entry-sub', describeRegion(cover, count, lush.zoneCharacter[z])));
+      const natives = PLANT_LIST.filter((p) => p.habitat.includes(z) && !p.foxOnly && this.game.state.collection[p.id]).map((p) => p.name);
+      if (natives.length) info.appendChild(el('div', 'entry-sub dim', `Thrives here: ${natives.join(', ')}`));
+      const bar = el('div', 'trait-bar-track');
+      const fill = el('div', 'trait-bar-fill');
+      fill.style.width = `${Math.round(Math.min(1, cover) * 100)}%`;
+      bar.appendChild(fill);
+      info.appendChild(bar);
+      const right = el('div', 'region-stat');
+      right.append(el('div', 'stat-value', `${Math.round(cover * 100)}%`), el('div', 'stat-label', `${count} plant${count === 1 ? '' : 's'}`));
+      row.append(info, right);
+      list.appendChild(row);
+    }
+    body.appendChild(list);
+    void clear;
+  }
 }

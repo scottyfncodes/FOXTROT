@@ -1,9 +1,10 @@
-import type { DiscoveryLevel, GrowConditions, GrowthStage, SpecimenKind, ToolId, TraitSet, ZoneId } from './types';
+import type { OutdoorZoneId, ZoneId } from './types';
+import type { DecorId } from './data/shop';
 import { PLAYER_START } from './data/worldMap';
 
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
 // fills new fields from createNewGame(). The storage key stays fixed.
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = 'foxtrot-save-v4';
 
 export type Facing = 'up' | 'down' | 'left' | 'right';
@@ -27,45 +28,69 @@ export interface WeatherState {
   nextChangeAt: number;
 }
 
-export interface InventoryItem {
-  uid: string;
-  defId: string;
-  kind: SpecimenKind;
-  count: number;
-  traits?: TraitSet;
-  quality?: number;
-  collectedAt: number;
-}
+export type GrowthStage = 'cutting' | 'young' | 'established' | 'large' | 'specimen';
 
-export interface PlantInstance {
+/** Where an owned plant lives. Every plant the player has is exactly one of these. */
+export type PlantLocation =
+  | { kind: 'nursery'; bedId: string }
+  | { kind: 'display'; slotId: string; potId: string }
+  | { kind: 'wild'; x: number; y: number; zone: OutdoorZoneId };
+
+export interface OwnedPlant {
   id: string;
   defId: string;
-  stationId: string;
-  stage: GrowthStage;
-  traits: TraitSet;
-  conditions: GrowConditions;
-  progressMinutes: number;
+  variantId: string;
+  /** Drives this individual's shape: leaf angles, lean, flip. */
+  seed: number;
+  /** Accumulated growth, in effective game-minutes. Stage is derived from it. */
+  growth: number;
+  location: PlantLocation;
   plantedAt: number;
-  dormant: boolean;
-  matchQualityAccum: number;
-  matchSamples: number;
-  qualityEstimate: number;
-  harvested: boolean;
+  lastCuttingAt: number | null;
+  /** 0 for a plant raised from a wild find; +1 for every cutting or seedling down the line. */
+  generation: number;
+  /** Sprouted by itself from one of the player's outdoor plants. */
+  bornWild: boolean;
+  /** A wild-born sport the player hasn't walked up to yet. */
+  unnoticed?: boolean;
+  /** Has counted toward its species' "grown" tally (reached established while in the player's care). */
+  countedGrown?: boolean;
 }
 
-export interface JournalEntry {
-  specimenId: string;
-  kind: SpecimenKind;
-  level: DiscoveryLevel;
-  firstSeenAt: number;
-  timesCollected: number;
-  propagatedCount: number;
-  variantFound: boolean;
+/** A plant being carried: a fresh cutting (growth 0) or a potted plant lifted from somewhere. */
+export interface BasketItem {
+  uid: string;
+  defId: string;
+  variantId: string;
+  seed: number;
+  growth: number;
+  generation: number;
+  origin: 'wild' | 'cutting' | 'lifted';
+  collectedAt: number;
+  countedGrown?: boolean;
 }
 
-export interface DiscoveryPointState {
-  lastCollectedAt: number | null;
-  revealed: boolean;
+export interface SpeciesRecord {
+  foundAt: number;
+  variants: string[];
+  grown: number;
+  propagated: number;
+  sold: number;
+  earned: number;
+  plantedOut: number;
+  displayed: number;
+}
+
+export interface SpotState {
+  collectedEpoch?: number;
+  revealed?: boolean;
+}
+
+export interface PlacedDecor {
+  id: string;
+  decorId: DecorId;
+  x: number;
+  y: number;
 }
 
 export type FoxBehavior = 'idle' | 'wandering' | 'leading' | 'paused' | 'gone';
@@ -88,12 +113,6 @@ export interface ScoutState {
   facing: Facing;
   behavior: ScoutBehavior;
   nextEventAt: number;
-}
-
-export interface WildIntroduction {
-  defId: string;
-  zone: ZoneId;
-  introducedAt: number;
 }
 
 export type ScottActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking';
@@ -127,20 +146,23 @@ export interface GameState {
   player: PlayerState;
   clock: ClockState;
   weather: WeatherState;
-  tools: Record<ToolId, number>;
-  inventory: InventoryItem[];
-  journal: Record<string, JournalEntry>;
-  discoveredRelationships: string[];
-  plantInstances: Record<string, PlantInstance>;
-  stationOccupancy: Record<string, string | null>;
-  discoveryPoints: Record<string, DiscoveryPointState>;
-  ecosystem: Record<string, Record<string, number>>; // zone -> speciesId -> population 0-100
-  wildIntroductions: WildIntroduction[];
+  coins: number;
+  /** One-off shop purchases. */
+  owned: string[];
+  /** Garden decor bought but not yet placed. */
+  decorStock: Partial<Record<DecorId, number>>;
+  decor: PlacedDecor[];
+  tools: { lantern: number };
+  basket: BasketItem[];
+  plants: Record<string, OwnedPlant>;
+  collection: Record<string, SpeciesRecord>;
+  spots: Record<string, SpotState>;
+  /** One-time guidance already shown. */
+  hints: string[];
   fox: FoxState;
   scout: ScoutState;
   scott: ScottState;
   cat: CatState;
-  toastSeen: string[];
 }
 
 let uidCounter = 0;
@@ -157,15 +179,16 @@ export function createNewGame(): GameState {
     player: { x: PLAYER_START.x, y: PLAYER_START.y, facing: 'down', inGreenhouse: false },
     clock: { totalMinutes: 8 * 60, lastRealTimestamp: now },
     weather: { condition: 'clear', nextChangeAt: 8 * 60 + 180 },
-    tools: { basket: 1, shears: 0, lens: 0, trowel: 0, lantern: 0, fieldKit: 0 },
-    inventory: [],
-    journal: {},
-    discoveredRelationships: [],
-    plantInstances: {},
-    stationOccupancy: {},
-    discoveryPoints: {},
-    ecosystem: {},
-    wildIntroductions: [],
+    coins: 20,
+    owned: [],
+    decorStock: {},
+    decor: [],
+    tools: { lantern: 0 },
+    basket: [],
+    plants: {},
+    collection: {},
+    spots: {},
+    hints: [],
     fox: { x: PLAYER_START.x + 4, y: PLAYER_START.y + 2, zone: 'meadow', behavior: 'idle', targetDiscoveryId: null, nextEventAt: 8 * 60 + 5, visible: true },
     scout: { x: PLAYER_START.x - 0.8, y: PLAYER_START.y + 0.8, facing: 'down', behavior: 'following', nextEventAt: 8 * 60 + 10 },
     scott: {
@@ -187,6 +210,5 @@ export function createNewGame(): GameState {
       targetSpotId: 'sunny-perch',
       nextChangeAt: 8 * 60 + 15,
     },
-    toastSeen: [],
   };
 }

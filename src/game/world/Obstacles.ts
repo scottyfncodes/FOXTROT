@@ -1,6 +1,6 @@
 import type { ZoneId } from '../types';
 import { ZONE_RECTS, GREENHOUSE_FOOTPRINT, rectContains, isWater, type Rect } from '../data/worldMap';
-import { DISCOVERY_POINTS } from '../data/discoveryPoints';
+import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
 import { TOOL_PICKUPS } from '../data/toolPickups';
 import { mulberry32 } from '../engine/Random';
 
@@ -49,7 +49,7 @@ export function generateObstacles(seed = 1337): Obstacle[] {
   const rand = mulberry32(seed);
   const obstacles: Obstacle[] = [];
   const keepouts = [
-    ...DISCOVERY_POINTS.map((p) => ({ x: p.x, y: p.y })),
+    ...DISCOVERY_SPOTS.map((p) => ({ x: p.x, y: p.y })),
     ...TOOL_PICKUPS.map((p) => ({ x: p.x, y: p.y })),
     { x: GREENHOUSE_FOOTPRINT.x - 2, y: GREENHOUSE_FOOTPRINT.y + GREENHOUSE_FOOTPRINT.h },
   ];

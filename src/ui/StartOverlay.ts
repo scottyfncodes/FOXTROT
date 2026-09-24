@@ -20,8 +20,8 @@ export class StartOverlay {
         'p',
         undefined,
         isNew
-          ? "You're Ellen, a field botanist, with Scout — scruffy, one-eyed, never far — at your side. An abandoned greenhouse behind you. A living wilderness ahead. Something in the tree line is watching."
-          : 'The greenhouse is as you and Scout left it. The wilderness may not be.'
+          ? "You're Ellen, a plant collector, with Scout — scruffy, one-eyed, never far — at your side. A little greenhouse, an empty market stall, and a whole valley of wild houseplants waiting to be found. What will you discover first?"
+          : 'Your plants have been growing while you were away. The valley may look a little different.'
       )
     );
     const btn = el('button', 'primary-btn', isNew ? 'Step Outside' : 'Continue');
