@@ -16,7 +16,7 @@ export interface NurseryBed {
   requires?: string;
 }
 
-export type DisplayKind = 'stand' | 'hanging' | 'shelf' | 'tiered' | 'sunroom';
+export type DisplayKind = 'stand' | 'hanging' | 'shelf' | 'tiered' | 'sunroom' | 'pedestal' | 'trellis';
 
 export interface DisplaySlot {
   id: string;

@@ -1,5 +1,5 @@
 import type { OutdoorZoneId, ZoneId } from './types';
-import type { DecorId } from './data/shop';
+import type { DecorId, FurnitureId } from './data/shop';
 import { PLAYER_START } from './data/worldMap';
 
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
@@ -86,6 +86,14 @@ export interface SpotState {
   revealed?: boolean;
 }
 
+export interface PlacedFurniture {
+  id: string;
+  kind: FurnitureId;
+  /** Greenhouse tile. */
+  x: number;
+  y: number;
+}
+
 export interface PlacedDecor {
   id: string;
   decorId: DecorId;
@@ -115,7 +123,7 @@ export interface ScoutState {
   nextEventAt: number;
 }
 
-export type ScottActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking';
+export type ScottActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking' | 'golfing' | 'putting';
 
 export interface ScottState {
   x: number;
@@ -152,6 +160,10 @@ export interface GameState {
   /** Garden decor bought but not yet placed. */
   decorStock: Partial<Record<DecorId, number>>;
   decor: PlacedDecor[];
+  /** Greenhouse furniture bought but not yet placed. */
+  furnitureStock: Partial<Record<FurnitureId, number>>;
+  /** Stands, hooks and trellises the player has placed indoors; each holds one plant. */
+  furniture: PlacedFurniture[];
   tools: { lantern: number };
   basket: BasketItem[];
   plants: Record<string, OwnedPlant>;
@@ -163,6 +175,8 @@ export interface GameState {
   scout: ScoutState;
   scott: ScottState;
   cat: CatState;
+  /** Today's sales by species, so repeat sales of one plant fetch less. */
+  market: { day: number; sold: Record<string, number> };
 }
 
 let uidCounter = 0;
@@ -183,6 +197,8 @@ export function createNewGame(): GameState {
     owned: [],
     decorStock: {},
     decor: [],
+    furnitureStock: {},
+    furniture: [],
     tools: { lantern: 0 },
     basket: [],
     plants: {},
@@ -201,6 +217,7 @@ export function createNewGame(): GameState {
       targetSpotId: 'greenhouse-tinker',
       nextChangeAt: 8 * 60 + 20,
     },
+    market: { day: 0, sold: {} },
     cat: {
       x: 16,
       y: 5,

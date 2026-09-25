@@ -1,7 +1,7 @@
 import type { BasketItem, GameState } from '../state';
 import type { Rarity } from '../types';
 import { PLANTS, PLANT_LIST, specimenRarity } from '../data/plants';
-import { findShopItem, type DecorId, DECOR_IDS } from '../data/shop';
+import { findShopItem, type DecorId, DECOR_IDS, type FurnitureId, FURNITURE_IDS } from '../data/shop';
 import { MINUTES_PER_DAY } from '../engine/Clock';
 import { hashString } from '../engine/Random';
 import { takeFromBasket } from './basket';
@@ -20,9 +20,34 @@ export const RARITY_PRICE: Record<Rarity, number> = {
   extremelyRare: 700,
 };
 
-/** Bigger plants are worth much more than a snipped cutting. */
-export const STAGE_PRICE_MULT = [0.5, 0.9, 1.5, 2.4, 3.6];
+/**
+ * Bigger plants are worth much more than a snipped cutting. Cuttings are
+ * nearly free to come by (every rooted plant gives one every couple of real
+ * minutes), so they fetch little: the money is in growing things on.
+ */
+export const STAGE_PRICE_MULT = [0.3, 0.6, 1.1, 2.0, 3.2];
 export const DEMAND_BONUS = 1.5;
+
+/**
+ * Each sale of a species on the same day knocks its price down a notch, so
+ * a cutting farm of one plant can't flood the stall. It recovers overnight.
+ */
+export const GLUT_STEP = 0.85;
+export const GLUT_FLOOR = 0.4;
+
+function today(state: GameState): number {
+  return Math.floor(state.clock.totalMinutes / MINUTES_PER_DAY);
+}
+
+/** How many of this species have already sold today. */
+export function soldToday(state: GameState, defId: string): number {
+  return state.market.day === today(state) ? state.market.sold[defId] ?? 0 : 0;
+}
+
+/** 1 for the first sale of the day, falling with every repeat sale of the same species. */
+export function glutFactor(state: GameState, defId: string): number {
+  return Math.max(GLUT_FLOOR, Math.pow(GLUT_STEP, soldToday(state, defId)));
+}
 
 /** Today's sought-after species: people are asking for it at the stall. */
 export function demandSpecies(state: GameState): string {
@@ -44,7 +69,7 @@ export function priceOf(state: GameState, item: Pick<BasketItem, 'defId' | 'vari
   const rarity = specimenRarity(item.defId, item.variantId);
   let p = RARITY_PRICE[rarity] * STAGE_PRICE_MULT[stageIndexOf(item.growth)];
   if (demandSpecies(state) === item.defId) p *= DEMAND_BONUS;
-  return Math.max(1, Math.round(p * stallBonus(state)));
+  return Math.max(1, Math.round(p * stallBonus(state) * glutFactor(state, item.defId)));
 }
 
 export function sellItem(state: GameState, uid: string, now: number): number | null {
@@ -53,6 +78,9 @@ export function sellItem(state: GameState, uid: string, now: number): number | n
   const price = priceOf(state, item);
   takeFromBasket(state, uid);
   state.coins += price;
+  const day = today(state);
+  if (state.market.day !== day) state.market = { day, sold: {} };
+  state.market.sold[item.defId] = (state.market.sold[item.defId] ?? 0) + 1;
   const rec = ensureRecord(state, item.defId, now);
   rec.sold += 1;
   rec.earned += price;
@@ -77,6 +105,9 @@ export function buyItem(state: GameState, itemId: string): boolean {
   if (item.repeatable && (DECOR_IDS as string[]).includes(itemId)) {
     const id = itemId as DecorId;
     state.decorStock[id] = (state.decorStock[id] ?? 0) + 1;
+  } else if (item.repeatable && (FURNITURE_IDS as string[]).includes(itemId)) {
+    const id = itemId as FurnitureId;
+    state.furnitureStock[id] = (state.furnitureStock[id] ?? 0) + 1;
   } else {
     state.owned.push(itemId);
   }

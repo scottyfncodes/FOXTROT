@@ -1,10 +1,11 @@
-import type { ScottState } from '../state';
+import type { ScottActivity, ScottState } from '../state';
 import { SCOTT_SPOTS, findScottSpot, type ScottSpotKind } from '../data/scottSpots';
 
 // Ellen's husband, ambient and independent of the player: he potters
-// between fixed spots on his own clock, tinkering, napping, or snacking,
-// with no awareness of where Ellen or Scout are. Not a companion, not a
-// guide — just someone else who lives here.
+// between fixed spots on his own clock, tinkering, napping, snacking,
+// or practicing his golf swing and putting, with no awareness of where
+// Ellen or Scout are. Not a companion, not a guide — just someone else who
+// lives here.
 
 const TRAVEL_SPEED = 2.0; // tiles/sec, unhurried
 const ARRIVE_DIST = 0.3;
@@ -13,12 +14,16 @@ const DURATIONS: Record<ScottSpotKind, [number, number]> = {
   tinker: [20, 40],
   nap: [40, 90],
   snack: [15, 30],
+  golf: [30, 60],
+  putt: [25, 45],
 };
 
-const ACTIVITY_FOR_KIND: Record<ScottSpotKind, 'tinkering' | 'napping' | 'snacking'> = {
+export const ACTIVITY_FOR_KIND: Record<ScottSpotKind, Exclude<ScottActivity, 'traveling'>> = {
   tinker: 'tinkering',
   nap: 'napping',
   snack: 'snacking',
+  golf: 'golfing',
+  putt: 'putting',
 };
 
 export interface ScottTickContext {
@@ -76,5 +81,6 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
   scott.activity = ACTIVITY_FOR_KIND[spot.kind];
   const [minD, maxD] = DURATIONS[spot.kind];
   scott.nextChangeAt = ctx.now + minD + ctx.rand() * (maxD - minD);
-  scott.facing = 'down';
+  // Putting is drawn side-on, lining up toward the hole on his right.
+  scott.facing = spot.kind === 'putt' ? 'right' : 'down';
 }

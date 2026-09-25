@@ -1,3 +1,4 @@
+import type { GameState } from '../state';
 import { GREENHOUSE_DOOR, GREENHOUSE_FOOTPRINT, MARKET_STALL, isInBounds, isWater, rectContains } from '../data/worldMap';
 import { DISPLAY_SLOTS, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE, GREENHOUSE_GRID_H, GREENHOUSE_GRID_W, NURSERY_BEDS, STORAGE_CRATES } from '../data/stations';
 
@@ -12,14 +13,16 @@ export function isBlockedOutdoor(x: number, y: number, blockingSet: Set<string>)
   return false;
 }
 
-/** Solid greenhouse tiles given what's been bought: beds, stands and shelves block; hanging pots don't. */
-export function indoorBlockingSet(owned: string[]): Set<string> {
+/** Solid greenhouse tiles given what's been bought and placed: beds, stands and shelves block; hanging pots don't. */
+export function indoorBlockingSet(state: Pick<GameState, 'owned' | 'furniture'>): Set<string> {
+  const { owned } = state;
   const has = (req?: string) => !req || owned.includes(req);
   const tiles = [
     ...GREENHOUSE_FURNITURE,
     ...NURSERY_BEDS.filter((b) => has(b.requires)),
     ...DISPLAY_SLOTS.filter((s) => s.kind !== 'hanging' && has(s.requires)),
     ...(owned.includes('sunRoom') ? [] : STORAGE_CRATES),
+    ...state.furniture.filter((f) => f.kind !== 'ceilingHook'),
   ];
   return new Set(tiles.map((s) => `${s.x},${s.y}`));
 }
