@@ -819,7 +819,8 @@ export class PlantSpriteCache {
     const sfB = Math.round(Math.min(4.6, sf) * 3) / 3;
     const seedB = seed % 5;
     const unitB = Math.max(8, Math.round(unit / 4) * 4);
-    const scale = Math.min(dpr, 1.5);
+    // Match the world canvas density exactly; a lower-res sprite stretched up reads as blur.
+    const scale = dpr;
     const key = `${defId}|${variantId}|${sfB}|${seedB}|${unitB}|${mode}|${scale}`;
     const hit = this.map.get(key);
     if (hit) {
@@ -868,7 +869,7 @@ export function drawPortrait(canvas: HTMLCanvasElement, defId: string, variantId
   const ctx = canvas.getContext('2d');
   const def = PLANTS[defId];
   if (!ctx || !def) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const cssW = canvas.clientWidth || canvas.width;
   const cssH = canvas.clientHeight || canvas.height;
   canvas.width = Math.round(cssW * dpr);
@@ -917,7 +918,21 @@ export function drawPortrait(canvas: HTMLCanvasElement, defId: string, variantId
   const fit = Math.min((canvas.width * 0.92) / boxW, (canvas.height * 0.92) / boxH) * (sf < 1.6 ? growScale : 1);
   const dw = boxW * fit;
   const dh = boxH * fit;
-  ctx.drawImage(off, x0, y0, boxW, boxH, (canvas.width - dw) / 2, (canvas.height - dh) / 2 + (canvas.height - dh) * 0.2, dw, dh);
+  const dx = (canvas.width - dw) / 2;
+  const dy = (canvas.height - dh) / 2 + (canvas.height - dh) * 0.2;
+  // The pass above only measures. Stretching its bitmap to fit would blur
+  // thin forms and young cuttings (their crop is tiny), so paint the plant
+  // again straight onto the card at the final scale — the art is all vector
+  // paths, so it stays crisp at any size.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(dx, dy, dw, dh);
+  ctx.clip();
+  ctx.translate(dx - x0 * fit, dy - y0 * fit);
+  ctx.scale(fit, fit);
+  ctx.translate(w / 2, Sref * e.up + 10);
+  paintPlant(ctx, defId, variantId, sf, seed, unit, 'ground');
+  ctx.restore();
   if (silhouette) {
     ctx.globalCompositeOperation = 'source-in';
     ctx.fillStyle = 'rgba(60,48,32,0.55)';
