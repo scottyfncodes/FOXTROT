@@ -43,7 +43,7 @@ interface Paint {
 
 // ------------------------------------------------------------ leaf shapes
 
-type LeafShape = 'heart' | 'oval' | 'lance' | 'succulent' | 'spear';
+type LeafShape = 'heart' | 'oval' | 'lance' | 'succulent' | 'spear' | 'spike';
 
 /** Builds a leaf path at the origin, attached at (0,0), pointing up (−y). */
 function leafPath(ctx: CanvasRenderingContext2D, shape: LeafShape, L: number, W: number, ruffle: number) {
@@ -60,6 +60,11 @@ function leafPath(ctx: CanvasRenderingContext2D, shape: LeafShape, L: number, W:
     ctx.quadraticCurveTo(-W * 0.4, -L * 0.97, 0, -L);
     ctx.quadraticCurveTo(W * 0.4, -L * 0.97, W * 0.85, -L * 0.8);
     ctx.lineTo(W, 0);
+    ctx.closePath();
+  } else if (shape === 'spike') {
+    ctx.moveTo(-W, 0);
+    ctx.quadraticCurveTo(-W * 0.9, -L * 0.55, 0, -L);
+    ctx.quadraticCurveTo(W * 0.9, -L * 0.55, W, 0);
     ctx.closePath();
   } else if (shape === 'succulent') {
     ctx.moveTo(0, 0);
@@ -157,7 +162,8 @@ function variegate(p: Paint, L: number, W: number, opts: { bands?: boolean } = {
     case 'stripe': {
       ctx.strokeStyle = vc(0.75);
       if (opts.bands) {
-        ctx.lineWidth = Math.max(1, L * 0.035);
+        // The floor shrinks with the leaf so bands on a small plant don't merge into one.
+        ctx.lineWidth = Math.max(L * 0.035, Math.min(1, L * 0.05));
         for (let y = -L * 0.08; y > -L; y -= L * 0.11) {
           ctx.beginPath();
           ctx.moveTo(-W * 1.2, y);
@@ -753,6 +759,435 @@ function drawBloom(p: Paint) {
   }
 }
 
+// ------------------------------------------------------------ cacti & succulents
+
+function spineColor(look: PlantLook, a = 1): string {
+  const [h, s, l] = look.spines ?? [50, 30, 88];
+  return hsl(h, s, l, a);
+}
+
+/** A woolly areole at (x, y) with a tuft of spines (none when len is 0). */
+function areole(p: Paint, x: number, y: number, len: number, dot: number) {
+  const { ctx, look, rand } = p;
+  ctx.fillStyle = spineColor(look, 0.95);
+  ctx.beginPath();
+  ctx.arc(x, y, dot, 0, Math.PI * 2);
+  ctx.fill();
+  if (len <= 0) return;
+  ctx.strokeStyle = spineColor(look, 0.8);
+  ctx.lineWidth = Math.max(0.35, len * 0.08);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const n = 3 + Math.floor(rand() * 3);
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len * 0.75);
+  }
+  ctx.stroke();
+}
+
+function cactusFlower(p: Paint, x: number, y: number, r: number) {
+  const { ctx, look } = p;
+  const petal = hsl(look.accentHue, look.accentSat ?? 75, look.accentLight ?? 64);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 7 - 0.5) * 2.4;
+    withTransform(ctx, x, y, a, () => {
+      ctx.fillStyle = petal;
+      leafPath(ctx, 'lance', r * 1.3, r * 0.34, 0);
+      ctx.fill();
+    });
+  }
+  ctx.fillStyle = hsl(52, 80, 72);
+  ctx.beginPath();
+  ctx.arc(x, y - r * 0.25, r * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function columnPath(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.92, 0);
+  ctx.lineTo(-w, -h + w);
+  ctx.bezierCurveTo(-w, -h - w * 0.28, w, -h - w * 0.28, w, -h + w);
+  ctx.lineTo(w * 0.92, 0);
+  ctx.closePath();
+}
+
+/** One ribbed, spined cactus stem of half-width w and height h, rising from (0,0). */
+function cactusColumn(p: Paint, w: number, h: number, ribs: number) {
+  const { ctx, look, rand } = p;
+  columnPath(ctx, w, h);
+  const g = ctx.createLinearGradient(-w, 0, w, 0);
+  g.addColorStop(0, hsl(look.hue, look.sat - 6, look.light - 12));
+  g.addColorStop(0.38, hsl(look.hue, look.sat, look.light + 6));
+  g.addColorStop(1, hsl(look.hue, look.sat - 4, look.light - 14));
+  ctx.fillStyle = g;
+  ctx.fill();
+  variegate(p, h, w);
+  // Ribs are meridians seen side-on, so they bunch up toward the edges.
+  const ribX = (t: number) => Math.sin((t - 0.5) * Math.PI) * w * 0.92;
+  for (let j = 0; j < ribs; j++) {
+    const x = ribX((j + 0.5) / ribs);
+    stroke(ctx, hsl(look.hue, look.sat, look.light - 18, 0.5), Math.max(0.5, w * 0.06), () => {
+      ctx.moveTo(x * 0.92, 0);
+      ctx.lineTo(x, -h + w);
+      ctx.quadraticCurveTo(x, -h + w * 0.1, x * 0.2, -h + w * 0.05);
+    });
+  }
+  const spine = look.spineLength ?? 1;
+  for (let j = 1; j < ribs; j++) {
+    const x = ribX(j / ribs);
+    const face = 1 - Math.abs(x / w) * 0.5;
+    for (let y = w * 0.4; y < h - w * 0.3; y += w * 0.55) {
+      areole(p, x, -y, w * 0.34 * spine * face, Math.max(0.4, w * 0.06));
+    }
+  }
+  columnPath(ctx, w, h);
+  ctx.strokeStyle = hsl(look.hue, look.sat, look.light - 24, 0.6);
+  ctx.lineWidth = Math.max(0.5, w * 0.05);
+  ctx.stroke();
+  if (look.hairy) {
+    ctx.strokeStyle = spineColor(look, 0.8);
+    ctx.lineWidth = Math.max(0.4, w * 0.05);
+    ctx.lineCap = 'round';
+    const n = Math.round((h / w) * 7);
+    for (let i = 0; i < n; i++) {
+      const x = (rand() - 0.5) * w * 2;
+      const y = -w * 0.2 - rand() * (h - w * 0.2);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.bezierCurveTo(x + (rand() - 0.5) * w, y + w * 0.5, x + (rand() - 0.5) * w * 1.4, y + w, x + (rand() - 0.5) * w * 1.2, y + w * (1.1 + rand()));
+      ctx.stroke();
+    }
+    ctx.fillStyle = spineColor(look, 0.7);
+    ctx.beginPath();
+    ctx.ellipse(0, -h + w * 0.1, w * 0.75, w * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawColumn(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  const n = Math.min(7, 1 + Math.floor(sf * 1.4));
+  const stems = Array.from({ length: n }, (_, i) => ({
+    x: i === 0 ? 0 : (rand() - 0.5) * S * 0.62,
+    h: S * (i === 0 ? 1.0 : 0.4 + rand() * 0.5),
+    w: S * (0.1 + rand() * 0.025) * (look.leafWidth ?? 1),
+    arm: rand(),
+    flower: rand(),
+  })).sort((a, b) => b.h - a.h);
+  for (const s of stems) {
+    withTransform(ctx, s.x, 0, (s.x / S) * 0.25, () => {
+      // Older, taller stems throw out an elbowed arm, drawn behind the stem.
+      if (sf >= 2.6 && s.h > S * 0.7 && s.arm < 0.6) {
+        const side = s.arm < 0.3 ? -1 : 1;
+        const ay = -s.h * (0.35 + s.arm * 0.3);
+        const aw = s.w * 0.72;
+        withTransform(ctx, side * s.w * 0.5, ay, (side * Math.PI) / 2, () => cactusColumn(p, aw, s.w * 1.5, 3));
+        withTransform(ctx, side * s.w * 1.75, ay + aw * 0.9, 0, () => cactusColumn(p, aw, s.h * 0.42, 4));
+      }
+      cactusColumn(p, s.w, s.h, 5);
+      if (look.flowers && sf >= 2.4 && s.flower < 0.6) cactusFlower(p, 0, -s.h - s.w * 0.1, s.w * 0.9);
+    });
+  }
+}
+
+/** A ribbed ball cactus of radius R sitting on (cx, cy). */
+function cactusGlobe(p: Paint, cx: number, cy: number, R: number, ribs: number) {
+  const { ctx, look } = p;
+  const ry = R * 0.9;
+  withTransform(ctx, cx, cy, 0, () => {
+    const body = () => {
+      ctx.beginPath();
+      ctx.ellipse(0, -ry, R, ry, 0, 0, Math.PI * 2);
+    };
+    body();
+    const g = ctx.createRadialGradient(-R * 0.35, -ry * 1.4, R * 0.1, 0, -ry, R * 1.05);
+    g.addColorStop(0, hsl(look.hue, look.sat, look.light + 10));
+    g.addColorStop(0.7, hsl(look.hue, look.sat, look.light - 2));
+    g.addColorStop(1, hsl(look.hue, look.sat - 6, look.light - 16));
+    ctx.fillStyle = g;
+    ctx.fill();
+    body();
+    variegate(p, ry * 2, R);
+    const meridian = (t: number, phi: number): [number, number] => [R * t * Math.cos(phi), -ry - ry * Math.sin(phi)];
+    for (let j = 0; j < ribs; j++) {
+      const t = Math.sin(((j + 0.5) / ribs - 0.5) * Math.PI);
+      stroke(ctx, hsl(look.hue, look.sat, look.light - 18, 0.5), Math.max(0.5, R * 0.025), () => {
+        for (let k = 0; k <= 12; k++) {
+          const [x, y] = meridian(t, -Math.PI / 2 + (k / 12) * Math.PI);
+          if (k) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        }
+      });
+    }
+    const spine = look.spineLength ?? 1;
+    for (let j = 1; j < ribs; j++) {
+      const t = Math.sin((j / ribs - 0.5) * Math.PI);
+      for (let phi = -0.9; phi < 1.35; phi += 0.32) {
+        const [x, y] = meridian(t, phi);
+        areole(p, x, y, R * 0.24 * spine * (1 - Math.abs(t) * 0.4), Math.max(0.4, R * 0.035));
+      }
+    }
+    body();
+    ctx.strokeStyle = hsl(look.hue, look.sat, look.light - 24, 0.6);
+    ctx.lineWidth = Math.max(0.5, R * 0.025);
+    ctx.stroke();
+    if (look.spines && spine > 0) {
+      // The woolly crown where new spines come from.
+      ctx.fillStyle = spineColor(look, 0.6);
+      ctx.beginPath();
+      ctx.ellipse(0, -ry * 1.92, R * 0.2, R * 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
+function drawGlobe(p: Paint) {
+  const { look, rand, S, sf } = p;
+  const R = S * 0.36 * (look.leafWidth ?? 1);
+  if (look.grafted) {
+    // A plain green rootstock with the bright, chlorophyll-less ball perched on top.
+    const stock: PlantLook = { ...look, hue: 115, sat: 40, light: 36, variegation: 'none', spines: [50, 20, 80], spineLength: 0.5, flowers: false };
+    const sh = S * (0.3 + Math.min(sf, 4) * 0.07);
+    cactusColumn({ ...p, look: stock }, S * 0.085, sh, 3);
+    cactusGlobe(p, 0, -sh + S * 0.06, R * 0.62, 9);
+    if (look.flowers && sf >= 2.6) cactusFlower(p, 0, -sh - R * 1.05, R * 0.2);
+    return;
+  }
+  const pups = sf >= 2.2 ? Math.min(5, Math.floor((sf - 1.8) * 2)) : 0;
+  const around = Array.from({ length: pups }, (_, i) => {
+    const a = (i / Math.max(1, pups)) * Math.PI * 2 + rand();
+    return { x: Math.cos(a) * R * 1.15, y: Math.sin(a) * R * 0.3, r: R * (0.3 + rand() * 0.15) };
+  });
+  for (const b of around.filter((b) => b.y < 0)) cactusGlobe(p, b.x, b.y, b.r, 8);
+  cactusGlobe(p, 0, 0, R, 12);
+  for (const b of around.filter((b) => b.y >= 0)) cactusGlobe(p, b.x, b.y, b.r, 8);
+  if (look.flowers && sf >= 2.6) {
+    const k = Math.min(4, Math.floor(sf - 1.5));
+    for (let i = 0; i < k; i++) cactusFlower(p, (i - (k - 1) / 2) * R * 0.3, -R * 1.7, R * 0.17);
+  }
+}
+
+/** One flat pad of half-width w and height h, standing on (0,0). */
+function cactusPad(p: Paint, w: number, h: number) {
+  const { ctx, look } = p;
+  const ry = h / 2;
+  const body = () => {
+    ctx.beginPath();
+    ctx.ellipse(0, -ry, w, ry, 0, 0, Math.PI * 2);
+  };
+  body();
+  const g = ctx.createRadialGradient(-w * 0.3, -ry * 1.3, w * 0.1, 0, -ry, ry * 1.1);
+  g.addColorStop(0, hsl(look.hue, look.sat, look.light + 9));
+  g.addColorStop(1, hsl(look.hue, look.sat - 4, look.light - 10));
+  ctx.fillStyle = g;
+  ctx.fill();
+  body();
+  variegate(p, h, w);
+  body();
+  ctx.strokeStyle = hsl(look.hue, look.sat, look.light - 22, 0.55);
+  ctx.lineWidth = Math.max(0.5, w * 0.05);
+  ctx.stroke();
+  const spine = look.spineLength ?? 1;
+  let row = 0;
+  for (let y = -h * 0.12; y > -h * 0.92; y -= h * 0.15, row++) {
+    for (let x = -w + (row % 2) * w * 0.28; x < w; x += w * 0.56) {
+      const nx = x / w;
+      const ny = (y + ry) / ry;
+      if (nx * nx + ny * ny < 0.72) areole(p, x, y, w * 0.2 * spine, Math.max(0.5, w * 0.07));
+    }
+  }
+}
+
+function drawPaddle(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  const pw = S * 0.19 * (look.leafWidth ?? 1);
+  const ph = S * 0.3;
+  const n = Math.min(13, 1 + Math.round(sf * 2.6));
+  const pads = [{ x: 0, y: 0, a: (rand() - 0.5) * 0.2, k: 1, depth: 0 }];
+  while (pads.length < n) {
+    const parent = pads[Math.floor(rand() * pads.length)];
+    if (parent.depth >= 3) continue;
+    const side = rand() < 0.5 ? -1 : 1;
+    const rim = parent.a + side * (0.25 + rand() * 0.35);
+    const top = ph * parent.k * 0.9;
+    pads.push({
+      x: parent.x + Math.sin(rim) * top,
+      y: parent.y - Math.cos(rim) * top,
+      a: Math.max(-1.3, Math.min(1.3, parent.a + side * (0.35 + rand() * 0.55))),
+      k: parent.k * (0.76 + rand() * 0.12),
+      depth: parent.depth + 1,
+    });
+  }
+  for (const pad of pads) withTransform(ctx, pad.x, pad.y, pad.a, () => cactusPad(p, pw * pad.k, ph * pad.k));
+  if (look.flowers && sf >= 3) {
+    for (const pad of pads.filter((q) => q.depth >= 2).slice(0, 4)) {
+      withTransform(ctx, pad.x, pad.y, pad.a, () => cactusFlower(p, 0, -ph * pad.k * 0.98, pw * pad.k * 0.45));
+    }
+  }
+}
+
+function drawJade(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  // Young stems are green; older wood browns and thickens.
+  const age = Math.min(1, sf / 3.5);
+  const bark = hsl(look.hue + (28 - look.hue) * age, 22 + (1 - age) * 10, 30 + (1 - age) * 6);
+  const tips: [number, number, number][] = [];
+  const branch = (x: number, y: number, a: number, len: number, width: number, depth: number) => {
+    const ex = x + Math.sin(a) * len;
+    const ey = y - Math.cos(a) * len;
+    stroke(ctx, bark, width, () => {
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + Math.sin(a) * len * 0.5 + (rand() - 0.5) * len * 0.25, y - Math.cos(a) * len * 0.5, ex, ey);
+    });
+    if (depth <= 0) {
+      tips.push([ex, ey, a]);
+      return;
+    }
+    const kids = rand() < 0.3 ? 3 : 2;
+    for (let k = 0; k < kids; k++) branch(ex, ey, a + (k - (kids - 1) / 2) * (0.55 + rand() * 0.3), len * (0.62 + rand() * 0.15), width * 0.68, depth - 1);
+  };
+  const depth = sf < 1 ? 0 : sf < 2.2 ? 1 : sf < 3.4 ? 2 : 3;
+  branch(0, 0, (rand() - 0.5) * 0.15, S * (0.18 + Math.min(sf, 4) * 0.06), Math.max(1, S * (0.035 + Math.min(sf, 4) * 0.012)), depth);
+  const narrow = (look.leafWidth ?? 1) < 0.7;
+  for (const [x, y, a] of tips) {
+    const n = 4 + Math.floor(rand() * 3);
+    for (let i = 0; i < n; i++) {
+      const L = S * (0.12 + rand() * 0.05);
+      withTransform(ctx, x, y, a + (i / (n - 1) - 0.5) * 2.4, () => {
+        leaf(p, { shape: 'succulent', L, W: L * 0.44 * (look.leafWidth ?? 1), midrib: false, dim: i % 2 ? 4 : 0 });
+        // Gollum's tube leaves end in a little red suction cup; the rest just blush.
+        ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 55, look.accentLight ?? 50, narrow ? 0.85 : 0.35);
+        ctx.beginPath();
+        ctx.ellipse(0, -L * 0.94, L * (narrow ? 0.12 : 0.1), L * 0.06, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  }
+}
+
+function drawSpiky(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  const pups = sf >= 2.5 ? Math.min(4, Math.floor((sf - 2) * 2)) : 0;
+  for (let i = 0; i < pups; i++) {
+    const side = i % 2 ? 1 : -1;
+    withTransform(ctx, side * S * (0.55 + rand() * 0.2), S * (rand() - 0.5) * 0.1, 0, () => drawSpiky({ ...p, S: S * (0.4 + rand() * 0.12), sf: 1 }));
+  }
+  const n = Math.min(18, Math.round(4 + sf * 3));
+  const W = S * 0.075 * (look.leafWidth ?? 1);
+  const blades = Array.from({ length: n }, () => {
+    const a = (rand() - 0.5) * 2.5;
+    return { a, L: S * (0.45 + rand() * 0.3) * (1 - Math.abs(a) * 0.2) };
+  }).sort((a, b) => Math.abs(b.a) - Math.abs(a.a));
+  for (const b of blades) {
+    withTransform(ctx, Math.sin(b.a) * S * 0.04, 0, b.a, () => {
+      leaf(p, { shape: 'spike', L: b.L, W, bands: look.variegation === 'stripe', midrib: false, dim: Math.abs(b.a) > 0.7 ? 6 : 0 });
+      if (!look.spines) return;
+      // Soft teeth along both margins.
+      ctx.strokeStyle = spineColor(look, 0.85);
+      ctx.lineWidth = Math.max(0.4, W * 0.08);
+      ctx.beginPath();
+      for (let t = 0.12; t < 0.85; t += 0.1) {
+        for (const s of [-1, 1]) {
+          const u = 1 - t;
+          const x = s * (u * u * W + 2 * u * t * W * 0.9);
+          const y = -2 * u * t * b.L * 0.55 - t * t * b.L;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + s * W * 0.22, y - W * 0.12);
+        }
+      }
+      ctx.stroke();
+    });
+  }
+  if (!look.flowers || sf < 3) return;
+  // A tall flower spike hung with tubular blooms.
+  const top = -S * 1.3;
+  stroke(ctx, stemColor(look, 4), Math.max(0.8, S * 0.018), () => {
+    ctx.moveTo(0, -S * 0.2);
+    ctx.quadraticCurveTo(S * 0.05, top * 0.6, 0, top);
+  });
+  ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 80, look.accentLight ?? 60);
+  for (let i = 0; i < 9; i++) {
+    const y = top + i * S * 0.035;
+    const x = (i % 2 ? 1 : -1) * S * 0.025;
+    ctx.beginPath();
+    ctx.ellipse(x, y + S * 0.03, S * 0.014, S * 0.04, x > 0 ? 0.4 : -0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** A living stone: two fat leaves pressed into a squat dome, split down the middle. */
+function stone(p: Paint, r: number) {
+  const { ctx, look, rand } = p;
+  const h = r * 1.2;
+  for (const s of [-1, 1]) {
+    const body = () => {
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.04, 0);
+      ctx.lineTo(s * r * 0.95, 0);
+      ctx.bezierCurveTo(s * r * 1.05, -h * 0.6, s * r * 0.85, -h, s * r * 0.45, -h);
+      ctx.quadraticCurveTo(s * r * 0.1, -h, s * r * 0.04, -h * 0.82);
+      ctx.closePath();
+    };
+    body();
+    const g = ctx.createLinearGradient(0, -h, 0, 0);
+    g.addColorStop(0, hsl(look.hue, look.sat, look.light + 8));
+    g.addColorStop(1, hsl(look.hue, look.sat - 6, look.light - 14));
+    ctx.fillStyle = g;
+    ctx.fill();
+    body();
+    variegate(p, h, r);
+    // The translucent "window" on top, mottled like the stones it hides among.
+    body();
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 25, look.accentLight ?? 40, 0.55);
+    ctx.beginPath();
+    ctx.ellipse(s * r * 0.5, -h * 0.94, r * 0.42, h * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 25, (look.accentLight ?? 40) - 12, 0.6);
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      ctx.arc(s * r * (0.2 + rand() * 0.6), -h * (0.82 + rand() * 0.14), r * (0.04 + rand() * 0.05), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    body();
+    ctx.strokeStyle = hsl(look.hue, look.sat, look.light - 26, 0.6);
+    ctx.lineWidth = Math.max(0.5, r * 0.04);
+    ctx.stroke();
+  }
+}
+
+function drawStones(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  const n = Math.min(7, 1 + Math.floor(sf * 1.3));
+  const r = S * 0.17;
+  const bodies = Array.from({ length: n }, (_, i) =>
+    i === 0 ? { x: 0, y: 0, k: 1 } : { x: (rand() - 0.5) * S * 0.75, y: (rand() - 0.5) * S * 0.18, k: 0.75 + rand() * 0.3 }
+  ).sort((a, b) => a.y - b.y);
+  for (const b of bodies) withTransform(ctx, b.x, b.y, 0, () => stone(p, r * b.k));
+  if (!look.flowers || sf < 2.8) return;
+  // Daisies push up out of the split.
+  for (const b of bodies.slice(-Math.min(3, Math.floor(sf - 1.8)))) {
+    const cx = b.x;
+    const cy = b.y - r * b.k * 1.25;
+    for (let i = 0; i < 14; i++) {
+      withTransform(ctx, cx, cy, (i / 14) * Math.PI * 2, () => {
+        ctx.fillStyle = hsl(50, 90, 66);
+        ctx.scale(1, 0.6);
+        leafPath(ctx, 'lance', r * 0.55, r * 0.07, 0);
+        ctx.fill();
+      });
+    }
+    ctx.fillStyle = hsl(42, 80, 55);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 const FORM_DRAW: Record<PlantForm, (p: Paint) => void> = {
   fern: drawFern,
   splitleaf: drawSplitleaf,
@@ -765,6 +1200,12 @@ const FORM_DRAW: Record<PlantForm, (p: Paint) => void> = {
   patterned: drawPatterned,
   beads: drawBeads,
   bloom: drawBloom,
+  column: drawColumn,
+  globe: drawGlobe,
+  paddle: drawPaddle,
+  jade: drawJade,
+  spiky: drawSpiky,
+  stones: drawStones,
 };
 
 /**
@@ -790,6 +1231,8 @@ function extent(form: PlantForm, mode: PlantMode): { w: number; up: number; down
   if (form === 'strappy') return { w: 1.9, up: 1.5, down: mode === 'ground' ? 0.4 : 0.9 };
   if (form === 'fern') return { w: 1.8, up: 1.4, down: 0.6 };
   if (form === 'coin') return { w: 1.2, up: 1.5, down: 0.4 };
+  if (form === 'paddle' || form === 'jade' || form === 'spiky') return { w: 1.6, up: 1.6, down: 0.4 };
+  if (form === 'stones') return { w: 1.0, up: 0.9, down: 0.4 };
   return { w: 1.35, up: 1.6, down: 0.5 };
 }
 

@@ -4,6 +4,8 @@ import { spotContent, collectSpot, spotPool } from '../src/game/systems/spots';
 import { DISCOVERY_SPOTS, SPOT_EPOCH_MINUTES } from '../src/game/data/discoveryPoints';
 import { PLANTS, specimenRarity, rarityRank } from '../src/game/data/plants';
 import type { DiscoverySpot } from '../src/game/types';
+import { generateObstacles, buildBlockingSet } from '../src/game/world/Obstacles';
+import { zoneAt } from '../src/game/data/worldMap';
 
 const meadow = DISCOVERY_SPOTS.find((s) => s.id === 'sp-meadow-1')!;
 
@@ -79,5 +81,27 @@ describe('wild patches', () => {
     expect(spotContent(state, fox)).toBeNull();
     state.spots[fox.id] = { revealed: true };
     expect(spotContent(state, fox)).not.toBeNull();
+  });
+
+  it('puts every patch in its own region, on open ground', () => {
+    const blocked = buildBlockingSet(generateObstacles());
+    for (const spot of DISCOVERY_SPOTS) {
+      expect(zoneAt(spot.x, spot.y)).toBe(spot.zone);
+      expect(blocked.has(`${spot.x},${spot.y}`)).toBe(false);
+    }
+  });
+
+  it('turns up cacti and succulents in the Rocky Clearing', () => {
+    const state = createNewGame();
+    const rocky = DISCOVERY_SPOTS.filter((s) => s.zone === 'rockyClearing');
+    const seen = new Set<string>();
+    for (let e = 0; e < 200; e++) {
+      state.clock.totalMinutes = e * SPOT_EPOCH_MINUTES + 1;
+      for (const spot of rocky) {
+        const c = spotContent(state, spot);
+        if (c) seen.add(PLANTS[c.defId].form);
+      }
+    }
+    for (const form of ['column', 'globe', 'paddle', 'jade', 'spiky', 'stones']) expect(seen.has(form)).toBe(true);
   });
 });

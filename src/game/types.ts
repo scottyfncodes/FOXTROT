@@ -30,7 +30,13 @@ export type PlantForm =
   | 'coin' // round leaves on long stems (pilea)
   | 'patterned' // broad oval showpiece leaves (calathea, begonia)
   | 'beads' // strings of pearls
-  | 'bloom'; // upright clump topped with flowers (peace lily, orchid)
+  | 'bloom' // upright clump topped with flowers (peace lily, orchid)
+  | 'column' // ribbed upright cactus stems that branch into arms (fairy castle)
+  | 'globe' // ribbed ball cactus, pupping at the base (golden barrel)
+  | 'paddle' // flat pads stacked on pads (bunny ear cactus)
+  | 'jade' // a little woody tree tipped with fat leaves (jade plant)
+  | 'spiky' // fleshy pointed leaves in an upright clump (aloe, haworthia)
+  | 'stones'; // squat split pebbles (living stones)
 
 /**
  * What kind of landscape a species pushes an area toward once it's
@@ -60,6 +66,14 @@ export interface PlantLook {
   ruffled?: boolean;
   /** Draws flowers at established+ stages. */
   flowers?: boolean;
+  /** Cacti and toothed succulents: spine colour as `h s l`. */
+  spines?: [number, number, number];
+  /** Multiplies spine length; 0 leaves only the woolly areoles. */
+  spineLength?: number;
+  /** Moon cactus: a bright ball grafted onto a green rootstock. */
+  grafted?: boolean;
+  /** Old man cactus: shaggy white hair over the stems. */
+  hairy?: boolean;
 }
 
 export interface VariantDef {
