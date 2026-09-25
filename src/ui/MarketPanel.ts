@@ -4,7 +4,7 @@ import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity, rarityRank } from '../game/data/plants';
 import { SHOP_ITEMS, type ShopCategory } from '../game/data/shop';
 import { STAGE_LABEL, stageFloat, stageOf } from '../game/systems/growth';
-import { priceOf, demandSpecies, buyBlockReason, DEMAND_BONUS } from '../game/systems/market';
+import { priceOf, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday } from '../game/systems/market';
 import { button, note, portrait, rarityBadge } from './common';
 
 type Tab = 'sell' | 'shop';
@@ -75,6 +75,8 @@ export class MarketPanel {
         state.basket.filter((b) => b !== item && b.defId === item.defId && b.variantId === item.variantId).length +
         Object.values(state.plants).filter((p) => p.defId === item.defId && p.variantId === item.variantId).length;
       if (rarityRank(rarity) >= 2 && others === 0) info.appendChild(note('Your only one. Propagate it first, and you could keep one and sell one.', 'row-note warn'));
+      const glut = soldToday(state, item.defId);
+      if (glut > 0) info.appendChild(note(`${glut} already sold today — buyers are paying less for more of the same. Prices recover tomorrow.`, 'row-note'));
       const price = priceOf(state, item);
       const sell = button(`Sell · ${price}`, () => {
         this.game.sell(item.uid);
@@ -98,7 +100,9 @@ export class MarketPanel {
       for (const item of items) {
         const row = el('div', 'entry-row');
         const info = el('div', 'entry-info');
-        const stock = item.repeatable ? state.decorStock[item.id as keyof typeof state.decorStock] ?? 0 : 0;
+        const stock = item.repeatable
+          ? (state.decorStock[item.id as keyof typeof state.decorStock] ?? 0) + (state.furnitureStock[item.id as keyof typeof state.furnitureStock] ?? 0)
+          : 0;
         info.append(el('div', 'entry-name', item.name + (stock ? ` (${stock} unplaced)` : '')), el('div', 'entry-sub', item.description));
         const block = buyBlockReason(state, item.id);
         const label = block === 'owned' ? 'Owned ✓' : `${item.price} coins`;

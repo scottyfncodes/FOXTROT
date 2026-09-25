@@ -2,7 +2,7 @@ import type { Game } from '../game/engine/Game';
 import { Panel } from './Panel';
 import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity } from '../game/data/plants';
-import { SHOP_ITEMS, DECOR_IDS } from '../game/data/shop';
+import { SHOP_ITEMS, DECOR_IDS, FURNITURE_IDS } from '../game/data/shop';
 import { basketCapacity } from '../game/systems/basket';
 import { ESTABLISH_THRESHOLD } from '../game/systems/collection';
 import { placementBlockReason } from '../game/systems/propagation';
@@ -92,6 +92,34 @@ export class BasketPanel {
           this.game.pickUpNearbyDecor();
           this.render();
         }, 'secondary-btn'));
+        list.appendChild(row);
+      }
+      this.panel.body.appendChild(list);
+    }
+
+    // Greenhouse furniture waiting to be set down indoors.
+    const furniture = FURNITURE_IDS.filter((id) => (state.furnitureStock[id] ?? 0) > 0);
+    if (furniture.length) {
+      this.panel.body.appendChild(el('h4', 'section-head', 'Greenhouse Furniture'));
+      const list = el('div', 'entry-list');
+      for (const id of furniture) {
+        const item = SHOP_ITEMS.find((s) => s.id === id)!;
+        const block = this.game.furnitureBlock(id);
+        const sub =
+          block === 'outdoors'
+            ? 'Take it into the greenhouse to set it down.'
+            : block === 'doorway'
+              ? 'Keep the doorway clear — face somewhere else.'
+              : block
+                ? 'Face an open patch of floor to set it down.'
+                : 'Set down on the floor in front of you. Pick it up again any time it’s empty.';
+        const row = el('div', 'entry-row');
+        const info = el('div', 'entry-info');
+        info.append(el('div', 'entry-name', `${item.name} ×${state.furnitureStock[id]}`), el('div', 'entry-sub', sub));
+        row.append(info, button('Place', () => {
+          this.game.placeFurnitureHere(id);
+          this.render();
+        }, 'secondary-btn', !!block));
         list.appendChild(row);
       }
       this.panel.body.appendChild(list);

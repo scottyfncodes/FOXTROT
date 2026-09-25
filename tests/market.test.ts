@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { createNewGame } from '../src/game/state';
-import { priceOf, sellItem, buyItem, buyBlockReason, demandSpecies } from '../src/game/systems/market';
+import { priceOf, sellItem, buyItem, buyBlockReason, demandSpecies, GLUT_FLOOR } from '../src/game/systems/market';
 import { addToBasket, basketCapacity } from '../src/game/systems/basket';
 import { placeDecor, pickUpDecor } from '../src/game/systems/decor';
 import { STAGE_AT } from '../src/game/systems/growth';
+import { MINUTES_PER_DAY } from '../src/game/engine/Clock';
 
 describe('farmer’s market', () => {
   it('pays more for rarer plants and for bigger ones', () => {
@@ -67,5 +68,31 @@ describe('farmer’s market', () => {
     expect(placeDecor(state, 'gardenBench', 60.2, 30)).toBeNull(); // too close
     expect(pickUpDecor(state, d.id)).toBe(true);
     expect(state.decorStock.gardenBench).toBe(2);
+  });
+
+  it('selling the same species over and over in one day pays less each time, and recovers overnight', () => {
+    const state = createNewGame();
+    const sellOne = () => {
+      const item = addToBasket(state, { defId: 'pothos', variantId: 'golden', seed: 1, growth: STAGE_AT.large, generation: 0, origin: 'cutting', collectedAt: 0 })!;
+      return sellItem(state, item.uid, 0)!;
+    };
+    const first = sellOne();
+    const second = sellOne();
+    expect(second).toBeLessThan(first);
+    for (let i = 0; i < 20; i++) sellOne();
+    expect(sellOne()).toBeGreaterThanOrEqual(Math.floor(first * GLUT_FLOOR) - 1);
+    // Other species are unaffected.
+    expect(priceOf(state, { defId: 'monstera', variantId: 'deliciosa', growth: STAGE_AT.large })).toBeGreaterThan(0);
+    state.clock.totalMinutes += MINUTES_PER_DAY;
+    const next = priceOf(state, { defId: 'pothos', variantId: 'golden', growth: STAGE_AT.large });
+    expect(Math.abs(next - first)).toBeLessThanOrEqual(first * 0.5 + 1); // demand bonus may differ by day
+    expect(state.market.sold.pothos).toBe(23);
+  });
+
+  it('a fresh cutting is worth little; the money is in growing it on', () => {
+    const state = createNewGame();
+    const cutting = priceOf(state, { defId: 'pothos', variantId: 'golden', growth: 0 });
+    const specimen = priceOf(state, { defId: 'pothos', variantId: 'golden', growth: STAGE_AT.specimen });
+    expect(specimen).toBeGreaterThanOrEqual(cutting * 9);
   });
 });

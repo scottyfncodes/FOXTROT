@@ -4,12 +4,13 @@ import type { Obstacle } from './Obstacles';
 import type { DiscoverySpot, ZoneId } from '../types';
 import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
 import { ZONES } from '../data/zones';
-import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE, NURSERY_BEDS, DISPLAY_SLOTS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
+import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
+import { displaySlots, climbsTrellis } from '../systems/furniture';
 import { PLANTS, lookFor, specimenRarity, rarityRank } from '../data/plants';
 import { TOOL_PICKUPS } from '../data/toolPickups';
 import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
 import { findPotStyle } from '../data/shop';
-import { ELLEN_APPEARANCE, SCOUT_APPEARANCE, SCOTT_APPEARANCE, CAT_APPEARANCE } from '../data/character';
+import { ELLEN_APPEARANCE, SCOUT_APPEARANCE, SCOTT_APPEARANCE, CAT_APPEARANCE, CHARACTER_SCALE } from '../data/character';
 import { daylightFactor, isNight } from '../engine/Clock';
 import { spotContent } from '../systems/spots';
 import { hasFound } from '../systems/collection';
@@ -164,16 +165,16 @@ export class Renderer {
       drawables.push({ y: MARKET_STALL.y + 0.8, draw: () => this.drawMarketStall(camera, state, now) });
     }
     if (state.fox.visible && !state.player.inGreenhouse) {
-      drawables.push({ y: state.fox.y, draw: () => this.drawFox(camera, state.fox.x, state.fox.y, now) });
+      drawables.push({ y: state.fox.y, draw: () => this.atScale(camera, state.fox.x, state.fox.y, CHARACTER_SCALE.fox, () => this.drawFox(camera, state.fox.x, state.fox.y, now)) });
     }
-    drawables.push({ y: state.scout.y, draw: () => this.drawScout(camera, state.scout, now) });
+    drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
     if (state.scott.zone !== 'greenhouse') {
-      drawables.push({ y: state.scott.y, draw: () => this.drawScott(camera, state.scott, now) });
+      drawables.push({ y: state.scott.y, draw: () => this.atScale(camera, state.scott.x, state.scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, state.scott, now)) });
     }
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
-    drawables.push({ y: state.player.y, draw: () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching) });
+    drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
 
@@ -660,11 +661,14 @@ export class Renderer {
     const w = MARKET_STALL.w * tile;
     const awning = state.owned.includes('stallAwning');
     const crates = state.owned.includes('stallCrates');
-    const top = tl.y - tile * 0.9;
+    // Sized against the characters: the table comes to Ellen's hip and the
+    // canopy clears Scott's head.
+    const ground = tl.y + tile * 0.8;
+    const top = tl.y - tile * 0.62;
     // posts
     ctx.fillStyle = '#5a3f28';
-    ctx.fillRect(tl.x + tile * 0.05, top, tile * 0.07, tile * 1.7);
-    ctx.fillRect(tl.x + w - tile * 0.12, top, tile * 0.07, tile * 1.7);
+    ctx.fillRect(tl.x + tile * 0.05, top, tile * 0.07, ground - top);
+    ctx.fillRect(tl.x + w - tile * 0.12, top, tile * 0.07, ground - top);
     // canopy
     const stripes = 6;
     for (let i = 0; i < stripes; i++) {
@@ -680,28 +684,29 @@ export class Renderer {
       ctx.fill();
     }
     // table
+    const tableTop = tl.y + tile * 0.36;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(tl.x, tl.y + tile * 0.75, w, tile * 0.12);
+    ctx.fillRect(tl.x, ground - tile * 0.05, w, tile * 0.12);
     ctx.fillStyle = '#7a5636';
-    ctx.fillRect(tl.x, tl.y + tile * 0.18, w, tile * 0.2);
+    ctx.fillRect(tl.x, tableTop + tile * 0.07, w, tile * 0.13);
     ctx.fillStyle = '#946a44';
-    ctx.fillRect(tl.x, tl.y + tile * 0.1, w, tile * 0.1);
+    ctx.fillRect(tl.x, tableTop, w, tile * 0.08);
     ctx.fillStyle = '#5a3f28';
-    ctx.fillRect(tl.x + tile * 0.1, tl.y + tile * 0.38, tile * 0.06, tile * 0.4);
-    ctx.fillRect(tl.x + w - tile * 0.16, tl.y + tile * 0.38, tile * 0.06, tile * 0.4);
+    ctx.fillRect(tl.x + tile * 0.1, tableTop + tile * 0.2, tile * 0.06, ground - tableTop - tile * 0.2);
+    ctx.fillRect(tl.x + w - tile * 0.16, tableTop + tile * 0.2, tile * 0.06, ground - tableTop - tile * 0.2);
     // wares: potted plants of species the player has found (or a few commons)
     const found = Object.keys(state.collection).filter((id) => PLANTS[id]);
     const wares = (found.length ? found : ['pothos', 'spiderPlant', 'snakePlant']).slice(0, crates ? 5 : 3);
     wares.forEach((id, i) => {
       const px = tl.x + tile * 0.3 + (i * (w - tile * 0.6)) / Math.max(1, wares.length - 1);
-      const py = tl.y + tile * 0.02;
+      const py = tableTop - tile * 0.08;
       this.drawPot(px, py, tile, crates ? (i % 2 ? 'speckled' : 'terracotta') : 'terracotta', 0.7);
       this.drawPlantSprite(px, py + tile * 0.02, tile * 0.7, id, PLANTS[id].variants[0].id, 2.2, 11 + i, 'pot', now);
     });
     if (crates) {
       ctx.fillStyle = '#a07a4a';
-      ctx.fillRect(tl.x - tile * 0.35, tl.y + tile * 0.4, tile * 0.4, tile * 0.35);
-      ctx.fillRect(tl.x + w - tile * 0.05, tl.y + tile * 0.4, tile * 0.4, tile * 0.35);
+      ctx.fillRect(tl.x - tile * 0.35, ground - tile * 0.35, tile * 0.4, tile * 0.35);
+      ctx.fillRect(tl.x + w - tile * 0.05, ground - tile * 0.35, tile * 0.4, tile * 0.35);
     }
     // chalkboard: today's demand, shown as a little picture of the plant
     const bx = tl.x + w + tile * 0.1;
@@ -848,6 +853,19 @@ export class Renderer {
       glow(p.location.x, p.location.y - 0.4, 1 + stageFloat(p.growth) * 0.35, c, 0.4 * pulse);
     }
     if (state.tools.lantern && !state.player.inGreenhouse) glow(state.player.x + 0.2, state.player.y - 0.3, 3, [255, 200, 120], 0.3);
+    ctx.restore();
+  }
+
+  /** Draws a character scaled about its feet, so resizing never lifts it off the ground. */
+  private atScale(camera: Camera, x: number, y: number, k: number, draw: () => void) {
+    const { ctx } = this;
+    const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
+    const footY = screen.y + TILE_SIZE * camera.zoom * 0.25;
+    ctx.save();
+    ctx.translate(screen.x, footY);
+    ctx.scale(k, k);
+    ctx.translate(-screen.x, -footY);
+    draw();
     ctx.restore();
   }
 
@@ -1481,152 +1499,490 @@ export class Renderer {
   }
 
   /**
-   * Scott: tall, blonde, ambient, and entirely uninterested in whatever the
-   * player is doing. Tinkers, naps, or snacks depending on `activity`,
-   * which the scott system drives on its own independent clock.
+   * Scott: tall, lean, blonde and short-bearded, ambient, and entirely
+   * uninterested in whatever the player is doing. Tinkers, naps, snacks,
+   * or practices his golf depending on `activity`, which the scott system
+   * drives on its own independent clock. Built like Ellen — legs, arms, a
+   * tapered torso — just a head taller and in overalls.
    */
   private drawScott(camera: Camera, scott: ScottState, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const screen = camera.worldToScreen(scott.x * TILE_SIZE, scott.y * TILE_SIZE);
+    const A = SCOTT_APPEARANCE;
 
     if (scott.activity === 'napping') {
       this.drawScottNapping(screen, tile, now);
       return;
     }
 
-    const dir = Renderer.DIR[scott.facing];
-    const scale = 1.15; // he reads a little taller than Ellen
+    const golfing = scott.activity === 'golfing';
+    const putting = scott.activity === 'putting';
+    const facing: Facing = golfing ? 'down' : putting ? 'right' : scott.facing;
+    const s = facing === 'left' ? -1 : 1;
+    const isSide = facing === 'left' || facing === 'right';
+    const isBack = facing === 'up';
+    const isFront = facing === 'down';
     const moving = scott.activity === 'traveling';
     const tinkering = scott.activity === 'tinkering';
     const snacking = scott.activity === 'snacking';
 
     const walkPhase = moving ? now * 0.011 : now * 0.0025;
     const walkAmp = moving ? 1 : 0.25;
-    const bob = Math.sin(walkPhase) * tile * 0.02 * walkAmp;
-    const legSwing = moving ? Math.sin(walkPhase * 2) * tile * 0.055 : 0;
-    const squash = tinkering ? 0.68 : 1;
-    const lift = tinkering ? tile * 0.12 : 0;
+    const bob = Math.abs(Math.sin(walkPhase)) * -tile * 0.02 * walkAmp;
+    const stride = moving ? Math.sin(walkPhase) : 0;
+    const squash = tinkering ? 0.74 : 1;
+    const lift = tinkering ? tile * 0.09 : 0;
 
     const cx = screen.x;
     const cy = screen.y + bob + lift;
+    const footY = screen.y + tile * 0.25;
 
+    const OUTLINE = 'rgba(28,20,12,0.55)';
+    const outlineWidth = Math.max(1, tile * 0.016);
+    const outline = () => {
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = outlineWidth;
+      ctx.stroke();
+    };
+    const limb = (x0: number, y0: number, x1: number, y1: number, w: number, color: string) => {
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = w + outlineWidth * 2;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = w;
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+    };
+
+    // Lean frame: a head taller than Ellen, long legs, narrow waist.
+    const shoulderY = cy - tile * 0.22 * squash;
+    const waistY = cy + tile * 0.04 * squash;
+    const hipY = cy + tile * 0.08 * squash;
+    const shoulderW = tile * (isSide ? 0.07 : 0.1);
+    const waistW = tile * (isSide ? 0.05 : 0.058);
+    const headR = tile * 0.092;
+    const headY = cy - tile * 0.34 * squash;
+
+    // ---------------------------------------------------------------- golf
+    // One swing every few seconds: address, a slow turn back, a quick
+    // strike, and a held follow-through. The club is a line from his hands,
+    // which swing round his shoulders; θ = 0 points straight down, positive
+    // swings toward his right (screen-left, since he faces the camera).
+    const SWING_MS = 3800;
+    const t = golfing ? (now % SWING_MS) / SWING_MS : 0;
+    const IMPACT = 0.7;
+    const ease = (u: number) => u * u * (3 - 2 * u);
+    let theta = 0;
+    if (golfing) {
+      if (t < 0.3) theta = Math.sin(now * 0.01) * 0.06;
+      else if (t < 0.58) theta = 2.5 * ease((t - 0.3) / 0.28);
+      else if (t < 0.64) theta = 2.5;
+      else if (t < 0.76) theta = 2.5 - 4.9 * ease((t - 0.64) / 0.12);
+      else if (t < 0.9) theta = -2.4;
+      else theta = -2.4 * (1 - ease((t - 0.9) / 0.1));
+    }
+    // Putting: a short, smooth pendulum, side-on, then watch it roll.
+    const PUTT_MS = 4200;
+    const pt = putting ? (now % PUTT_MS) / PUTT_MS : 0;
+    const STROKE = 0.3;
+    const puttTheta = putting ? (pt < STROKE ? -0.4 * Math.sin((pt / STROKE) * Math.PI) : pt < STROKE + 0.06 ? 0.3 * Math.sin(((pt - STROKE) / 0.06) * (Math.PI / 2)) : 0.3) : 0;
+    const holeX = cx + s * tile * 1.15;
+
+    const drawGolfGround = () => {
+      if (golfing) {
+        // a tee and ball waiting at his feet until he strikes it
+        if (t < IMPACT) {
+          ctx.fillStyle = '#e8dcc4';
+          ctx.fillRect(cx + tile * 0.01, footY - tile * 0.02, tile * 0.012, tile * 0.03);
+          ctx.fillStyle = A.golfBall;
+          ctx.beginPath();
+          ctx.arc(cx + tile * 0.016, footY - tile * 0.03, tile * 0.022, 0, Math.PI * 2);
+          ctx.fill();
+          outline();
+        }
+      }
+      if (putting) {
+        // the cup and its flag
+        ctx.fillStyle = 'rgba(20,24,16,0.75)';
+        ctx.beginPath();
+        ctx.ellipse(holeX, footY, tile * 0.05, tile * 0.022, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#e8e2c8';
+        ctx.lineWidth = Math.max(1, tile * 0.012);
+        ctx.beginPath();
+        ctx.moveTo(holeX, footY);
+        ctx.lineTo(holeX, footY - tile * 0.5);
+        ctx.stroke();
+        const flutter = Math.sin(now * 0.006) * tile * 0.012;
+        ctx.fillStyle = A.flag;
+        ctx.beginPath();
+        ctx.moveTo(holeX, footY - tile * 0.5);
+        ctx.lineTo(holeX + tile * 0.16, footY - tile * 0.45 + flutter);
+        ctx.lineTo(holeX, footY - tile * 0.4);
+        ctx.closePath();
+        ctx.fill();
+        // the ball: sits at his feet, then rolls (slowing) into the cup
+        const startX = cx + s * tile * 0.13;
+        let bx = startX;
+        let show = true;
+        if (pt >= STROKE + 0.03) {
+          const u = Math.min(1, (pt - STROKE - 0.03) / 0.4);
+          bx = startX + (holeX - startX) * (1 - (1 - u) * (1 - u));
+          show = u < 1;
+        }
+        if (show) {
+          ctx.fillStyle = A.golfBall;
+          ctx.beginPath();
+          ctx.arc(bx, footY - tile * 0.018, tile * 0.02, 0, Math.PI * 2);
+          ctx.fill();
+          outline();
+        }
+      }
+    };
+
+    const drawBallFlight = () => {
+      if (!golfing || t < IMPACT) return;
+      const u = (t - IMPACT) / 0.3;
+      if (u > 1) return;
+      // away to the right and up, shrinking as it carries
+      const bx = cx + u * tile * 2.2;
+      const by = footY - tile * 0.03 - Math.sin(u * Math.PI) * tile * 1.1 - u * tile * 0.35;
+      ctx.fillStyle = A.golfBall;
+      ctx.beginPath();
+      ctx.arc(bx, by, tile * 0.022 * (1 - u * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    // shadow
     ctx.fillStyle = 'rgba(0,0,0,0.24)';
     ctx.beginPath();
-    ctx.ellipse(cx, screen.y + tile * 0.3 * scale, tile * 0.2 * scale, tile * 0.08, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, screen.y + tile * 0.26, tile * (isSide ? 0.12 : 0.11), tile * 0.045, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = SCOTT_APPEARANCE.boots;
-    ctx.beginPath();
-    ctx.ellipse(cx - tile * 0.075 * scale, screen.y + tile * 0.27 * scale + legSwing, tile * 0.065, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(cx + tile * 0.075 * scale, screen.y + tile * 0.27 * scale - legSwing, tile * 0.065, tile * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
+    drawGolfGround();
 
-    // overalls (lower)
-    ctx.fillStyle = SCOTT_APPEARANCE.overalls;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + tile * 0.14 * scale * squash, tile * 0.15 * scale, tile * 0.16 * scale * squash, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // chambray shirt (upper torso)
-    ctx.fillStyle = SCOTT_APPEARANCE.shirt;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - tile * 0.02 * scale * squash, tile * 0.16 * scale, tile * 0.18 * scale * squash, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // overall straps
-    ctx.strokeStyle = SCOTT_APPEARANCE.overallsTrim;
-    ctx.lineWidth = Math.max(1, tile * 0.025);
-    ctx.beginPath();
-    ctx.moveTo(cx - tile * 0.08 * scale, cy - tile * 0.15 * scale * squash);
-    ctx.lineTo(cx - tile * 0.05 * scale, cy + tile * 0.05 * scale * squash);
-    ctx.moveTo(cx + tile * 0.08 * scale, cy - tile * 0.15 * scale * squash);
-    ctx.lineTo(cx + tile * 0.05 * scale, cy + tile * 0.05 * scale * squash);
-    ctx.stroke();
-
-    // head, tall and blonde
-    const headY = cy - tile * 0.34 * scale * squash;
-    ctx.fillStyle = SCOTT_APPEARANCE.skin;
-    ctx.beginPath();
-    ctx.arc(cx, headY, tile * 0.115 * scale, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = SCOTT_APPEARANCE.hair;
-    ctx.beginPath();
-    ctx.arc(cx - dir[0] * tile * 0.01, headY - tile * 0.06 * scale, tile * 0.1 * scale, Math.PI, Math.PI * 2.15);
-    ctx.fill();
-    if (scott.facing !== 'up') {
-      ctx.fillStyle = '#2a2018';
+    // legs — a little wider apart when he's addressing a ball
+    const stanceW = golfing ? 0.06 : putting ? 0.03 : 0.036;
+    const legW = Math.max(2, tile * 0.05);
+    const legs: Array<[number, number]> = isSide ? [[-1, -stride], [1, stride]] : [[-1, stride], [1, -stride]];
+    for (const [side, swing] of legs) {
+      const topX = isSide ? cx + side * tile * 0.012 : cx + side * tile * 0.034;
+      const footX = isSide ? topX + s * swing * tile * 0.08 + side * tile * stanceW * 0.4 : cx + side * tile * stanceW;
+      const fy = isSide ? footY : footY - Math.max(0, swing) * tile * 0.03;
+      limb(topX, hipY, footX, fy - tile * 0.03, legW, A.overalls);
+      ctx.fillStyle = A.boots;
       ctx.beginPath();
-      ctx.arc(cx + dir[0] * tile * 0.05 - tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.014, 0, Math.PI * 2);
-      ctx.arc(cx + dir[0] * tile * 0.05 + tile * 0.03, headY + dir[1] * tile * 0.02, tile * 0.014, 0, Math.PI * 2);
+      if (isSide) ctx.ellipse(footX + s * tile * 0.018, fy, tile * 0.048, tile * 0.03, 0, 0, Math.PI * 2);
+      else ctx.ellipse(footX, fy, tile * 0.034, tile * 0.034, 0, 0, Math.PI * 2);
       ctx.fill();
+      outline();
     }
 
-    if (tinkering) {
-      const wiggle = Math.sin(now * 0.01) * tile * 0.03;
-      const tx = cx + dir[0] * tile * 0.2;
-      const ty = cy + tile * 0.14 + dir[1] * tile * 0.1 + wiggle;
-      ctx.strokeStyle = SCOTT_APPEARANCE.toolHandle;
-      ctx.lineWidth = Math.max(1, tile * 0.025);
+    // where his hands are, and what's in them
+    const pivotX = cx;
+    const pivotY = shoulderY + tile * 0.04;
+    let hands: [number, number] | null = null;
+    let clubTo: [number, number] | null = null;
+    if (golfing) {
+      const d: [number, number] = [-Math.sin(theta), Math.cos(theta)];
+      const rh = tile * 0.19;
+      hands = [pivotX + d[0] * rh, pivotY + d[1] * rh];
+      clubTo = [hands[0] + d[0] * tile * 0.25, hands[1] + d[1] * tile * 0.25];
+    } else if (putting) {
+      hands = [cx + s * tile * 0.07, waistY + tile * 0.02];
+      const d: [number, number] = [Math.sin(puttTheta) * s, Math.cos(puttTheta)];
+      clubTo = [hands[0] + d[0] * tile * 0.19, hands[1] + d[1] * tile * 0.19];
+    }
+
+    const drawArms = (front: boolean) => {
+      const armW = Math.max(2, tile * 0.04);
+      if (hands) {
+        // both hands together on the grip
+        const sides = isSide ? [s] : [-1, 1];
+        for (const side of sides) {
+          const sx = isSide ? cx + side * tile * 0.01 : cx + side * (shoulderW - tile * 0.012);
+          limb(sx, shoulderY + tile * 0.025, hands[0], hands[1], armW, A.shirt);
+        }
+        ctx.fillStyle = A.skin;
+        ctx.beginPath();
+        ctx.arc(hands[0], hands[1], tile * 0.026, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
+      const armSwing = moving ? stride : 0;
+      for (const [side, swing] of [[-1, armSwing], [1, -armSwing]] as const) {
+        if (isSide && (side === s) !== front) continue;
+        const sx = isSide ? cx + side * tile * 0.01 : cx + side * (shoulderW - tile * 0.012);
+        const sy = shoulderY + tile * 0.025;
+        let hx = isSide ? sx + s * swing * tile * 0.09 : sx + side * tile * 0.02;
+        let hy = isSide ? cy + tile * 0.06 * squash : cy + tile * 0.06 * squash - swing * tile * 0.025;
+        if (tinkering && side === 1) {
+          hx = cx + (isSide ? s : 1) * tile * 0.13;
+          hy = cy + tile * 0.1 + Math.sin(now * 0.01) * tile * 0.025;
+        }
+        if (snacking && side === 1) {
+          hx = cx + (isSide ? s * tile * 0.08 : tile * 0.05);
+          hy = headY + headR * 0.9 + Math.sin(now * 0.012) * tile * 0.012;
+        }
+        limb(sx, sy, hx, hy, armW, A.shirt);
+        ctx.fillStyle = A.skin;
+        ctx.beginPath();
+        ctx.arc(hx, hy + tile * 0.01, tile * 0.024, 0, Math.PI * 2);
+        ctx.fill();
+        if (tinkering && side === 1) {
+          // a trowel, poking at something
+          ctx.strokeStyle = A.toolHandle;
+          ctx.lineWidth = Math.max(1, tile * 0.022);
+          ctx.beginPath();
+          ctx.moveTo(hx, hy);
+          ctx.lineTo(hx + tile * 0.06, hy + tile * 0.07);
+          ctx.stroke();
+          ctx.fillStyle = A.tool;
+          ctx.beginPath();
+          ctx.ellipse(hx + tile * 0.075, hy + tile * 0.09, tile * 0.02, tile * 0.03, -0.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (snacking && side === 1) {
+          ctx.fillStyle = A.snack;
+          ctx.beginPath();
+          ctx.arc(hx, hy - tile * 0.02, tile * 0.03, 0, Math.PI * 2);
+          ctx.fill();
+          outline();
+        }
+      }
+    };
+
+    const drawClub = () => {
+      if (!hands || !clubTo) return;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = A.clubShaft;
+      ctx.lineWidth = Math.max(1, tile * 0.014);
       ctx.beginPath();
-      ctx.moveTo(cx + dir[0] * tile * 0.08, cy + tile * 0.02);
-      ctx.lineTo(tx, ty);
+      ctx.moveTo(hands[0], hands[1]);
+      ctx.lineTo(clubTo[0], clubTo[1]);
       ctx.stroke();
-      ctx.fillStyle = SCOTT_APPEARANCE.tool;
+      ctx.lineCap = 'butt';
+      ctx.fillStyle = A.clubHead;
       ctx.beginPath();
-      ctx.arc(tx, ty, tile * 0.03, 0, Math.PI * 2);
+      ctx.ellipse(clubTo[0], clubTo[1], tile * (putting ? 0.035 : 0.028), tile * 0.016, 0, 0, Math.PI * 2);
       ctx.fill();
-    }
+    };
 
-    if (snacking) {
-      const chew = Math.sin(now * 0.012) * tile * 0.012;
-      ctx.fillStyle = SCOTT_APPEARANCE.snack;
+    const drawTorso = () => {
+      // chambray shirt
+      ctx.fillStyle = A.shirt;
       ctx.beginPath();
-      ctx.arc(cx + dir[0] * tile * 0.14, headY + tile * 0.02 + chew, tile * 0.035, 0, Math.PI * 2);
+      ctx.moveTo(cx - shoulderW, shoulderY);
+      ctx.quadraticCurveTo(cx - waistW * 1.1, cy - tile * 0.06 * squash, cx - waistW, waistY);
+      ctx.lineTo(cx - waistW, hipY);
+      ctx.lineTo(cx + waistW, hipY);
+      ctx.lineTo(cx + waistW, waistY);
+      ctx.quadraticCurveTo(cx + waistW * 1.1, cy - tile * 0.06 * squash, cx + shoulderW, shoulderY);
+      ctx.quadraticCurveTo(cx, shoulderY - tile * 0.03 * squash, cx - shoulderW, shoulderY);
+      ctx.closePath();
       ctx.fill();
+      outline();
+      // overalls: bib and straps over the shirt
+      ctx.fillStyle = A.overalls;
+      const bibTop = shoulderY + tile * 0.09 * squash;
+      const bibW = isSide ? waistW * 0.7 : waistW * 0.85;
+      const bibX = isSide ? cx + s * waistW * 0.2 : cx;
+      ctx.beginPath();
+      ctx.moveTo(bibX - bibW, bibTop);
+      ctx.lineTo(bibX + bibW, bibTop);
+      ctx.lineTo(cx + waistW, hipY);
+      ctx.lineTo(cx - waistW, hipY);
+      ctx.closePath();
+      if (!isBack) ctx.fill();
+      ctx.fillRect(cx - waistW, waistY, waistW * 2, hipY - waistY + tile * 0.01);
+      ctx.strokeStyle = A.overallsTrim;
+      ctx.lineWidth = Math.max(1, tile * 0.018);
+      ctx.beginPath();
+      if (isSide) {
+        ctx.moveTo(cx + s * shoulderW * 0.2, shoulderY);
+        ctx.lineTo(bibX + s * bibW * 0.6, bibTop);
+      } else {
+        ctx.moveTo(cx - shoulderW * 0.55, shoulderY);
+        ctx.lineTo(isBack ? cx + waistW * 0.4 : bibX - bibW * 0.8, isBack ? waistY : bibTop);
+        ctx.moveTo(cx + shoulderW * 0.55, shoulderY);
+        ctx.lineTo(isBack ? cx - waistW * 0.4 : bibX + bibW * 0.8, isBack ? waistY : bibTop);
+      }
+      ctx.stroke();
+      if (isFront) {
+        ctx.fillStyle = A.overallsTrim;
+        ctx.fillRect(bibX - bibW * 0.4, bibTop + tile * 0.02, bibW * 0.8, tile * 0.03);
+      }
+    };
+
+    const drawHead = () => {
+      ctx.fillStyle = A.skin;
+      ctx.fillRect(cx - tile * 0.022, headY + headR * 0.6, tile * 0.044, shoulderY - headY - headR * 0.4);
+      const faceX = cx + (isSide ? s * headR * 0.15 : 0);
+      ctx.beginPath();
+      ctx.ellipse(faceX, headY, headR * (isSide ? 0.88 : 0.86), headR, 0, 0, Math.PI * 2);
+      ctx.fill();
+      outline();
+      if (isSide) {
+        ctx.beginPath();
+        ctx.arc(cx + s * headR * 0.98, headY + headR * 0.08, headR * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // short blonde beard along the jaw, with a moustache
+      if (!isBack) {
+        ctx.fillStyle = A.beard;
+        ctx.beginPath();
+        if (isSide) {
+          ctx.moveTo(cx - s * headR * 0.35, headY + headR * 0.05);
+          ctx.quadraticCurveTo(cx - s * headR * 0.2, headY + headR * 1.02, cx + s * headR * 0.55, headY + headR * 0.98);
+          ctx.quadraticCurveTo(cx + s * headR * 0.95, headY + headR * 0.72, cx + s * headR * 0.92, headY + headR * 0.42);
+          ctx.quadraticCurveTo(cx + s * headR * 0.5, headY + headR * 0.55, cx + s * headR * 0.1, headY + headR * 0.3);
+          ctx.quadraticCurveTo(cx - s * headR * 0.15, headY + headR * 0.3, cx - s * headR * 0.35, headY + headR * 0.05);
+        } else {
+          ctx.moveTo(cx - headR * 0.84, headY + headR * 0.05);
+          ctx.quadraticCurveTo(cx - headR * 0.8, headY + headR * 1.12, cx, headY + headR * 1.14);
+          ctx.quadraticCurveTo(cx + headR * 0.8, headY + headR * 1.12, cx + headR * 0.84, headY + headR * 0.05);
+          ctx.quadraticCurveTo(cx + headR * 0.62, headY + headR * 0.42, cx + headR * 0.3, headY + headR * 0.42);
+          ctx.quadraticCurveTo(cx, headY + headR * 0.3, cx - headR * 0.3, headY + headR * 0.42);
+          ctx.quadraticCurveTo(cx - headR * 0.62, headY + headR * 0.42, cx - headR * 0.84, headY + headR * 0.05);
+        }
+        ctx.closePath();
+        ctx.fill();
+        // mouth: a skin-coloured gap in the beard
+        ctx.fillStyle = 'rgba(120,70,50,0.7)';
+        ctx.beginPath();
+        ctx.ellipse(isSide ? cx + s * headR * 0.55 : cx, headY + headR * 0.66, headR * (isSide ? 0.14 : 0.2), headR * 0.07, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // short blonde hair, swept up at the front
+      ctx.fillStyle = A.hair;
+      ctx.beginPath();
+      if (isBack) {
+        ctx.ellipse(cx, headY - headR * 0.1, headR * 0.9, headR * 0.92, 0, 0, Math.PI * 2);
+      } else if (isSide) {
+        ctx.moveTo(cx + s * headR * 0.95, headY - headR * 0.35);
+        ctx.quadraticCurveTo(cx + s * headR * 0.9, headY - headR * 1.2, cx - s * headR * 0.2, headY - headR * 1.08);
+        ctx.quadraticCurveTo(cx - s * headR * 1.02, headY - headR * 0.8, cx - s * headR * 0.86, headY + headR * 0.1);
+        ctx.quadraticCurveTo(cx - s * headR * 0.4, headY - headR * 0.1, cx - s * headR * 0.25, headY + headR * 0.1);
+        ctx.quadraticCurveTo(cx + s * headR * 0.2, headY - headR * 0.5, cx + s * headR * 0.95, headY - headR * 0.35);
+      } else {
+        ctx.moveTo(cx - headR * 0.88, headY - headR * 0.05);
+        ctx.quadraticCurveTo(cx - headR * 0.95, headY - headR * 1.15, cx, headY - headR * 1.12);
+        ctx.quadraticCurveTo(cx + headR * 0.95, headY - headR * 1.15, cx + headR * 0.88, headY - headR * 0.05);
+        ctx.quadraticCurveTo(cx + headR * 0.55, headY - headR * 0.55, cx + headR * 0.1, headY - headR * 0.5);
+        ctx.quadraticCurveTo(cx - headR * 0.5, headY - headR * 0.62, cx - headR * 0.88, headY - headR * 0.05);
+      }
+      ctx.closePath();
+      ctx.fill();
+      outline();
+      if (isBack) return;
+
+      // eyes (on the ball when he's golfing)
+      ctx.fillStyle = '#2a2018';
+      const eyeY = headY + headR * (golfing && t < IMPACT ? 0.08 : 0.0);
+      const eyeR = Math.max(0.7, headR * 0.085);
+      const eyes = isSide ? [cx + s * headR * 0.55] : [cx - headR * 0.32, cx + headR * 0.32];
+      for (const ex of eyes) {
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY, eyeR, eyeR * (snacking ? 0.5 : 1.15), 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // light, fair brows — dark ones read as sunglasses at this size
+      ctx.strokeStyle = A.hair;
+      ctx.lineWidth = Math.max(0.6, headR * 0.06);
+      ctx.beginPath();
+      for (const ex of eyes) {
+        ctx.moveTo(ex - headR * 0.12, eyeY - headR * 0.24);
+        ctx.lineTo(ex + headR * 0.12, eyeY - headR * 0.27);
+      }
+      ctx.stroke();
+      // a hint of nose between beard and eyes
+      ctx.fillStyle = 'rgba(170,110,80,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(isSide ? cx + s * headR * 0.86 : cx, headY + headR * 0.3, headR * 0.08, headR * 0.06, 0, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    if (isBack) {
+      drawArms(true);
+      drawTorso();
+      drawHead();
+      drawClub();
+    } else if (isSide) {
+      drawArms(false);
+      drawTorso();
+      drawHead();
+      drawArms(true);
+      drawClub();
+    } else {
+      drawTorso();
+      // Backswing: the club rises behind his head; otherwise it's in front.
+      if (golfing && Math.abs(theta) > 1.6) drawClub();
+      drawHead();
+      drawArms(true);
+      if (!(golfing && Math.abs(theta) > 1.6)) drawClub();
     }
+    drawBallFlight();
   }
 
   private drawScottNapping(screen: { x: number; y: number }, tile: number, now: number) {
     const { ctx } = this;
-    const breathe = Math.sin(now * 0.003) * tile * 0.015;
+    const A = SCOTT_APPEARANCE;
+    const breathe = Math.sin(now * 0.003) * tile * 0.012;
 
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
-    ctx.ellipse(screen.x, screen.y + tile * 0.1, tile * 0.3, tile * 0.12, 0, 0, Math.PI * 2);
+    ctx.ellipse(screen.x, screen.y + tile * 0.1, tile * 0.34, tile * 0.1, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = SCOTT_APPEARANCE.overalls;
+    // long and lean, stretched out on his back
+    ctx.fillStyle = A.overalls;
     ctx.beginPath();
-    ctx.ellipse(screen.x, screen.y + tile * 0.06 + breathe, tile * 0.26, tile * 0.13, 0, 0, Math.PI * 2);
+    ctx.roundRect(screen.x - tile * 0.12, screen.y + tile * 0.02 + breathe, tile * 0.42, tile * 0.1, tile * 0.05);
+    ctx.fill();
+    ctx.fillStyle = A.boots;
+    ctx.beginPath();
+    ctx.ellipse(screen.x + tile * 0.32, screen.y + tile * 0.03, tile * 0.03, tile * 0.04, 0, 0, Math.PI * 2);
+    ctx.ellipse(screen.x + tile * 0.32, screen.y + tile * 0.1, tile * 0.03, tile * 0.04, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // a borrowed crochet blanket over his middle
+    ctx.fillStyle = A.napBlanket;
+    ctx.beginPath();
+    ctx.roundRect(screen.x - tile * 0.06, screen.y + breathe, tile * 0.22, tile * 0.14, tile * 0.04);
+    ctx.fill();
+    ctx.fillStyle = A.shirt;
+    ctx.beginPath();
+    ctx.roundRect(screen.x - tile * 0.2, screen.y + tile * 0.015 + breathe, tile * 0.14, tile * 0.11, tile * 0.04);
     ctx.fill();
 
-    // a borrowed crochet blanket
-    ctx.fillStyle = SCOTT_APPEARANCE.napBlanket;
+    const hx = screen.x - tile * 0.27;
+    const hy = screen.y + tile * 0.07 + breathe;
+    ctx.fillStyle = A.skin;
     ctx.beginPath();
-    ctx.ellipse(screen.x + tile * 0.03, screen.y + tile * 0.08 + breathe, tile * 0.16, tile * 0.09, 0, 0, Math.PI * 2);
+    ctx.arc(hx, hy, tile * 0.075, 0, Math.PI * 2);
     ctx.fill();
-
-    ctx.fillStyle = SCOTT_APPEARANCE.skin;
+    ctx.fillStyle = A.hair;
     ctx.beginPath();
-    ctx.arc(screen.x - tile * 0.22, screen.y + tile * 0.02 + breathe, tile * 0.1, 0, Math.PI * 2);
+    ctx.arc(hx - tile * 0.03, hy, tile * 0.065, Math.PI * 0.5, Math.PI * 1.5);
     ctx.fill();
-    ctx.fillStyle = SCOTT_APPEARANCE.hair;
+    ctx.fillStyle = A.beard;
     ctx.beginPath();
-    ctx.arc(screen.x - tile * 0.25, screen.y - tile * 0.02 + breathe, tile * 0.09, 0, Math.PI * 2);
+    ctx.arc(hx + tile * 0.035, hy, tile * 0.05, -Math.PI * 0.5, Math.PI * 0.5);
     ctx.fill();
 
     ctx.fillStyle = 'rgba(240,236,216,0.75)';
     ctx.font = `${Math.round(tile * 0.13)}px Georgia`;
     ctx.textAlign = 'center';
     for (let i = 0; i < 2; i++) {
-      const t = (now * 0.0006 + i * 0.5) % 1;
-      const zx = screen.x - tile * 0.3 - t * tile * 0.1;
-      const zy = screen.y - tile * 0.18 - t * tile * 0.4;
-      ctx.globalAlpha = 1 - t;
-      ctx.fillText('z', zx, zy);
+      const zt = (now * 0.0006 + i * 0.5) % 1;
+      ctx.globalAlpha = 1 - zt;
+      ctx.fillText('z', hx - zt * tile * 0.1, screen.y - tile * 0.12 - zt * tile * 0.4);
     }
     ctx.globalAlpha = 1;
   }
@@ -1971,8 +2327,7 @@ export class Renderer {
       drawables.push({ y: bed.y + 0.5, draw: () => this.drawNurseryBed(camera, bed.x, bed.y, plantAt('nursery', bed.id), now) });
     }
     const hanging: DisplaySlot[] = [];
-    for (const slot of DISPLAY_SLOTS) {
-      if (slot.requires && !state.owned.includes(slot.requires)) continue;
+    for (const slot of displaySlots(state)) {
       if (slot.kind === 'hanging') {
         hanging.push(slot);
         continue;
@@ -1983,10 +2338,10 @@ export class Renderer {
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
-    drawables.push({ y: state.scout.y, draw: () => this.drawScout(camera, state.scout, now) });
-    if (state.scott.zone === 'greenhouse') drawables.push({ y: state.scott.y, draw: () => this.drawScott(camera, state.scott, now) });
-    drawables.push({ y: state.cat.y, draw: () => this.drawCat(camera, state.cat, now) });
-    drawables.push({ y: state.player.y, draw: () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching) });
+    drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
+    if (state.scott.zone === 'greenhouse') drawables.push({ y: state.scott.y, draw: () => this.atScale(camera, state.scott.x, state.scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, state.scott, now)) });
+    drawables.push({ y: state.cat.y, draw: () => this.atScale(camera, state.cat.x, state.cat.y, CHARACTER_SCALE.cat, () => this.drawCat(camera, state.cat, now)) });
+    drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
     // Hanging pots are overhead, so they draw over everyone.
@@ -2124,6 +2479,80 @@ export class Renderer {
         ctx.fillRect(s.x - tile * 0.28, s.y + tile * 0.1 - rise * tile, tile * 0.03, tile * (0.25 + rise));
         ctx.fillRect(s.x + tile * 0.25, s.y + tile * 0.1 - rise * tile, tile * 0.03, tile * (0.25 + rise));
         potY = s.y - tile * 0.16 - rise * tile;
+        break;
+      }
+      case 'pedestal': {
+        // a tall wrought-iron pedestal, lifting its plant into the light
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y + tile * 0.32, tile * 0.22, tile * 0.07, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2f2f2c';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y + tile * 0.28, tile * 0.17, tile * 0.05, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(s.x - tile * 0.03, s.y - tile * 0.32, tile * 0.06, tile * 0.6);
+        ctx.strokeStyle = '#2f2f2c';
+        ctx.lineWidth = Math.max(1, tile * 0.02);
+        for (const side of [-1, 1]) {
+          // scrolled brackets under the top
+          ctx.beginPath();
+          ctx.arc(s.x + side * tile * 0.07, s.y - tile * 0.22, tile * 0.06, side > 0 ? Math.PI : 0, side > 0 ? Math.PI * 1.8 : -Math.PI * 0.8, side < 0);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#3d3c38';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y - tile * 0.33, tile * 0.2, tile * 0.055, 0, 0, Math.PI * 2);
+        ctx.fill();
+        potY = s.y - tile * 0.58;
+        break;
+      }
+      case 'trellis': {
+        // a cedar lattice panel standing on the floor, rising up the wall behind
+        const left = s.x - tile * 0.42;
+        const right = s.x + tile * 0.42;
+        const top = s.y - tile * 1.75;
+        const floor = s.y + tile * 0.3;
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(left, floor - tile * 0.05, right - left, tile * 0.08);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, right - left, floor - top);
+        ctx.clip();
+        ctx.strokeStyle = '#a7784a';
+        ctx.lineWidth = Math.max(1, tile * 0.03);
+        const step = tile * 0.2;
+        ctx.beginPath();
+        for (let k = -8; k <= 12; k++) {
+          const x0 = left + k * step;
+          ctx.moveTo(x0, floor);
+          ctx.lineTo(x0 + (floor - top), top);
+          ctx.moveTo(x0, top);
+          ctx.lineTo(x0 + (floor - top), floor);
+        }
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = '#7e5634';
+        ctx.fillRect(left - tile * 0.03, top - tile * 0.03, tile * 0.06, floor - top + tile * 0.03);
+        ctx.fillRect(right - tile * 0.03, top - tile * 0.03, tile * 0.06, floor - top + tile * 0.03);
+        ctx.fillRect(left - tile * 0.03, top - tile * 0.05, right - left + tile * 0.06, tile * 0.06);
+        potY = s.y + tile * 0.04;
+        if (plant && climbsTrellis(PLANTS[plant.defId]?.form ?? '')) {
+          // The vine is its hanging form mirrored upward about the pot rim,
+          // clipped so nothing spills below the pot.
+          const rim = potY + tile * 0.02;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(s.x - tile * 1.2, top - tile * 0.4, tile * 2.4, rim - top + tile * 0.4);
+          ctx.clip();
+          ctx.translate(0, 2 * rim);
+          ctx.scale(1, -1);
+          this.drawPlantSprite(s.x, rim, tile * 0.8, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'hanging', now);
+          ctx.restore();
+          this.drawPot(s.x, potY, tile, plant.location.kind === 'display' ? plant.location.potId : 'terracotta');
+          if (rarityRank(specimenRarity(plant.defId, plant.variantId)) >= 3) this.drawSparkle(s.x, top + tile * 0.4, tile, now, '#ffe9a8', 2);
+          return;
+        }
         break;
       }
       case 'shelf': {

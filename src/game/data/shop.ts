@@ -19,12 +19,18 @@ export interface ShopItem {
 
 export const SHOP_ITEMS: ShopItem[] = [
   // Greenhouse
-  { id: 'hangingHooks', name: 'Hanging Hooks', category: 'greenhouse', price: 70, description: 'Three ceiling hooks for hanging pots. Trailing plants look spectacular up here.' },
-  { id: 'plantShelf', name: 'Wall Shelf', category: 'greenhouse', price: 90, description: 'A reclaimed-wood shelf along the west wall. Room for three more plants.' },
-  { id: 'nurseryBeds', name: 'Extra Nursery Beds', category: 'greenhouse', price: 110, description: 'Two more beds for rooting cuttings and raising young plants.' },
-  { id: 'tieredStand', name: 'Tiered Plant Stand', category: 'greenhouse', price: 150, description: 'A three-step iron stand by the east glass. Three more display spots in the best light.' },
-  { id: 'growLights', name: 'Grow Lights', category: 'greenhouse', price: 180, description: 'Warm lamps over the whole greenhouse. Everything indoors grows half again as fast.' },
-  { id: 'sunRoom', name: 'Clear Out the Sun Room', category: 'greenhouse', price: 380, description: 'Haul away the old crates in the south-east corner and fit it out: four new display spots in full sun.' },
+  { id: 'hangingHooks', name: 'Hanging Hooks', category: 'greenhouse', price: 90, description: 'Three ceiling hooks for hanging pots. Trailing plants look spectacular up here.' },
+  { id: 'plantShelf', name: 'Wall Shelf', category: 'greenhouse', price: 120, description: 'A reclaimed-wood shelf along the west wall. Room for three more plants.' },
+  { id: 'nurseryBeds', name: 'Extra Nursery Beds', category: 'greenhouse', price: 160, description: 'Two more beds for rooting cuttings and raising young plants.' },
+  { id: 'tieredStand', name: 'Tiered Plant Stand', category: 'greenhouse', price: 240, description: 'A three-step iron stand by the east glass. Three more display spots in the best light.' },
+  { id: 'growLights', name: 'Grow Lights', category: 'greenhouse', price: 360, description: 'Warm lamps over the whole greenhouse. Everything indoors grows half again as fast.' },
+  // Greenhouse furniture: bought by the piece and set down wherever you
+  // like indoors, then picked up and moved as the collection grows.
+  { id: 'plantStand', name: 'Plant Stand', category: 'greenhouse', price: 45, repeatable: true, description: 'A round wooden stand for one plant. Put it anywhere in the greenhouse.' },
+  { id: 'ironPedestal', name: 'Iron Pedestal', category: 'greenhouse', price: 80, repeatable: true, description: 'A tall wrought-iron pedestal that lifts one plant up into the light.' },
+  { id: 'ceilingHook', name: 'Ceiling Hook', category: 'greenhouse', price: 40, repeatable: true, description: 'Hang one more pot from the roof, above anything you like.' },
+  { id: 'wallTrellis', name: 'Wall Trellis', category: 'greenhouse', price: 95, repeatable: true, description: 'A tall cedar lattice. Vines and trailers planted at its foot climb it instead of trailing — best along a wall.' },
+  { id: 'sunRoom', name: 'Clear Out the Sun Room', category: 'greenhouse', price: 700, description: 'Haul away the old crates in the south-east corner and fit it out: four new display spots in full sun.' },
 
   // Pots
   { id: 'potGlazed', name: 'Teal Glazed Pots', category: 'pots', price: 25, description: 'Deep sea-green glaze with a drip at the rim.' },
@@ -41,13 +47,13 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'gardenBench', name: 'Garden Bench', category: 'garden', price: 60, repeatable: true, description: 'Somewhere to sit and look at what you’ve made.' },
 
   // Equipment
-  { id: 'basketMedium', name: 'Collector’s Satchel', category: 'equipment', price: 60, description: 'Carry up to 10 plants.' },
-  { id: 'basketLarge', name: 'Field Pack', category: 'equipment', price: 200, after: 'basketMedium', description: 'Carry up to 16 plants.' },
-  { id: 'rootingKit', name: 'Rooting Kit', category: 'equipment', price: 120, description: 'Hormone powder and sharp snips. Plants recover twice as fast after you take a cutting, and cuttings throw sports (mutations) more often.' },
+  { id: 'basketMedium', name: 'Collector’s Satchel', category: 'equipment', price: 80, description: 'Carry up to 10 plants.' },
+  { id: 'basketLarge', name: 'Field Pack', category: 'equipment', price: 340, after: 'basketMedium', description: 'Carry up to 16 plants.' },
+  { id: 'rootingKit', name: 'Rooting Kit', category: 'equipment', price: 260, description: 'Hormone powder and sharp snips. Plants recover twice as fast after you take a cutting, and cuttings throw sports (mutations) more often.' },
 
   // Market stall
-  { id: 'stallAwning', name: 'Striped Awning', category: 'stall', price: 80, description: 'Draws a crowd. Everything sells for 10% more.' },
-  { id: 'stallCrates', name: 'Display Crates', category: 'stall', price: 140, after: 'stallAwning', description: 'Plants shown off properly. Another 10% on every sale.' },
+  { id: 'stallAwning', name: 'Striped Awning', category: 'stall', price: 120, description: 'Draws a crowd. Everything sells for 10% more.' },
+  { id: 'stallCrates', name: 'Display Crates', category: 'stall', price: 260, after: 'stallAwning', description: 'Plants shown off properly. Another 10% on every sale.' },
 ];
 
 export function findShopItem(id: string): ShopItem | undefined {
@@ -80,3 +86,6 @@ export function findPotStyle(id: string): PotStyle {
 
 export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenBench';
 export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenBench'];
+
+export type FurnitureId = 'plantStand' | 'ironPedestal' | 'ceilingHook' | 'wallTrellis';
+export const FURNITURE_IDS: FurnitureId[] = ['plantStand', 'ironPedestal', 'ceilingHook', 'wallTrellis'];

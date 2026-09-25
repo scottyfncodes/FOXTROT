@@ -10,11 +10,12 @@ import { generateObstacles, buildBlockingSet, type Obstacle } from '../world/Obs
 import { isBlockedOutdoor, isBlockedIndoor, indoorBlockingSet } from '../world/Collision';
 import { tryMove } from '../world/Movement';
 import { GREENHOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, GREENHOUSE_FOOTPRINT } from '../data/worldMap';
-import { GREENHOUSE_EXIT, NURSERY_BEDS, DISPLAY_SLOTS } from '../data/stations';
+import { GREENHOUSE_EXIT, NURSERY_BEDS } from '../data/stations';
+import { displaySlots, placeFurniture, placeBlockReason, pickUpFurniture } from '../systems/furniture';
 import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
 import { TOOL_PICKUPS } from '../data/toolPickups';
 import { PLANTS, specimenName, specimenRarity, rarityRank, RARITY_LABEL, fullName } from '../data/plants';
-import { findShopItem, type DecorId } from '../data/shop';
+import { findShopItem, type DecorId, type FurnitureId } from '../data/shop';
 import { ZONES } from '../data/zones';
 import type { OutdoorZoneId, ZoneId } from '../types';
 import { tickFox } from '../systems/fox';
@@ -118,7 +119,7 @@ export class Game {
     this.isNew = isNew;
     this.obstacles = generateObstacles();
     this.blockingSet = buildBlockingSet(this.obstacles);
-    this.indoorSolid = indoorBlockingSet(this.state.owned);
+    this.indoorSolid = indoorBlockingSet(this.state);
     this.lush = computeLushness(this.state);
 
     this.input.onInteract(() => this.interactWithNearest());
@@ -461,8 +462,7 @@ export class Game {
         const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : 'Empty nursery bed';
         consider({ kind: 'bed', id: bed.id, x: bed.x, y: bed.y, label, available: true }, bed.x + 0.5, bed.y + 0.5);
       }
-      for (const slot of DISPLAY_SLOTS) {
-        if (slot.requires && !this.state.owned.includes(slot.requires)) continue;
+      for (const slot of displaySlots(this.state)) {
         const plant = occupantOf(this.state, { slotId: slot.id });
         const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : 'Empty display spot';
         const cy = slot.kind === 'hanging' ? slot.y + 1.2 : slot.y + 0.5;
@@ -611,10 +611,16 @@ export class Game {
   buy(itemId: string) {
     if (!buyItem(this.state, itemId)) return;
     const item = findShopItem(itemId)!;
-    this.indoorSolid = indoorBlockingSet(this.state.owned);
+    this.indoorSolid = indoorBlockingSet(this.state);
     this.audio.playToolChime();
     this.pushToast(
-      item.category === 'garden' ? `Bought ${item.name}. Place it outdoors from your basket.` : item.category === 'greenhouse' ? `${item.name} — done. Go and see.` : `Bought ${item.name}.`,
+      item.category === 'garden'
+        ? `Bought ${item.name}. Place it outdoors from your basket.`
+        : item.category === 'greenhouse'
+          ? item.repeatable
+            ? `Bought a ${item.name}. Set it down in the greenhouse from your basket.`
+            : `${item.name} — done. Go and see.`
+          : `Bought ${item.name}.`,
       'coins'
     );
     this.onStateTouched?.();
@@ -627,6 +633,36 @@ export class Game {
     const y = p.y + 0.4;
     if (!this.isOpenGround(Math.floor(x), Math.floor(y))) return this.pushToast('Not enough room here.', 'info');
     if (placeDecor(this.state, decorId, x, y)) this.onStateTouched?.();
+  }
+
+  /** The greenhouse tile just in front of Ellen, where furniture gets set down. */
+  furnitureTile(): { x: number; y: number } {
+    const p = this.state.player;
+    const [dx, dy] = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[p.facing];
+    return { x: Math.floor(p.x) + dx, y: Math.floor(p.y) + dy };
+  }
+
+  furnitureBlock(kind: FurnitureId) {
+    if (!this.state.player.inGreenhouse) return 'outdoors' as const;
+    const { x, y } = this.furnitureTile();
+    return placeBlockReason(this.state, kind, x, y);
+  }
+
+  placeFurnitureHere(kind: FurnitureId) {
+    if (!this.state.player.inGreenhouse) return;
+    const { x, y } = this.furnitureTile();
+    const block = placeBlockReason(this.state, kind, x, y);
+    if (block === 'wall' || block === 'occupied') return this.pushToast('No room there. Face an open patch of floor.', 'info');
+    if (block === 'doorway') return this.pushToast('Keep the doorway clear.', 'info');
+    if (!placeFurniture(this.state, kind, x, y)) return;
+    this.indoorSolid = indoorBlockingSet(this.state);
+    this.onStateTouched?.();
+  }
+
+  pickUpFurniture(id: string) {
+    if (!pickUpFurniture(this.state, id)) return;
+    this.indoorSolid = indoorBlockingSet(this.state);
+    this.onStateTouched?.();
   }
 
   nearbyDecor() {
@@ -651,7 +687,7 @@ export class Game {
   resetToNewGame() {
     this.state = resetGame();
     this.spreadCarry = 0;
-    this.indoorSolid = indoorBlockingSet(this.state.owned);
+    this.indoorSolid = indoorBlockingSet(this.state);
     this.lush = computeLushness(this.state);
     saveGame(this.state);
     this.onStateTouched?.();

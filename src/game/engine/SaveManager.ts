@@ -9,9 +9,9 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
-const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat'] as const;
-const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints'] as const;
-const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock'] as const;
+const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market'] as const;
+const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture'] as const;
+const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock'] as const;
 
 // Anything below this can't be a wall-clock epoch in ms; older builds saved
 // a page-relative performance.now() value here.

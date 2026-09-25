@@ -34,7 +34,8 @@ export const SCOUT_APPEARANCE = {
 
 export const SCOTT_APPEARANCE = {
   skin: '#e8bd94',
-  hair: '#d9b46a', // tall and blonde
+  hair: '#dcb86a', // tall and blonde
+  beard: '#c9a258', // kept short, a shade darker than his hair
   shirt: '#7a8a9a', // faded chambray
   overalls: '#4a6478',
   overallsTrim: '#33485a',
@@ -43,6 +44,10 @@ export const SCOTT_APPEARANCE = {
   toolHandle: '#6b4a2e',
   snack: '#c97a4a', // an apple, more or less
   napBlanket: '#c96a5a', // one of Ellen's crochet pieces, borrowed
+  clubShaft: '#b9bec2',
+  clubHead: '#6e7479',
+  golfBall: '#f7f5ee',
+  flag: '#c8553d',
 };
 
 export const CAT_APPEARANCE = {
@@ -52,4 +57,20 @@ export const CAT_APPEARANCE = {
   belly: '#f5e3c3',
   eye: '#5a8a3c',
   nose: '#c96a5a',
+};
+
+/**
+ * On-screen size of each character, relative to the art's native size.
+ * The art was drawn at roughly two-thirds of a tile tall, which made Ellen
+ * about as tall as the market stall's table; at these sizes she stands a
+ * little under a tile, the table reaches her hip, and everyone else sits in
+ * proportion to her — Scott a head taller, Scout a medium dog, the cat and
+ * fox small.
+ */
+export const CHARACTER_SCALE = {
+  ellen: 1.4,
+  scott: 1.52,
+  scout: 1.2,
+  cat: 1.1,
+  fox: 1.0,
 };

@@ -4,7 +4,7 @@ import { Panel } from './Panel';
 import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity, findVariant } from '../game/data/plants';
 import { POT_STYLES } from '../game/data/shop';
-import { DISPLAY_SLOTS } from '../game/data/stations';
+import { displaySlots, findFurniture } from '../game/systems/furniture';
 import { ESTABLISH_THRESHOLD, isEstablished } from '../game/systems/collection';
 import { STAGES, STAGE_LABEL, stageFloat, stageIndexOf, minutesToNextStage } from '../game/systems/growth';
 import { cuttingBlockReason, occupantOf, placementBlockReason, cuttingCooldown } from '../game/systems/propagation';
@@ -18,6 +18,8 @@ const SLOT_NAMES: Record<string, string> = {
   shelf: 'Wall Shelf',
   tiered: 'Tiered Stand',
   sunroom: 'Sun Room',
+  pedestal: 'Iron Pedestal',
+  trellis: 'Wall Trellis',
 };
 
 /** The nursery beds and the display gallery: where plants are raised, propagated and shown off. */
@@ -48,10 +50,20 @@ export class GreenhousePanel {
       if (plant) this.renderPlant(plant);
       else this.renderPotting(t.id);
     } else {
-      const slot = DISPLAY_SLOTS.find((s) => s.id === t.id);
+      const slot = displaySlots(this.game.state).find((s) => s.id === t.id);
       this.panel.setTitle(SLOT_NAMES[slot?.kind ?? 'stand'] ?? 'Display');
+      if (slot?.kind === 'trellis' && !plant) this.panel.body.appendChild(note('Vines and trailers potted here climb the trellis.'));
       if (plant) this.renderPlant(plant);
       else this.renderDisplayChoice(t.id);
+      // Placed furniture can be moved once it's empty.
+      if (!plant && findFurniture(this.game.state, t.id)) {
+        const row = el('div', 'action-row');
+        row.appendChild(button('Pick it up to move it', () => {
+          this.game.pickUpFurniture(t.id);
+          this.panel.close();
+        }, 'secondary-btn'));
+        this.panel.body.appendChild(row);
+      }
     }
   }
 
