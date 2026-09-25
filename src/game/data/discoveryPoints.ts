@@ -6,7 +6,8 @@ import type { DiscoverySpot } from '../types';
 // path can still turn up something you've never seen. A few patches are
 // only ever shown to you by the fox.
 
-export const DISCOVERY_SPOTS: DiscoverySpot[] = [
+/** The patches the world's obstacles were laid out around (see world/Obstacles.ts). */
+export const LAYOUT_SPOTS: DiscoverySpot[] = [
   // Meadow — right outside the greenhouse: the easy, friendly finds.
   { id: 'sp-meadow-home', zone: 'meadow', x: 62, y: 45 },
   { id: 'sp-meadow-1', zone: 'meadow', x: 58, y: 42 },
@@ -59,6 +60,19 @@ export const DISCOVERY_SPOTS: DiscoverySpot[] = [
   { id: 'sp-over-5', zone: 'overgrownClearing', x: 32, y: 40 },
   { id: 'sp-over-fox', zone: 'overgrownClearing', x: 28, y: 50, foxLed: true, pool: ['anthurium'] },
 ];
+
+// Patches added once the cacti and succulents moved into the Rocky Clearing.
+// They sit on ground the obstacle layout already left clear, and are kept out
+// of that layout's keepouts so existing saves don't see the rocks reshuffle.
+const LATER_SPOTS: DiscoverySpot[] = [
+  { id: 'sp-rock-7', zone: 'rockyClearing', x: 78, y: 48 },
+  { id: 'sp-rock-8', zone: 'rockyClearing', x: 69, y: 52 },
+  { id: 'sp-rock-9', zone: 'rockyClearing', x: 86, y: 57 },
+  { id: 'sp-rock-10', zone: 'rockyClearing', x: 59, y: 60 },
+  { id: 'sp-rock-11', zone: 'rockyClearing', x: 54, y: 50 },
+];
+
+export const DISCOVERY_SPOTS: DiscoverySpot[] = [...LAYOUT_SPOTS, ...LATER_SPOTS];
 
 /** Game-minutes per spot "season": a picked patch regrows (as something new) after this. */
 export const SPOT_EPOCH_MINUTES = 360;
