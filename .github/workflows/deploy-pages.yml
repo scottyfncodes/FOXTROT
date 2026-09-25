@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - claude/foxtrot-web-game-bj1a0a
+      - claude/foxtrot-master-world-pass-y08wzy
   workflow_dispatch:
 
 permissions:

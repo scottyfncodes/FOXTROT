@@ -4,7 +4,7 @@ import { PLAYER_START } from './data/worldMap';
 
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
 // fills new fields from createNewGame(). The storage key stays fixed.
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const SAVE_KEY = 'foxtrot-save-v4';
 
 export type Facing = 'up' | 'down' | 'left' | 'right';
@@ -34,7 +34,7 @@ export type GrowthStage = 'cutting' | 'young' | 'established' | 'large' | 'speci
 export type PlantLocation =
   | { kind: 'nursery'; bedId: string }
   | { kind: 'display'; slotId: string; potId: string }
-  | { kind: 'wild'; x: number; y: number; zone: OutdoorZoneId };
+  | { kind: 'wild'; x: number; y: number; zone: OutdoorZoneId; bedId?: string };
 
 export interface OwnedPlant {
   id: string;
@@ -89,9 +89,60 @@ export interface SpotState {
 export interface PlacedFurniture {
   id: string;
   kind: FurnitureId;
-  /** Greenhouse tile. */
+  /**
+   * Interior position of the piece's tile-sized cell (its centre is
+   * x + 0.5, y + 0.5). Any fraction of a tile: placement is free.
+   */
   x: number;
   y: number;
+  /** Quarter-turns, for pieces that can be turned (0 or 1). */
+  rot?: number;
+}
+
+/** A contained growing area the player dug outdoors. Plants inside spread only within it. */
+export interface GardenBed {
+  id: string;
+  /** Top-left corner and size, in world tiles. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  shape: 'rect' | 'oval';
+  createdAt: number;
+}
+
+/** A walking path carved through the vegetation: a polyline, stored flat as x0,y0,x1,y1,… */
+export interface GardenPath {
+  id: string;
+  points: number[];
+  width: number;
+  createdAt: number;
+}
+
+export type FoxFindKind = 'plant' | 'grove' | 'curiosity';
+
+/** Something the fox led the player to. It waits, hidden, until found or forgotten. */
+export interface FoxFind {
+  id: string;
+  kind: FoxFindKind;
+  x: number;
+  y: number;
+  zone: OutdoorZoneId;
+  defId?: string;
+  variantId?: string;
+  seed: number;
+  curiosityId?: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface FoxLog {
+  sightings: number;
+  trailsStarted: number;
+  trailsFollowed: number;
+  trailsLost: number;
+  finds: number;
+  lastTrailAt: number | null;
 }
 
 export interface PlacedDecor {
@@ -101,7 +152,7 @@ export interface PlacedDecor {
   y: number;
 }
 
-export type FoxBehavior = 'idle' | 'wandering' | 'leading' | 'paused' | 'gone';
+export type FoxBehavior = 'idle' | 'wandering' | 'leading' | 'paused' | 'gone' | 'fleeing' | 'lookingBack' | 'vanishing';
 
 export interface FoxState {
   x: number;
@@ -111,6 +162,18 @@ export interface FoxState {
   targetDiscoveryId: string | null;
   nextEventAt: number;
   visible: boolean;
+  /** Where a fleeing fox is heading — somewhere it seems to know about. */
+  destX: number | null;
+  destY: number | null;
+  facing: 'left' | 'right';
+  /** Real seconds the player has been too far behind to keep it in sight. */
+  lostFor: number;
+  /** Real seconds spent on the current trail. */
+  trailTime: number;
+  /** What's waiting at the end of the trail, decided when the fox sets off. */
+  trailReward: FoxFindKind | 'nothing' | null;
+  /** It has actually run from you on this visit (rather than just watching). */
+  fled: boolean;
 }
 
 export type ScoutBehavior = 'following' | 'idleSit' | 'idleSniff' | 'idleLook' | 'noticing';
@@ -123,7 +186,7 @@ export interface ScoutState {
   nextEventAt: number;
 }
 
-export type ScottActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking' | 'golfing' | 'putting';
+export type ScottActivity = 'traveling' | 'tinkering' | 'napping' | 'snacking' | 'golfing' | 'putting' | 'watchingTV' | 'relaxing';
 
 export interface ScottState {
   x: number;
@@ -136,7 +199,7 @@ export interface ScottState {
   nextChangeAt: number;
 }
 
-export type CatActivity = 'wandering' | 'sitting' | 'grooming' | 'sleeping';
+export type CatActivity = 'wandering' | 'sitting' | 'grooming' | 'sleeping' | 'investigating' | 'hiding';
 
 export interface CatState {
   x: number;
@@ -146,6 +209,12 @@ export interface CatState {
   currentSpotId: string | null;
   targetSpotId: string;
   nextChangeAt: number;
+  /** Where she's headed when it isn't one of her fixed spots (a plant to sniff, a place to hide). */
+  targetX?: number | null;
+  targetY?: number | null;
+  targetActivity?: CatActivity | null;
+  /** The plant she's sniffing at, so she faces it. */
+  lookX?: number | null;
 }
 
 export interface GameState {
@@ -162,8 +231,25 @@ export interface GameState {
   decor: PlacedDecor[];
   /** Greenhouse furniture bought but not yet placed. */
   furnitureStock: Partial<Record<FurnitureId, number>>;
-  /** Stands, hooks and trellises the player has placed indoors; each holds one plant. */
+  /** Stands, hooks, trays, tables… the player has placed or moved indoors. */
   furniture: PlacedFurniture[];
+  /**
+   * The greenhouse's original fittings (nursery beds, the first stands…)
+   * stand where the layout put them until the player first moves one; from
+   * then on it lives in `furniture` like anything else. Ids listed here have
+   * been taken over that way.
+   */
+  seededFixtures: string[];
+  /** Compost: from composting plants or bought by the sack. Garden beds are dug with it. */
+  compost: number;
+  gardenBeds: GardenBed[];
+  paths: GardenPath[];
+  /** Wild bushes, flowers and reeds cleared away by paths and beds ("x,y" tiles). */
+  clearedObstacles: string[];
+  foxFinds: FoxFind[];
+  foxLog: FoxLog;
+  /** Mushrooms, insects and other oddities found in the wild, by id. */
+  curiosities: Record<string, { foundAt: number; count: number }>;
   tools: { lantern: number };
   basket: BasketItem[];
   plants: Record<string, OwnedPlant>;
@@ -199,13 +285,36 @@ export function createNewGame(): GameState {
     decor: [],
     furnitureStock: {},
     furniture: [],
+    seededFixtures: [],
+    compost: 0,
+    gardenBeds: [],
+    paths: [],
+    clearedObstacles: [],
+    foxFinds: [],
+    foxLog: { sightings: 0, trailsStarted: 0, trailsFollowed: 0, trailsLost: 0, finds: 0, lastTrailAt: null },
+    curiosities: {},
     tools: { lantern: 0 },
     basket: [],
     plants: {},
     collection: {},
     spots: {},
     hints: [],
-    fox: { x: PLAYER_START.x + 4, y: PLAYER_START.y + 2, zone: 'meadow', behavior: 'idle', targetDiscoveryId: null, nextEventAt: 8 * 60 + 5, visible: true },
+    fox: {
+      x: PLAYER_START.x + 4,
+      y: PLAYER_START.y + 2,
+      zone: 'meadow',
+      behavior: 'idle',
+      targetDiscoveryId: null,
+      nextEventAt: 8 * 60 + 5,
+      visible: true,
+      destX: null,
+      destY: null,
+      facing: 'right',
+      lostFor: 0,
+      trailTime: 0,
+      trailReward: null,
+      fled: false,
+    },
     scout: { x: PLAYER_START.x - 0.8, y: PLAYER_START.y + 0.8, facing: 'down', behavior: 'following', nextEventAt: 8 * 60 + 10 },
     scott: {
       x: 8,
@@ -219,13 +328,17 @@ export function createNewGame(): GameState {
     },
     market: { day: 0, sold: {} },
     cat: {
-      x: 16,
-      y: 5,
+      x: 22.5,
+      y: 3.62,
       facing: 'down',
-      activity: 'sitting',
-      currentSpotId: 'sunny-perch',
-      targetSpotId: 'sunny-perch',
+      activity: 'sleeping',
+      currentSpotId: 'couch-nap',
+      targetSpotId: 'couch-nap',
       nextChangeAt: 8 * 60 + 15,
+      targetX: null,
+      targetY: null,
+      targetActivity: null,
+      lookX: null,
     },
   };
 }

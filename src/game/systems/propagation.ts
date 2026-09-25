@@ -12,7 +12,7 @@ export const CUTTING_COOLDOWN = 240;
 const BASE_SPORT_CHANCE = 0.06;
 
 /** How likely a sport (mutation) is to land on each variant rarity. */
-const SPORT_WEIGHT: Record<Rarity, number> = { common: 30, uncommon: 30, rare: 20, veryRare: 12, extremelyRare: 5 };
+const SPORT_WEIGHT: Record<Rarity, number> = { common: 30, uncommon: 30, rare: 20, veryRare: 12, extremelyRare: 5, mythic: 0 };
 
 export function cuttingCooldown(state: GameState): number {
   return state.owned.includes('rootingKit') ? CUTTING_COOLDOWN / 2 : CUTTING_COOLDOWN;

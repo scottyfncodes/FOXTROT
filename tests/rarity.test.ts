@@ -1,0 +1,149 @@
+import { describe, it, expect } from 'vitest';
+import { createNewGame, type GameState, type OwnedPlant } from '../src/game/state';
+import { PLANTS, PLANT_LIST, RARITY_ORDER, RARITY_LABEL, rarityRank, specimenRarity, specimenName, fullName, latinLine } from '../src/game/data/plants';
+import { DISCOVERY_SPOTS } from '../src/game/data/discoveryPoints';
+import { spotPool, spotContent } from '../src/game/systems/spots';
+import { canSell, sellItem, demandSpecies } from '../src/game/systems/market';
+import { spreadStep, VOLUNTEER_SPECIES, DIVERSE_BED_SPECIES } from '../src/game/systems/wild';
+import { pickFoxPlant, SECRET_MIN_SPECIES } from '../src/game/systems/foxFinds';
+import { discoveryFlourish, discoveryAside } from '../src/game/systems/rarity';
+import { rollSport } from '../src/game/systems/propagation';
+import { STAGE_AT } from '../src/game/systems/growth';
+import { SHOP_ITEMS } from '../src/game/data/shop';
+import { mulberry32 } from '../src/game/engine/Random';
+
+const ID = 'cannabisSativa';
+
+describe('the rarity ladder', () => {
+  it('still climbs common → uncommon → rare → very rare → extremely rare, with one tier above', () => {
+    expect(RARITY_ORDER).toEqual(['common', 'uncommon', 'rare', 'veryRare', 'extremelyRare', 'mythic']);
+    // Rarer things are still rarer in the wild patches, all the way up.
+    const counts: Record<string, number> = {};
+    const state = createNewGame();
+    for (let e = 0; e < 400; e++) {
+      state.clock.totalMinutes = e * 360;
+      for (const s of DISCOVERY_SPOTS.filter((d) => !d.foxLed)) {
+        const c = spotContent(state, s);
+        if (c) counts[specimenRarity(c.defId, c.variantId)] = (counts[specimenRarity(c.defId, c.variantId)] ?? 0) + 1;
+      }
+    }
+    expect(counts.common).toBeGreaterThan(counts.uncommon);
+    expect(counts.uncommon).toBeGreaterThan(counts.rare);
+    expect(counts.rare).toBeGreaterThan(counts.veryRare ?? 0);
+    expect(counts.mythic ?? 0).toBe(0);
+  });
+
+  it('marks rarer finds in the world, quietly and the same way all the way to the top', () => {
+    expect(discoveryFlourish('common', true)).toBe('none');
+    expect(discoveryFlourish('rare', true)).toBe('glint');
+    expect(discoveryFlourish('veryRare', true)).toBe('bloom');
+    expect(discoveryFlourish('mythic', true)).toBe(discoveryFlourish('extremelyRare', true));
+    expect(discoveryFlourish('mythic', false)).toBe('none');
+    expect(discoveryAside('veryRare')).toMatch(/different/);
+  });
+});
+
+describe('Cannabis sativa', () => {
+  const def = PLANTS[ID];
+
+  it('is a plant in the collection, named by its scientific name only', () => {
+    expect(def).toBeDefined();
+    expect(def.name).toBe('Cannabis sativa');
+    expect(def.latin).toBe('Cannabis sativa');
+    expect(specimenName(ID, 'wild')).toBe('Cannabis sativa');
+    expect(fullName(ID, 'wild')).toBe('Cannabis sativa');
+    expect(latinLine(ID)).toBe('');
+    const text = `${def.name} ${def.description} ${def.hint} ${def.variants.map((v) => v.name + v.description).join(' ')}`.toLowerCase();
+    for (const word of ['weed', 'marijuana', 'pot ', 'high', 'smoke', 'drug']) expect(text).not.toContain(word);
+  });
+
+  it('is the single rarest plant in the game', () => {
+    expect(specimenRarity(ID, 'wild')).toBe('mythic');
+    expect(RARITY_LABEL.mythic).toBeTruthy();
+    const others = PLANT_LIST.filter((p) => p.id !== ID).flatMap((p) => p.variants.map((v) => specimenRarity(p.id, v.id)));
+    expect(others.every((r) => rarityRank(r) < rarityRank('mythic'))).toBe(true);
+  });
+
+  it('never grows in an ordinary wild patch, and is never a sport of something else', () => {
+    for (const s of DISCOVERY_SPOTS) expect(spotPool(s).some((p) => p.id === ID)).toBe(false);
+    // It has a single form: nothing to mutate into.
+    expect(rollSport(ID, 'wild', mulberry32(1))).toBeNull();
+  });
+
+  it('can’t be sold, bought, or asked for at the market', () => {
+    const state = createNewGame();
+    expect(canSell(ID)).toBe(false);
+    state.basket.push({ uid: 'c', defId: ID, variantId: 'wild', seed: 1, growth: 2000, generation: 0, origin: 'wild', collectedAt: 0 });
+    expect(sellItem(state, 'c', 0)).toBeNull();
+    expect(state.basket).toHaveLength(1);
+    expect(state.coins).toBe(20);
+    expect(SHOP_ITEMS.some((i) => i.id.toLowerCase().includes('cannabis'))).toBe(false);
+    for (const p of PLANT_LIST) state.collection[p.id] = { foundAt: 0, variants: [], grown: 0, propagated: 0, sold: 0, earned: 0, plantedOut: 0, displayed: 0 };
+    for (let d = 0; d < 200; d++) {
+      state.clock.totalMinutes = d * 1440;
+      expect(demandSpecies(state)).not.toBe(ID);
+    }
+  });
+
+  it('may very rarely be where the fox leads — but only for a seasoned collector, in open country', () => {
+    const state = createNewGame();
+    const rand = mulberry32(12);
+    const tally = (zone: 'meadow' | 'woodland') => {
+      let n = 0;
+      for (let i = 0; i < 4000; i++) if (pickFoxPlant(state, zone, rand)?.defId === ID) n++;
+      return n;
+    };
+    expect(tally('meadow')).toBe(0);
+    for (const p of PLANT_LIST.slice(0, SECRET_MIN_SPECIES)) state.collection[p.id] = { foundAt: 0, variants: [], grown: 0, propagated: 0, sold: 0, earned: 0, plantedOut: 0, displayed: 0 };
+    const meadow = tally('meadow');
+    expect(meadow).toBeGreaterThan(20);
+    expect(meadow).toBeLessThan(400);
+    expect(tally('woodland')).toBe(0);
+  });
+
+  it('may very rarely come up by itself in a garden bed full of different plants — and nowhere else', () => {
+    const grow = (species: string[], bed: boolean) => {
+      const state = createNewGame();
+      if (bed) state.gardenBeds.push({ id: 'bed', x: 45, y: 20, w: 9, h: 9, shape: 'rect', createdAt: 0 });
+      species.forEach((defId, i) => {
+        const p: OwnedPlant = {
+          id: `p${i}`,
+          defId,
+          variantId: PLANTS[defId].variants[0].id,
+          seed: i,
+          growth: STAGE_AT.specimen,
+          location: { kind: 'wild', x: 46.5 + (i % 3) * 3, y: 21.5 + Math.floor(i / 3) * 3, zone: 'meadow', ...(bed ? { bedId: 'bed' } : {}) },
+          plantedAt: 0,
+          lastCuttingAt: null,
+          generation: 0,
+          bornWild: false,
+        };
+        state.plants[p.id] = p;
+      });
+      return state;
+    };
+    const count = (state: GameState) => {
+      const rand = mulberry32(77);
+      let volunteers = 0;
+      for (let i = 0; i < 1500; i++) {
+        for (const ev of spreadStep(state, () => true, 0, rand)) {
+          const child = state.plants[ev.childId];
+          if (child.defId === VOLUNTEER_SPECIES) volunteers++;
+          delete state.plants[ev.childId]; // keep the bed from filling up
+        }
+      }
+      return volunteers;
+    };
+    const mix = ['pothos', 'bostonFern', 'fittonia', 'peaceLily', 'calathea', 'spiderPlant'];
+    expect(mix.length).toBeGreaterThanOrEqual(DIVERSE_BED_SPECIES);
+    expect(count(grow(mix, true))).toBeGreaterThan(0);
+    expect(count(grow(mix, false))).toBe(0);
+    expect(count(grow(['pothos', 'pothos', 'pothos', 'pothos', 'pothos', 'pothos'], true))).toBe(0);
+  });
+
+  it('once found, grows and propagates like any other plant', () => {
+    expect(def.growthRate).toBeGreaterThan(0);
+    expect(def.spread).toBeGreaterThan(0);
+    expect(def.habitat.length).toBeGreaterThan(0);
+  });
+});

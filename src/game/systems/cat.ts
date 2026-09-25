@@ -1,9 +1,13 @@
-import type { CatState } from '../state';
+import type { CatActivity, CatState } from '../state';
 import { CAT_SPOTS, findCatSpot, type CatSpotKind } from '../data/catSpots';
+import { interiorWaypoint } from '../data/interior';
+import { weightedPick } from '../engine/Random';
 
-// The greenhouse's cat: ambient, indoor-only, and indifferent to everyone.
-// No zone-crossing logic at all — unlike Scott, she never leaves the
-// greenhouse grid, so this is simpler than the husband system it's modeled on.
+// The house cat: ambient, indoor-only, and indifferent to everyone. She has
+// her places — the couch, her bed, the window, the sunny spot among the
+// stands — and her own ideas: now and then she goes to sniff at one of the
+// plants, tucks herself away behind something big and leafy, or curls up
+// in an empty propagation tray. Nobody asks her to.
 
 const TRAVEL_SPEED = 2.6; // tiles/sec — quicker, lower steps than Scott's
 const ARRIVE_DIST = 0.25;
@@ -20,48 +24,131 @@ const ACTIVITY_FOR_KIND: Record<CatSpotKind, 'sitting' | 'sleeping' | 'grooming'
   groom: 'grooming',
 };
 
+const WHIM_DURATIONS: Partial<Record<CatActivity, [number, number]>> = {
+  investigating: [6, 16],
+  hiding: [30, 70],
+  sleeping: [50, 120],
+};
+
+/** Somewhere she might take an interest in: a plant, and whether it's big enough to hide behind. */
+export interface CatInterest {
+  x: number;
+  y: number;
+  /** Large and leafy enough to disappear behind. */
+  big: boolean;
+  /** An empty tray or bed, just her size. */
+  emptyTray?: boolean;
+}
+
 export interface CatTickContext {
   dtSeconds: number;
   now: number; // game-minutes
   rand: () => number;
+  /** Plants and trays around the house right now. */
+  interests?: CatInterest[];
+}
+
+function pickWhim(cat: CatState, ctx: CatTickContext): boolean {
+  const list = ctx.interests ?? [];
+  if (list.length === 0) return false;
+  const roll = ctx.rand();
+  const pick = <T>(items: T[]) => items[Math.floor(ctx.rand() * items.length)];
+  if (roll < 0.22) {
+    const plants = list.filter((i) => !i.emptyTray);
+    if (!plants.length) return false;
+    const it = pick(plants);
+    const side = ctx.rand() < 0.5 ? -1 : 1;
+    cat.targetX = it.x + side * 0.42;
+    cat.targetY = it.y + 0.12;
+    cat.lookX = it.x;
+    cat.targetActivity = 'investigating';
+    return true;
+  }
+  if (roll < 0.32) {
+    const big = list.filter((i) => i.big);
+    if (!big.length) return false;
+    const it = pick(big);
+    // Just behind the plant, so its leaves are drawn over her.
+    cat.targetX = it.x + (ctx.rand() - 0.5) * 0.2;
+    cat.targetY = it.y - 0.14;
+    cat.targetActivity = 'hiding';
+    return true;
+  }
+  if (roll < 0.37) {
+    const trays = list.filter((i) => i.emptyTray);
+    if (!trays.length) return false;
+    const it = pick(trays);
+    cat.targetX = it.x;
+    cat.targetY = it.y + 0.02;
+    cat.targetActivity = 'sleeping';
+    return true;
+  }
+  return false;
+}
+
+/** How high she's sitting right now (on the couch, the TV…), in tiles. */
+export function catLift(cat: CatState): number {
+  if (cat.activity === 'wandering') return 0;
+  if (cat.currentSpotId?.startsWith('whim:')) return cat.currentSpotId === 'whim:tray' ? 0.12 : 0;
+  return cat.currentSpotId ? findCatSpot(cat.currentSpotId)?.lift ?? 0 : 0;
 }
 
 export function tickCat(cat: CatState, ctx: CatTickContext): void {
   if (cat.activity !== 'wandering') {
     if (ctx.now < cat.nextChangeAt) return;
-    const options = CAT_SPOTS.filter((s) => s.id !== cat.currentSpotId);
-    const next = options[Math.floor(ctx.rand() * options.length)] ?? CAT_SPOTS[0];
-    cat.targetSpotId = next.id;
+    cat.targetX = null;
+    cat.targetY = null;
+    cat.targetActivity = null;
+    cat.lookX = null;
+    if (!pickWhim(cat, ctx)) {
+      const options = CAT_SPOTS.filter((s) => s.id !== cat.currentSpotId);
+      const next = weightedPick(options, (s) => s.weight ?? 1, ctx.rand) ?? CAT_SPOTS[0];
+      cat.targetSpotId = next.id;
+    }
     cat.activity = 'wandering';
     return;
   }
 
-  const spot = findCatSpot(cat.targetSpotId);
-  if (!spot) {
+  const whim = cat.targetX != null && cat.targetY != null;
+  const spot = whim ? null : findCatSpot(cat.targetSpotId);
+  if (!whim && !spot) {
     cat.activity = 'sitting';
     cat.currentSpotId = null;
     cat.nextChangeAt = ctx.now + 10;
     return;
   }
+  const tx = whim ? cat.targetX! : spot!.x;
+  const ty = whim ? cat.targetY! : spot!.y;
 
-  const dx = spot.x - cat.x;
-  const dy = spot.y - cat.y;
-  const d = Math.hypot(dx, dy);
+  const d = Math.hypot(tx - cat.x, ty - cat.y);
   if (d > ARRIVE_DIST) {
-    const step = Math.min(TRAVEL_SPEED * ctx.dtSeconds, d);
-    cat.x += (dx / d) * step;
-    cat.y += (dy / d) * step;
-    const mdx = spot.x - cat.x;
-    const mdy = spot.y - cat.y;
-    if (Math.abs(mdx) > 0.03 || Math.abs(mdy) > 0.03) {
-      cat.facing = Math.abs(mdx) > Math.abs(mdy) ? (mdx > 0 ? 'right' : 'left') : mdy > 0 ? 'down' : 'up';
+    // Rooms are joined by one doorway: go through it, not through the wall.
+    const wp = interiorWaypoint(cat.x, cat.y, tx, ty);
+    const wdx = wp.x - cat.x;
+    const wdy = wp.y - cat.y;
+    const wd = Math.hypot(wdx, wdy) || 1;
+    const step = Math.min(TRAVEL_SPEED * ctx.dtSeconds, wd);
+    cat.x += (wdx / wd) * step;
+    cat.y += (wdy / wd) * step;
+    if (Math.abs(wdx) > 0.03 || Math.abs(wdy) > 0.03) {
+      cat.facing = Math.abs(wdx) > Math.abs(wdy) ? (wdx > 0 ? 'right' : 'left') : wdy > 0 ? 'down' : 'up';
     }
     return;
   }
 
-  cat.currentSpotId = spot.id;
-  cat.activity = ACTIVITY_FOR_KIND[spot.kind];
-  const [minD, maxD] = DURATIONS[spot.kind];
+  if (whim) {
+    const act = cat.targetActivity ?? 'sitting';
+    cat.activity = act;
+    cat.currentSpotId = act === 'sleeping' ? 'whim:tray' : `whim:${act}`;
+    const [minD, maxD] = WHIM_DURATIONS[act] ?? [10, 20];
+    cat.nextChangeAt = ctx.now + minD + ctx.rand() * (maxD - minD);
+    // Nose toward the plant she's investigating.
+    cat.facing = act === 'investigating' && cat.lookX != null ? (cat.lookX > cat.x ? 'right' : 'left') : 'down';
+    return;
+  }
+  cat.currentSpotId = spot!.id;
+  cat.activity = ACTIVITY_FOR_KIND[spot!.kind];
+  const [minD, maxD] = DURATIONS[spot!.kind];
   cat.nextChangeAt = ctx.now + minD + ctx.rand() * (maxD - minD);
   cat.facing = 'down';
 }

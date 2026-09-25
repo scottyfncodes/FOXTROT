@@ -1188,6 +1188,93 @@ function drawStones(p: Paint) {
   }
 }
 
+/** One narrow, saw-edged leaflet pointing up from the origin. */
+function serratedLeaflet(p: Paint, L: number, W: number, dim: number) {
+  const { ctx, look } = p;
+  const teeth = Math.max(4, Math.round(L / Math.max(1.2, W * 0.9)));
+  const build = () => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    // Right edge up, with small forward-pointing teeth.
+    for (let i = 1; i <= teeth; i++) {
+      const t = i / teeth;
+      const w = Math.sin(Math.PI * Math.min(1, t * 1.05)) * W * 0.5;
+      ctx.lineTo(w + W * 0.08, -L * (t - 0.5 / teeth));
+      ctx.lineTo(w * 0.8, -L * t);
+    }
+    ctx.lineTo(0, -L * 1.02);
+    for (let i = teeth; i >= 1; i--) {
+      const t = i / teeth;
+      const w = Math.sin(Math.PI * Math.min(1, t * 1.05)) * W * 0.5;
+      ctx.lineTo(-w * 0.8, -L * t);
+      ctx.lineTo(-w - W * 0.08, -L * (t - 0.5 / teeth));
+    }
+    ctx.closePath();
+  };
+  build();
+  ctx.fillStyle = leafFill(p, L, dim);
+  ctx.fill();
+  ctx.strokeStyle = hsl(look.hue, look.sat, look.light - 18, 0.5);
+  ctx.lineWidth = Math.max(0.5, W * 0.06);
+  ctx.stroke();
+  ctx.strokeStyle = hsl(look.hue, look.sat - 12, look.light + 10, 0.55);
+  ctx.lineWidth = Math.max(0.5, W * 0.08);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, -L * 0.92);
+  ctx.stroke();
+}
+
+/** A palmate leaf: an odd number of leaflets fanned from the end of a petiole, longest in the middle. */
+function palmateLeaf(p: Paint, size: number, dim: number) {
+  const { ctx, rand, look } = p;
+  const n = size > p.S * 0.3 ? 7 : 5;
+  const spread = 2.3 + rand() * 0.3;
+  for (let i = 0; i < n; i++) {
+    const k = i / (n - 1) - 0.5;
+    const L = size * (1 - Math.abs(k) * 1.05);
+    withTransform(ctx, 0, 0, k * spread, () => serratedLeaflet(p, L, L * 0.2 * (look.leafWidth ?? 1), dim + Math.abs(k) * 6));
+  }
+}
+
+function drawPalmate(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  const height = S * (0.7 + Math.min(4.4, sf) * 0.2);
+  const stems = sf < 1.5 ? 1 : sf < 3 ? 2 : 3;
+  const stem = stemColor(look, 4);
+  for (let s = 0; s < stems; s++) {
+    const lean = (s - (stems - 1) / 2) * 0.28 + (rand() - 0.5) * 0.08;
+    const h = height * (s === Math.floor(stems / 2) ? 1 : 0.78 + rand() * 0.1);
+    const tipX = Math.sin(lean) * h;
+    const tipY = -Math.cos(lean) * h;
+    stroke(ctx, stem, Math.max(1, S * 0.03), () => {
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(tipX * 0.4, tipY * 0.55, tipX, tipY);
+    });
+    // Leaves in opposite pairs up the stem, shrinking toward the top.
+    const nodes = Math.max(1, Math.min(5, Math.round(1 + sf)));
+    for (let i = 0; i < nodes; i++) {
+      const t = 0.3 + (i / nodes) * 0.62;
+      const nx = tipX * t * (0.4 + 0.6 * t);
+      const ny = tipY * t;
+      const size = S * (0.42 - t * 0.2) * (0.9 + rand() * 0.2);
+      for (const side of [-1, 1]) {
+        const petiole = size * 0.35;
+        const a = side * (0.95 + rand() * 0.25) + lean;
+        const px = nx + Math.sin(a) * petiole;
+        const py = ny - Math.cos(a) * petiole * 0.7;
+        stroke(ctx, stem, Math.max(0.6, S * 0.012), () => {
+          ctx.moveTo(nx, ny);
+          ctx.lineTo(px, py);
+        });
+        withTransform(ctx, px, py, a * 0.75, () => palmateLeaf(p, size, i % 2 ? 4 : 0));
+      }
+    }
+    // The growing tip: a small upright cluster of young leaves.
+    withTransform(ctx, tipX, tipY, lean * 0.5, () => palmateLeaf(p, S * 0.2, -4));
+  }
+}
+
 const FORM_DRAW: Record<PlantForm, (p: Paint) => void> = {
   fern: drawFern,
   splitleaf: drawSplitleaf,
@@ -1206,6 +1293,7 @@ const FORM_DRAW: Record<PlantForm, (p: Paint) => void> = {
   jade: drawJade,
   spiky: drawSpiky,
   stones: drawStones,
+  palmate: drawPalmate,
 };
 
 /**
@@ -1233,6 +1321,7 @@ function extent(form: PlantForm, mode: PlantMode): { w: number; up: number; down
   if (form === 'coin') return { w: 1.2, up: 1.5, down: 0.4 };
   if (form === 'paddle' || form === 'jade' || form === 'spiky') return { w: 1.6, up: 1.6, down: 0.4 };
   if (form === 'stones') return { w: 1.0, up: 0.9, down: 0.4 };
+  if (form === 'palmate') return { w: 1.5, up: 2.35, down: 0.4 };
   return { w: 1.35, up: 1.6, down: 0.5 };
 }
 

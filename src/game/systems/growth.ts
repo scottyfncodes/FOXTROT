@@ -1,5 +1,7 @@
-import type { GameState, GrowthStage, OwnedPlant } from '../state';
+import type { GameState, GrowthStage, OwnedPlant, PlacedFurniture } from '../state';
 import { PLANTS } from '../data/plants';
+import { GROW_LAMP_BOOST } from '../data/furniture';
+import { allFurniture, growLampCenters, underGrowLamp } from './furniture';
 
 export const STAGES: GrowthStage[] = ['cutting', 'young', 'established', 'large', 'specimen'];
 
@@ -48,8 +50,21 @@ export function isRooted(growth: number): boolean {
   return growth >= STAGE_AT.young;
 }
 
+/** Plants in a dug, composted garden bed grow a little faster. */
+export const BED_GROWTH_BOOST = 1.15;
+
+/** Lookups shared by every plant in one growth tick, so they're built once. */
+export interface GrowthContext {
+  lamps: { x: number; y: number }[];
+  furniture: Map<string, PlacedFurniture>;
+}
+
+export function growthContext(state: GameState): GrowthContext {
+  return { lamps: growLampCenters(state), furniture: new Map(allFurniture(state).map((f) => [f.id, f])) };
+}
+
 /** Growth per game-minute for this plant where it currently lives. */
-export function growthMultiplier(state: GameState, plant: OwnedPlant): number {
+export function growthMultiplier(state: GameState, plant: OwnedPlant, ctx?: GrowthContext): number {
   const def = PLANTS[plant.defId];
   if (!def) return 0;
   let m = def.growthRate;
@@ -57,8 +72,14 @@ export function growthMultiplier(state: GameState, plant: OwnedPlant): number {
     // Planted out in its own kind of country, a plant romps away; anywhere
     // else it still grows, just more slowly.
     m *= def.habitat.includes(plant.location.zone) ? 1.3 : 0.85;
-  } else if (state.owned.includes('growLights')) {
-    m *= 1.5;
+    if (plant.location.bedId) m *= BED_GROWTH_BOOST;
+  } else {
+    if (state.owned.includes('growLights')) m *= 1.5;
+    const c = ctx ?? growthContext(state);
+    if (c.lamps.length) {
+      const pieceId = plant.location.kind === 'nursery' ? plant.location.bedId : plant.location.slotId;
+      if (underGrowLamp(c.lamps, c.furniture.get(pieceId))) m *= GROW_LAMP_BOOST;
+    }
   }
   return m;
 }
@@ -81,9 +102,10 @@ export interface StageUp {
 export function tickGrowth(state: GameState, minutes: number): StageUp[] {
   const ups: StageUp[] = [];
   if (minutes <= 0) return ups;
+  const ctx = growthContext(state);
   for (const plant of Object.values(state.plants)) {
     const before = stageIndexOf(plant.growth);
-    plant.growth += minutes * growthMultiplier(state, plant);
+    plant.growth += minutes * growthMultiplier(state, plant, ctx);
     const after = stageIndexOf(plant.growth);
     if (after !== before) ups.push({ plantId: plant.id, from: STAGES[before], to: STAGES[after] });
   }

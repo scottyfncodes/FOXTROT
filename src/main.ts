@@ -6,6 +6,8 @@ import { BasketPanel } from './ui/BasketPanel';
 import { GreenhousePanel } from './ui/GreenhousePanel';
 import { MarketPanel } from './ui/MarketPanel';
 import { StartOverlay } from './ui/StartOverlay';
+import { PlantCard } from './ui/PlantCard';
+import { GroundCard } from './ui/GroundCard';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const game = new Game(canvas);
@@ -17,16 +19,22 @@ const journal = new JournalPanel(game);
 const basket = new BasketPanel(game);
 const greenhouse = new GreenhousePanel(game);
 const market = new MarketPanel(game);
+const plantCard = new PlantCard(game);
+const groundCard = new GroundCard(game);
 
 hud.onJournal = () => journal.open();
 hud.onBasket = () => basket.open();
 game.onOpenGreenhouse = (target) => greenhouse.open(target);
 game.onOpenMarket = () => market.open();
+game.onOpenPlantCard = (id) => plantCard.open(id);
+game.onOpenGroundCard = (target) => groundCard.open(target);
 game.onStateTouched = () => {
   journal.refresh();
   basket.refresh();
   greenhouse.refresh();
   market.refresh();
+  plantCard.refresh();
+  groundCard.refresh();
 };
 game.onFrame = () => hud.update();
 

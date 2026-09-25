@@ -6,6 +6,8 @@ import { GRID_W, GRID_H, zoneAt, isWater } from '../data/worldMap';
 import { stageFloat, stageIndexOf, tickGrowth, type StageUp } from './growth';
 import { rollSport } from './propagation';
 import { hasFound } from './collection';
+import { SpatialGrid } from './spatial';
+import { bedContains, onPath } from './landscape';
 
 // Plants the player puts outdoors aren't decorations: once they're large
 // they start seeding, creeping and throwing out runners into the ground
@@ -20,6 +22,13 @@ export const WILD_ZONE_CAP = 140;
 export const WILD_SPECIES_ZONE_CAP = 55;
 export const WILD_TOTAL_CAP = 560;
 const SEEDLING_SPORT_CHANCE = 0.035;
+/** A bed this varied draws birds and insects, and odd seeds come in with them. */
+export const DIVERSE_BED_SPECIES = 5;
+/** Sports come up more often among a mix of species. */
+const DIVERSE_SPORT_BOOST = 1.6;
+/** Chance a seedling in a diverse bed is something no one planted. */
+export const VOLUNTEER_CHANCE = 0.004;
+export const VOLUNTEER_SPECIES = 'cannabisSativa';
 const MIN_SPACING = 0.85;
 const CROWD_RADIUS = 2;
 const CROWD_LIMIT = 7;
@@ -37,15 +46,23 @@ function wildPlants(state: GameState): OwnedPlant[] {
   return Object.values(state.plants).filter((p) => p.location.kind === 'wild');
 }
 
-function tooClose(plants: OwnedPlant[], x: number, y: number): { tooClose: boolean; crowd: number } {
+function tooClose(plants: OwnedPlant[] | SpatialGrid<OwnedPlant>, x: number, y: number): { tooClose: boolean; crowd: number } {
   let crowd = 0;
-  for (const p of plants) {
-    if (p.location.kind !== 'wild') continue;
+  let close = false;
+  const check = (p: OwnedPlant) => {
+    if (p.location.kind !== 'wild') return false;
     const d = Math.hypot(p.location.x - x, p.location.y - y);
-    if (d < MIN_SPACING) return { tooClose: true, crowd };
+    if (d < MIN_SPACING) {
+      close = true;
+      return true;
+    }
     if (d < CROWD_RADIUS) crowd++;
-  }
-  return { tooClose: false, crowd };
+    return false;
+  };
+  if (Array.isArray(plants)) {
+    for (const p of plants) if (check(p)) break;
+  } else plants.query(x, y, CROWD_RADIUS, check);
+  return { tooClose: close, crowd };
 }
 
 /** Whether a new plant could go at (x, y): open ground, not crowded, not on top of another plant. */
@@ -71,6 +88,17 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
     perSpecies[`${p.location.zone}:${p.defId}`] = (perSpecies[`${p.location.zone}:${p.defId}`] ?? 0) + 1;
   }
 
+  const grid = new SpatialGrid<OwnedPlant>(2);
+  for (const p of wild) if (p.location.kind === 'wild') grid.insert(p.location.x, p.location.y, p);
+  // Species per bed, for diversity: a varied bed is a livelier ecosystem.
+  const bedSpecies = new Map<string, Set<string>>();
+  for (const p of wild) {
+    if (p.location.kind !== 'wild' || !p.location.bedId) continue;
+    let set = bedSpecies.get(p.location.bedId);
+    if (!set) bedSpecies.set(p.location.bedId, (set = new Set()));
+    set.add(p.defId);
+  }
+
   for (const parent of wild) {
     if (parent.location.kind !== 'wild') continue;
     const stage = stageIndexOf(parent.growth);
@@ -82,8 +110,13 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
     const chance = def.spread * 0.03 * (stage >= 4 ? 1.5 : 1);
     if (rand() >= chance) continue;
 
-    const reach = def.form === 'trailing' || def.form === 'beads' ? 1.35 : 1;
-    for (let attempt = 0; attempt < 4; attempt++) {
+    // A plant in a garden bed spreads only within it; one outside never
+    // seeds into a bed. Beds are the player's, and they stay that way.
+    const bedId = parent.location.bedId;
+    const bed = bedId ? state.gardenBeds.find((b) => b.id === bedId) : undefined;
+    const diverse = !!bed && (bedSpecies.get(bed.id)?.size ?? 0) >= DIVERSE_BED_SPECIES;
+    const reach = (def.form === 'trailing' || def.form === 'beads' ? 1.35 : 1) * (bed ? 0.8 : 1);
+    for (let attempt = 0; attempt < (bed ? 6 : 4); attempt++) {
       const a = rand() * Math.PI * 2;
       const d = (1.1 + rand() * 1.7) * reach;
       const x = parent.location.x + Math.cos(a) * d;
@@ -93,14 +126,23 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
       if (tx < 0 || ty < 0 || tx >= GRID_W || ty >= GRID_H) continue;
       const zone = zoneAt(tx, ty);
       if (zone === 'greenhouse' || isWater(tx, ty) || !isOpenGround(tx, ty)) continue;
+      if (bed ? !bedContains(bed, x, y, 0.2) : state.gardenBeds.some((b) => bedContains(b, x, y, -0.2))) continue;
+      if (state.paths.length && onPath(state, x, y, now, true)) continue;
       if ((perZone[zone] ?? 0) >= WILD_ZONE_CAP) continue;
       if ((perSpecies[`${zone}:${parent.defId}`] ?? 0) >= WILD_SPECIES_ZONE_CAP) continue;
-      const near = tooClose(wild, x, y);
+      const near = tooClose(grid, x, y);
       if (near.tooClose || near.crowd >= CROWD_LIMIT) continue;
 
+      let defId = parent.defId;
       let variantId = parent.variantId;
       let sport = false;
-      if (rand() < SEEDLING_SPORT_CHANCE) {
+      if (diverse && rand() < VOLUNTEER_CHANCE && PLANTS[VOLUNTEER_SPECIES]) {
+        // Something nobody planted: a seed carried in by whatever visits a
+        // bed this full of life.
+        defId = VOLUNTEER_SPECIES;
+        variantId = PLANTS[VOLUNTEER_SPECIES].variants[0].id;
+        sport = true;
+      } else if (rand() < SEEDLING_SPORT_CHANCE * (diverse ? DIVERSE_SPORT_BOOST : 1)) {
         const v = rollSport(parent.defId, parent.variantId, rand);
         if (v) {
           variantId = v;
@@ -109,7 +151,7 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
       }
       const child: OwnedPlant = {
         id: makeUid('plant'),
-        defId: parent.defId,
+        defId,
         variantId,
         seed: Math.floor(rand() * 1e9),
         growth: 0,
@@ -118,10 +160,13 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
         lastCuttingAt: null,
         generation: parent.generation + 1,
         bornWild: true,
-        unnoticed: !hasFound(state, parent.defId, variantId),
+        unnoticed: !hasFound(state, defId, variantId),
       };
+      if (bed && child.location.kind === 'wild') child.location.bedId = bed.id;
       state.plants[child.id] = child;
       wild.push(child);
+      grid.insert(x, y, child);
+      if (bed) bedSpecies.get(bed.id)?.add(defId);
       perZone[zone] = (perZone[zone] ?? 0) + 1;
       perSpecies[`${zone}:${parent.defId}`] = (perSpecies[`${zone}:${parent.defId}`] ?? 0) + 1;
       events.push({ parentId: parent.id, childId: child.id, sport });

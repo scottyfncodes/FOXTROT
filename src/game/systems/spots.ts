@@ -8,9 +8,9 @@ import { addToBasket, basketFull } from './basket';
 import { recordFound } from './collection';
 
 /** Relative odds of each species rarity turning up in a patch. */
-export const SPECIES_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 36, rare: 10, veryRare: 2.5, extremelyRare: 0.7 };
+export const SPECIES_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 36, rare: 10, veryRare: 2.5, extremelyRare: 0.7, mythic: 0 };
 /** Relative odds of each variant, compared with a common standard form at 100. */
-export const VARIANT_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 20, rare: 5, veryRare: 1.2, extremelyRare: 0.3 };
+export const VARIANT_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 20, rare: 5, veryRare: 1.2, extremelyRare: 0.3, mythic: 0 };
 
 export interface SpotContent {
   defId: string;
@@ -31,7 +31,7 @@ function conditionMet(state: GameState, def: PlantDef): boolean {
 
 export function spotPool(spot: DiscoverySpot): PlantDef[] {
   if (spot.pool) return spot.pool.map((id) => PLANTS[id]).filter(Boolean);
-  return PLANT_LIST.filter((p) => !p.foxOnly && p.habitat.includes(spot.zone));
+  return PLANT_LIST.filter((p) => !p.foxOnly && !p.secret && p.habitat.includes(spot.zone));
 }
 
 /**

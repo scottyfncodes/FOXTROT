@@ -8,6 +8,7 @@ import { ESTABLISH_THRESHOLD } from '../game/systems/collection';
 import { placementBlockReason } from '../game/systems/propagation';
 import { STAGE_LABEL, stageFloat, stageOf } from '../game/systems/growth';
 import { button, note, portrait, rarityBadge } from './common';
+import { FURNITURE_DEFS } from '../game/data/furniture';
 
 export class BasketPanel {
   panel = new Panel('Basket');
@@ -28,7 +29,7 @@ export class BasketPanel {
     this.panel.clearBody();
     this.panel.setTitle(`Basket (${state.basket.length}/${basketCapacity(state)})`);
     const outdoors = !state.player.inGreenhouse;
-    const spot = outdoors ? this.game.plantingSpot() : null;
+    if (state.compost > 0) this.panel.body.appendChild(el('div', 'compost-line', `\u{1F342} ${state.compost} compost — for digging garden beds.`));
 
     if (state.basket.length === 0) {
       this.panel.body.appendChild(el('div', 'empty-state', 'Empty. Go and see what’s growing out there.'));
@@ -52,10 +53,10 @@ export class BasketPanel {
           info.appendChild(note(`Grow ${ESTABLISH_THRESHOLD} ${PLANTS[item.defId].name} to establish it (${grown}/${ESTABLISH_THRESHOLD}) — then it can go on display or out in the wild.`, 'row-note'));
         } else if (outdoors) {
           actions.appendChild(
-            button(spot ? 'Plant here' : 'No room here', () => {
-              this.game.plantHere(item.uid);
-              this.render();
-            }, 'primary-btn small', !spot)
+            button('Plant…', () => {
+              this.panel.close();
+              this.game.beginPlanting(item.uid);
+            }, 'primary-btn small')
           );
         } else {
           info.appendChild(note('Ready: give it a display spot, or plant it out in the wild.', 'row-note'));
@@ -100,26 +101,19 @@ export class BasketPanel {
     // Greenhouse furniture waiting to be set down indoors.
     const furniture = FURNITURE_IDS.filter((id) => (state.furnitureStock[id] ?? 0) > 0);
     if (furniture.length) {
-      this.panel.body.appendChild(el('h4', 'section-head', 'Greenhouse Furniture'));
+      this.panel.body.appendChild(el('h4', 'section-head', 'For the House'));
       const list = el('div', 'entry-list');
       for (const id of furniture) {
         const item = SHOP_ITEMS.find((s) => s.id === id)!;
-        const block = this.game.furnitureBlock(id);
-        const sub =
-          block === 'outdoors'
-            ? 'Take it into the greenhouse to set it down.'
-            : block === 'doorway'
-              ? 'Keep the doorway clear — face somewhere else.'
-              : block
-                ? 'Face an open patch of floor to set it down.'
-                : 'Set down on the floor in front of you. Pick it up again any time it’s empty.';
+        const name = item?.name ?? FURNITURE_DEFS[id].name;
+        const sub = outdoors ? 'Take it indoors to set it down.' : 'Drag it exactly where you want it. Move it again any time.';
         const row = el('div', 'entry-row');
         const info = el('div', 'entry-info');
-        info.append(el('div', 'entry-name', `${item.name} ×${state.furnitureStock[id]}`), el('div', 'entry-sub', sub));
-        row.append(info, button('Place', () => {
-          this.game.placeFurnitureHere(id);
-          this.render();
-        }, 'secondary-btn', !!block));
+        info.append(el('div', 'entry-name', `${name} ×${state.furnitureStock[id]}`), el('div', 'entry-sub', sub));
+        row.append(info, button('Place…', () => {
+          this.panel.close();
+          this.game.beginArrange(id);
+        }, 'secondary-btn', outdoors));
         list.appendChild(row);
       }
       this.panel.body.appendChild(list);

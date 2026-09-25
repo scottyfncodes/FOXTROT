@@ -17,9 +17,11 @@ export function portrait(defId: string, variantId: string, sf: number, seed: num
 
 /** Leaf pips plus a word: rarity you can read at a glance without it shouting. */
 export function rarityBadge(r: Rarity): HTMLElement {
-  const rank = rarityRank(r);
+  const rank = Math.min(4, rarityRank(r));
   const wrap = el('span', `rarity rarity-${r}`);
-  wrap.append(el('span', 'rarity-pips', '●'.repeat(rank + 1) + '○'.repeat(4 - rank)), el('span', 'rarity-word', RARITY_LABEL[r]));
+  // The top tier fills every pip and gains one more, in the same quiet style.
+  const pips = r === 'mythic' ? '●●●●●✦' : '●'.repeat(rank + 1) + '○'.repeat(4 - rank);
+  wrap.append(el('span', 'rarity-pips', pips), el('span', 'rarity-word', RARITY_LABEL[r]));
   return wrap;
 }
 

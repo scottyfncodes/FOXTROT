@@ -4,7 +4,7 @@ import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity, rarityRank } from '../game/data/plants';
 import { SHOP_ITEMS, type ShopCategory } from '../game/data/shop';
 import { STAGE_LABEL, stageFloat, stageOf } from '../game/systems/growth';
-import { priceOf, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday } from '../game/systems/market';
+import { priceOf, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday, canSell } from '../game/systems/market';
 import { button, note, portrait, rarityBadge } from './common';
 
 type Tab = 'sell' | 'shop';
@@ -77,6 +77,12 @@ export class MarketPanel {
       if (rarityRank(rarity) >= 2 && others === 0) info.appendChild(note('Your only one. Propagate it first, and you could keep one and sell one.', 'row-note warn'));
       const glut = soldToday(state, item.defId);
       if (glut > 0) info.appendChild(note(`${glut} already sold today — buyers are paying less for more of the same. Prices recover tomorrow.`, 'row-note'));
+      if (!canSell(item.defId)) {
+        info.appendChild(note('The stall won’t take this one.', 'row-note'));
+        row.append(portrait(item.defId, item.variantId, Math.max(0.6, stageFloat(item.growth)), item.seed, 56), info, button('Not for sale', () => {}, 'secondary-btn', true));
+        list.appendChild(row);
+        continue;
+      }
       const price = priceOf(state, item);
       const sell = button(`Sell · ${price}`, () => {
         this.game.sell(item.uid);
@@ -103,7 +109,8 @@ export class MarketPanel {
         const stock = item.repeatable
           ? (state.decorStock[item.id as keyof typeof state.decorStock] ?? 0) + (state.furnitureStock[item.id as keyof typeof state.furnitureStock] ?? 0)
           : 0;
-        info.append(el('div', 'entry-name', item.name + (stock ? ` (${stock} unplaced)` : '')), el('div', 'entry-sub', item.description));
+        const extra = item.id === 'compostSack' ? ` (you have ${state.compost})` : stock ? ` (${stock} unplaced)` : '';
+        info.append(el('div', 'entry-name', item.name + extra), el('div', 'entry-sub', item.description));
         const block = buyBlockReason(state, item.id);
         const label = block === 'owned' ? 'Owned ✓' : `${item.price} coins`;
         row.append(info, button(label, () => {

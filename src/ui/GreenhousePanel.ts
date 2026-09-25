@@ -2,7 +2,7 @@ import type { Game } from '../game/engine/Game';
 import type { OwnedPlant } from '../game/state';
 import { Panel } from './Panel';
 import { el } from './dom';
-import { PLANTS, specimenName, specimenRarity, findVariant } from '../game/data/plants';
+import { PLANTS, specimenName, specimenRarity, findVariant, latinLine } from '../game/data/plants';
 import { POT_STYLES } from '../game/data/shop';
 import { displaySlots, findFurniture } from '../game/systems/furniture';
 import { ESTABLISH_THRESHOLD, isEstablished } from '../game/systems/collection';
@@ -20,6 +20,8 @@ const SLOT_NAMES: Record<string, string> = {
   sunroom: 'Sun Room',
   pedestal: 'Iron Pedestal',
   trellis: 'Wall Trellis',
+  planter: 'Floor Planter',
+  table: 'Potting Table',
 };
 
 /** The nursery beds and the display gallery: where plants are raised, propagated and shown off. */
@@ -46,7 +48,7 @@ export class GreenhousePanel {
     this.panel.clearBody();
     const plant = t.kind === 'bed' ? occupantOf(this.game.state, { bedId: t.id }) : occupantOf(this.game.state, { slotId: t.id });
     if (t.kind === 'bed') {
-      this.panel.setTitle('Nursery Bed');
+      this.panel.setTitle(findFurniture(this.game.state, t.id)?.kind === 'propagationTray' ? 'Propagation Tray' : 'Nursery Bed');
       if (plant) this.renderPlant(plant);
       else this.renderPotting(t.id);
     } else {
@@ -55,15 +57,15 @@ export class GreenhousePanel {
       if (slot?.kind === 'trellis' && !plant) this.panel.body.appendChild(note('Vines and trailers potted here climb the trellis.'));
       if (plant) this.renderPlant(plant);
       else this.renderDisplayChoice(t.id);
-      // Placed furniture can be moved once it's empty.
-      if (!plant && findFurniture(this.game.state, t.id)) {
-        const row = el('div', 'action-row');
-        row.appendChild(button('Pick it up to move it', () => {
-          this.game.pickUpFurniture(t.id);
-          this.panel.close();
-        }, 'secondary-btn'));
-        this.panel.body.appendChild(row);
-      }
+    }
+    // Anything indoors can be moved — with its plant, if it has one.
+    if (findFurniture(this.game.state, t.id)) {
+      const row = el('div', 'action-row');
+      row.appendChild(button('Move it…', () => {
+        this.panel.close();
+        this.game.beginArrange(undefined, t.id);
+      }, 'secondary-btn'));
+      this.panel.body.appendChild(row);
     }
   }
 
@@ -158,7 +160,9 @@ export class GreenhousePanel {
 
     const head = el('div', 'plant-head');
     const info = el('div', 'entry-info');
-    info.append(el('h3', undefined, specimenName(plant.defId, plant.variantId)), el('div', 'latin', def.latin), rarityBadge(specimenRarity(plant.defId, plant.variantId)));
+    info.append(el('h3', undefined, specimenName(plant.defId, plant.variantId)));
+    if (latinLine(plant.defId)) info.appendChild(el('div', 'latin', latinLine(plant.defId)));
+    info.appendChild(rarityBadge(specimenRarity(plant.defId, plant.variantId)));
     if (variant) info.appendChild(note(variant.description, 'row-note'));
     head.append(portrait(plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 110), info);
     body.appendChild(head);

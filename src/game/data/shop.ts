@@ -30,6 +30,12 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'ironPedestal', name: 'Iron Pedestal', category: 'greenhouse', price: 80, repeatable: true, description: 'A tall wrought-iron pedestal that lifts one plant up into the light.' },
   { id: 'ceilingHook', name: 'Ceiling Hook', category: 'greenhouse', price: 40, repeatable: true, description: 'Hang one more pot from the roof, above anything you like.' },
   { id: 'wallTrellis', name: 'Wall Trellis', category: 'greenhouse', price: 95, repeatable: true, description: 'A tall cedar lattice. Vines and trailers planted at its foot climb it instead of trailing — best along a wall.' },
+  { id: 'propagationTray', name: 'Propagation Tray', category: 'greenhouse', price: 70, repeatable: true, description: 'A shallow tray of damp grit with a clear lid. One more place for a cutting to root — put it anywhere.' },
+  { id: 'pottingTable', name: 'Potting Table', category: 'greenhouse', price: 85, repeatable: true, description: 'A long, scrubbed table. Sets one plant at a comfortable height. Turns to fit along any wall.' },
+  { id: 'floorPlanter', name: 'Floor Planter', category: 'greenhouse', price: 110, repeatable: true, description: 'A deep glazed planter that sits on the floor. Big plants love the extra root room.' },
+  { id: 'growLamp', name: 'Grow Lamp', category: 'greenhouse', price: 150, repeatable: true, description: 'A standing lamp with a warm, pinkish glow. Plants close to it grow a third faster.' },
+  { id: 'wateringCan', name: 'Watering Can', category: 'greenhouse', price: 15, repeatable: true, description: 'A dented brass can. Purely for the look of the place.' },
+  { id: 'houseRug', name: 'Woven Rug', category: 'greenhouse', price: 40, repeatable: true, description: 'A soft jute rug to put down anywhere indoors. Things stand on it happily.' },
   { id: 'sunRoom', name: 'Clear Out the Sun Room', category: 'greenhouse', price: 700, description: 'Haul away the old crates in the south-east corner and fit it out: four new display spots in full sun.' },
 
   // Pots
@@ -40,6 +46,7 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'potPorcelain', name: 'Gold-Rim Porcelain', category: 'pots', price: 140, description: 'For the plants you’re most proud of.' },
 
   // Garden decor (placed outdoors)
+  { id: 'compostSack', name: 'Sack of Compost', category: 'garden', price: 20, repeatable: true, description: 'Three scoops of rich compost. Garden beds are dug with it — or compost plants of your own.' },
   { id: 'steppingStones', name: 'Stepping Stones', category: 'garden', price: 6, repeatable: true, description: 'A few flat stones. Lay a path through your plantings.' },
   { id: 'picketFence', name: 'Picket Fence', category: 'garden', price: 12, repeatable: true, description: 'A short run of white fence to frame a bed.' },
   { id: 'gardenLantern', name: 'Garden Lantern', category: 'garden', price: 30, repeatable: true, description: 'Glows warmly after dark.' },
@@ -87,5 +94,42 @@ export function findPotStyle(id: string): PotStyle {
 export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenBench';
 export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenBench'];
 
-export type FurnitureId = 'plantStand' | 'ironPedestal' | 'ceilingHook' | 'wallTrellis';
-export const FURNITURE_IDS: FurnitureId[] = ['plantStand', 'ironPedestal', 'ceilingHook', 'wallTrellis'];
+/**
+ * Everything that can stand (or hang) indoors. The first group is sold at
+ * the market; the second is the greenhouse's own original fittings, which
+ * can be moved or stored like anything else once the player picks them up.
+ */
+export type FurnitureId =
+  | 'plantStand'
+  | 'ironPedestal'
+  | 'ceilingHook'
+  | 'wallTrellis'
+  | 'propagationTray'
+  | 'pottingTable'
+  | 'floorPlanter'
+  | 'growLamp'
+  | 'wateringCan'
+  | 'houseRug'
+  | 'nurseryBed'
+  | 'wallShelf'
+  | 'tieredStand'
+  | 'sunroomStand';
+export const FURNITURE_IDS: FurnitureId[] = [
+  'plantStand',
+  'ironPedestal',
+  'ceilingHook',
+  'wallTrellis',
+  'propagationTray',
+  'pottingTable',
+  'floorPlanter',
+  'growLamp',
+  'wateringCan',
+  'houseRug',
+  'nurseryBed',
+  'wallShelf',
+  'tieredStand',
+  'sunroomStand',
+];
+
+/** Compost you get from a sack bought at the market. */
+export const COMPOST_PER_SACK = 3;
