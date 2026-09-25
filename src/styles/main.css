@@ -81,18 +81,22 @@ button {
   inset: 0;
   pointer-events: none;
   z-index: 10;
-  /* Some embedded/in-app webviews report env(safe-area-inset-top) as 0 even
-     though a status bar still overlays the page, so this always reserves at
-     least enough room for one rather than trusting the env() value alone. */
-  padding: max(env(safe-area-inset-top), 48px) max(env(safe-area-inset-right), 0px)
-    env(safe-area-inset-bottom) max(env(safe-area-inset-left), 0px);
+  /* Every HUD child is absolutely positioned, and absolute offsets ignore the
+     parent's padding, so the safe-area insets are folded into each child's
+     offsets via these variables instead. Some embedded/in-app webviews report
+     env(safe-area-inset-top) as 0 even though a status bar still overlays the
+     page, so the top always reserves at least enough room for one. */
+  --safe-top: max(env(safe-area-inset-top), 48px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 .hud-top {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
+  top: calc(var(--safe-top) + 8px);
+  left: calc(var(--safe-left) + 12px);
+  right: calc(var(--safe-right) + 12px);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -153,7 +157,7 @@ button {
 
 .interaction-prompt {
   position: absolute;
-  bottom: 140px;
+  bottom: calc(var(--safe-bottom) + 140px);
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
@@ -184,7 +188,7 @@ button {
 
 .toast-stack {
   position: absolute;
-  top: 64px;
+  top: calc(var(--safe-top) + 60px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -233,9 +237,9 @@ button {
 
 .touch-controls {
   position: absolute;
-  bottom: 22px;
-  left: 22px;
-  right: 22px;
+  bottom: calc(var(--safe-bottom) + 22px);
+  left: calc(var(--safe-left) + 22px);
+  right: calc(var(--safe-right) + 22px);
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
