@@ -1,12 +1,12 @@
 import type { ZoneId } from '../types';
 
-export type ScottSpotKind = 'tinker' | 'nap' | 'snack' | 'golf' | 'putt';
+export type ScottSpotKind = 'tinker' | 'nap' | 'snack' | 'golf' | 'putt' | 'tv' | 'drink';
 
 export interface ScottSpot {
   id: string;
   kind: ScottSpotKind;
   zone: ZoneId;
-  /** Overworld tile coords for outdoor zones, greenhouse-interior tile coords for the 'greenhouse' zone. */
+  /** Overworld tile coords for outdoor zones, interior tile coords (greenhouse + living room) for the 'greenhouse' zone. */
   x: number;
   y: number;
 }
@@ -31,7 +31,17 @@ export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'greenhouse-tinker', kind: 'tinker', zone: 'greenhouse', x: 8, y: 7 },
   { id: 'greenhouse-nap', kind: 'nap', zone: 'greenhouse', x: 12, y: 9 },
   { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
+  // The living room: the ball game on the couch, a drink with his feet up,
+  // and the putting mat when it's raining.
+  { id: 'living-couch-tv', kind: 'tv', zone: 'greenhouse', x: 21.3, y: 3.62 },
+  { id: 'living-couch-drink', kind: 'drink', zone: 'greenhouse', x: 20.55, y: 3.62 },
+  { id: 'living-putting', kind: 'putt', zone: 'greenhouse', x: 19.55, y: 8.55 },
 ];
+
+/** Spots where he's sitting on the couch, seen from behind. */
+export function isCouchSpot(id: string | null): boolean {
+  return id === 'living-couch-tv' || id === 'living-couch-drink';
+}
 
 export function findScottSpot(id: string): ScottSpot | undefined {
   return SCOTT_SPOTS.find((s) => s.id === id);

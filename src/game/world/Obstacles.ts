@@ -1,5 +1,5 @@
 import type { ZoneId } from '../types';
-import { ZONE_RECTS, GREENHOUSE_FOOTPRINT, rectContains, isWater, type Rect } from '../data/worldMap';
+import { ZONE_RECTS, GREENHOUSE_FOOTPRINT, HOUSE_FOOTPRINT, rectContains, isWater, type Rect } from '../data/worldMap';
 import { LAYOUT_SPOTS } from '../data/discoveryPoints';
 import { TOOL_PICKUPS } from '../data/toolPickups';
 import { mulberry32 } from '../engine/Random';
@@ -77,13 +77,20 @@ export function generateObstacles(seed = 1337): Obstacle[] {
       }
     }
   }
-  return obstacles;
+  // The house went up later, beside the greenhouse. Its ground is cleared
+  // after the fact, so the random layout everywhere else stays exactly as
+  // it always was.
+  const houseYard: Rect = { x: HOUSE_FOOTPRINT.x - 1, y: HOUSE_FOOTPRINT.y - 1, w: HOUSE_FOOTPRINT.w + 2, h: HOUSE_FOOTPRINT.h + 3 };
+  return obstacles.filter((o) => !rectContains(houseYard, o.x, o.y));
 }
 
-export function buildBlockingSet(obstacles: Obstacle[]): Set<string> {
+/** Blocking tiles, minus anything the player has cleared away. */
+export function buildBlockingSet(obstacles: Obstacle[], cleared: Iterable<string> = []): Set<string> {
+  const gone = new Set(cleared);
   const set = new Set<string>();
   for (const o of obstacles) {
-    if (o.blocking) set.add(`${o.x},${o.y}`);
+    const key = `${o.x},${o.y}`;
+    if (o.blocking && !gone.has(key)) set.add(key);
   }
   return set;
 }

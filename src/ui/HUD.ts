@@ -3,6 +3,7 @@ import { el } from './dom';
 import { ZONES } from '../game/data/zones';
 import { zoneAt } from '../game/data/worldMap';
 import { isNight, minuteOfDay } from '../game/engine/Clock';
+import { ModeBar } from './ModeBar';
 
 function formatClock(totalMinutes: number): string {
   const m = minuteOfDay(totalMinutes);
@@ -26,6 +27,12 @@ export class HUD {
   private coinChip = el('div', 'hud-chip coins');
   private journalBtn = el('button', 'icon-btn', '\u{1F4D3}');
   private basketBtn = el('button', 'icon-btn', '\u{1F9FA}');
+  /** Outdoors: shape the land. Indoors: arrange the house. */
+  private toolBtn = el('button', 'icon-btn tool-btn', '\u{1F33F}');
+  private compostChip = el('div', 'hud-chip compost');
+  private landMenu = el('div', 'land-menu');
+  private modeBar: ModeBar;
+  private touch = el('div', 'touch-controls');
   private interactionPrompt = el('div', 'interaction-prompt');
   private promptLabel = document.createTextNode('');
   private toastStack = el('div', 'toast-stack');
@@ -35,39 +42,75 @@ export class HUD {
 
   onJournal: (() => void) | null = null;
   onBasket: (() => void) | null = null;
+  private landMenuOpen = false;
 
   constructor(private game: Game) {
     const top = el('div', 'hud-top');
     const left = el('div', 'hud-chip-group');
     left.style.display = 'flex';
     left.style.gap = '8px';
-    left.append(this.zoneChip, this.timeChip, this.coinChip);
+    left.style.flexWrap = 'wrap';
+    left.append(this.zoneChip, this.timeChip, this.coinChip, this.compostChip);
     const right = el('div', 'hud-buttons');
-    right.append(this.journalBtn, this.basketBtn);
+    right.append(this.toolBtn, this.journalBtn, this.basketBtn);
     top.append(left, right);
+    this.journalBtn.setAttribute('aria-label', 'Field journal');
+    this.basketBtn.setAttribute('aria-label', 'Basket');
 
     this.joystickZone.append(this.joystickThumb);
-    const touch = el('div', 'touch-controls');
+    const touch = this.touch;
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     if (isTouchDevice) {
       touch.append(this.joystickZone, this.actionBtn);
     }
 
+    this.modeBar = new ModeBar(game);
+    this.buildLandMenu();
     this.interactionPrompt.append(el('kbd', undefined, 'E'), this.promptLabel);
-    this.root.append(top, this.interactionPrompt, this.toastStack, touch);
+    this.root.append(top, this.interactionPrompt, this.toastStack, touch, this.landMenu, this.modeBar.root);
 
     this.journalBtn.addEventListener('click', () => this.onJournal?.());
     this.basketBtn.addEventListener('click', () => this.onBasket?.());
+    this.toolBtn.addEventListener('click', () => {
+      if (this.game.tools.active) return this.game.cancelTool();
+      if (this.game.state.player.inGreenhouse) {
+        this.setLandMenu(false);
+        this.game.beginArrange();
+      } else this.setLandMenu(!this.landMenuOpen);
+    });
     this.game.input.bindJoystick(this.joystickZone, this.joystickThumb);
     this.game.input.bindActionButton(this.actionBtn);
     this.game.onToast = (t) => this.showToast(t);
+  }
+
+  private buildLandMenu() {
+    const item = (icon: string, label: string, onClick: () => void) => {
+      const b = el('button', 'land-item');
+      b.append(el('span', 'land-icon', icon), el('span', 'land-label', label));
+      b.addEventListener('click', () => {
+        this.setLandMenu(false);
+        onClick();
+      });
+      return b;
+    };
+    this.landMenu.append(
+      item('▭', 'Dig a bed', () => this.game.beginBed('rect')),
+      item('◯', 'Round bed', () => this.game.beginBed('oval')),
+      item('〰', 'Carve a path', () => this.game.beginPath())
+    );
+    this.landMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
+  }
+
+  private setLandMenu(open: boolean) {
+    this.landMenuOpen = open;
+    this.landMenu.classList.toggle('open', open);
   }
 
   private showToast(t: ToastEvent) {
     const node = el('div', `toast ${t.kind}`, t.text);
     this.toastStack.appendChild(node);
     setTimeout(() => node.remove(), t.kind === 'hint' || t.kind === 'discovery' ? 7000 : 4200);
-    while (this.toastStack.children.length > 4) this.toastStack.firstChild?.remove();
+    while (this.toastStack.children.length > 3) this.toastStack.firstChild?.remove();
   }
 
   // Called every frame: only touch the DOM when what's shown actually changes.
@@ -75,17 +118,41 @@ export class HUD {
     const state = this.game.state;
     const zone = state.player.inGreenhouse ? 'greenhouse' : zoneAt(Math.floor(state.player.x), Math.floor(state.player.y));
     const cover = zone === 'greenhouse' ? 0 : this.game.lush.zoneCover[zone] ?? 0;
-    setText(this.zoneChip, cover >= 0.01 ? `${ZONES[zone].name} · ${Math.round(cover * 100)}% yours` : ZONES[zone].name);
+    const room = this.game.currentRoom();
+    const place = room === 'living' ? 'Home' : ZONES[zone].name;
+    setText(this.zoneChip, cover >= 0.01 ? `${place} · ${Math.round(cover * 100)}% yours` : place);
     setText(this.coinChip, `\u{1FA99} ${state.coins}`);
+    setText(this.compostChip, `\u{1F342} ${state.compost}`);
+    const tools = this.game.tools.active;
+    const showCompost = state.compost > 0 || tools || this.landMenuOpen;
+    if (this.compostChip.style.display !== (showCompost ? '' : 'none')) this.compostChip.style.display = showCompost ? '' : 'none';
+    setText(this.toolBtn, tools ? '✕' : state.player.inGreenhouse ? '\u{1FA91}' : '\u{1F33F}');
+    this.toolBtn.setAttribute('aria-label', tools ? 'Stop' : state.player.inGreenhouse ? 'Arrange the house' : 'Shape the land');
+    if (state.player.inGreenhouse && this.landMenuOpen) this.setLandMenu(false);
+    this.root.classList.toggle('tool-active', tools);
+    this.root.classList.toggle('arrange-active', this.game.tools.mode.kind === 'arrange');
+    this.modeBar.update();
     const night = isNight(state.clock.totalMinutes);
     setText(this.timeChip, `${WEATHER_ICON[state.weather.condition]} ${formatClock(state.clock.totalMinutes)}${night ? ' \u{1F319}' : ''}`);
 
-    const n = this.game.nearest;
+    const n = tools ? null : this.game.nearest;
     this.interactionPrompt.classList.toggle('visible', !!n);
     this.actionBtn.style.opacity = n ? '1' : '0.55';
     if (!n) return;
     setText(this.promptLabel, n.label);
-    const verbs: Record<string, string> = { spot: 'SNIP', wildPlant: 'SNIP', lantern: 'TAKE', market: 'SHOP', bed: 'OPEN', display: 'OPEN' };
+    const verbs: Record<string, string> = {
+      spot: 'SNIP',
+      wildPlant: 'SNIP',
+      lantern: 'TAKE',
+      market: 'SHOP',
+      bed: 'OPEN',
+      display: 'OPEN',
+      foxFind: 'LOOK',
+      houseDoor: 'HOME',
+      greenhouseDoor: 'IN',
+      greenhouseExit: 'OUT',
+      frontDoor: 'OUT',
+    };
     setText(this.actionBtn, verbs[n.kind] ?? 'GO');
   }
 }

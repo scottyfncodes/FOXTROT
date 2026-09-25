@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { tickCat } from '../src/game/systems/cat';
 import { CAT_SPOTS, findCatSpot } from '../src/game/data/catSpots';
 import { createNewGame } from '../src/game/state';
+import { INTERIOR_H, INTERIOR_W, PARTITION_DOOR_YS, isInteriorWallTile, roomAt } from '../src/game/data/interior';
+import { catLift } from '../src/game/systems/cat';
 
 describe('greenhouse cat (ambient NPC)', () => {
   it('starts already settled into an activity at her starting spot', () => {
@@ -49,13 +51,69 @@ describe('greenhouse cat (ambient NPC)', () => {
     }
   });
 
-  it('never wanders outside the greenhouse grid bounds', () => {
-    const state = createNewGame();
+  it('never wanders outside the house, and none of her spots are inside a wall', () => {
     for (const spot of CAT_SPOTS) {
       expect(spot.x).toBeGreaterThan(0);
       expect(spot.y).toBeGreaterThan(0);
-      expect(spot.x).toBeLessThan(18); // GREENHOUSE_GRID_W
-      expect(spot.y).toBeLessThan(12); // GREENHOUSE_GRID_H
+      expect(spot.x).toBeLessThan(INTERIOR_W);
+      expect(spot.y).toBeLessThan(INTERIOR_H);
+      expect(isInteriorWallTile(Math.floor(spot.x), Math.floor(spot.y))).toBe(false);
     }
+  });
+
+  it('has places of her own in the living room as well as the greenhouse', () => {
+    expect(CAT_SPOTS.some((s) => roomAt(s.x) === 'living' && s.kind === 'sleep')).toBe(true);
+    expect(CAT_SPOTS.some((s) => roomAt(s.x) === 'greenhouse')).toBe(true);
+    // A fresh game finds her asleep on the couch.
+    expect(createNewGame().cat.currentSpotId).toBe('couch-nap');
+  });
+
+  it('walks through the doorway between rooms rather than through the wall', () => {
+    const state = createNewGame();
+    const cat = state.cat;
+    cat.x = 4.5;
+    cat.y = 2.5;
+    cat.activity = 'wandering';
+    cat.targetSpotId = 'cat-bed';
+    let crossedAt: { x: number; y: number } | null = null;
+    for (let i = 0; i < 400 && cat.activity === 'wandering'; i++) {
+      const before = roomAt(cat.x);
+      tickCat(cat, { dtSeconds: 0.1, now: 100, rand: () => 0.5 });
+      if (before !== roomAt(cat.x)) crossedAt = { x: cat.x, y: cat.y };
+      expect(isInteriorWallTile(Math.floor(cat.x), Math.floor(cat.y))).toBe(false);
+    }
+    expect(cat.currentSpotId).toBe('cat-bed');
+    expect(crossedAt).not.toBeNull();
+    expect(PARTITION_DOOR_YS).toContain(Math.floor(crossedAt!.y));
+  });
+
+  it('now and then goes to sniff at a plant, or tucks herself behind a big one', () => {
+    const state = createNewGame();
+    const cat = state.cat;
+    cat.nextChangeAt = 0;
+    const interests = [{ x: 10.5, y: 3.5, big: true }];
+    tickCat(cat, { dtSeconds: 1, now: 100, rand: () => 0.1, interests });
+    expect(cat.targetActivity).toBe('investigating');
+    for (let i = 0; i < 300 && cat.activity === 'wandering'; i++) tickCat(cat, { dtSeconds: 0.2, now: 100, rand: () => 0.1, interests });
+    expect(cat.activity).toBe('investigating');
+    expect(Math.abs(cat.x - 10.5)).toBeLessThan(0.7);
+    expect(cat.facing).toBe(cat.x < 10.5 ? 'right' : 'left');
+
+    cat.nextChangeAt = 0;
+    tickCat(cat, { dtSeconds: 1, now: 1000, rand: () => 0.25, interests });
+    expect(cat.targetActivity).toBe('hiding');
+    // Behind the plant: just above its base, so its leaves draw over her.
+    expect(cat.targetY!).toBeLessThan(3.5);
+  });
+
+  it('may curl up in an empty propagation tray, raised a little off the floor', () => {
+    const state = createNewGame();
+    const cat = state.cat;
+    cat.nextChangeAt = 0;
+    const interests = [{ x: 6.5, y: 6.5, big: false, emptyTray: true }];
+    tickCat(cat, { dtSeconds: 1, now: 100, rand: () => 0.34, interests });
+    for (let i = 0; i < 300 && cat.activity === 'wandering'; i++) tickCat(cat, { dtSeconds: 0.2, now: 100, rand: () => 0.34, interests });
+    expect(cat.activity).toBe('sleeping');
+    expect(catLift(cat)).toBeGreaterThan(0);
   });
 });

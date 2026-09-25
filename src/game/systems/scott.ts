@@ -1,5 +1,6 @@
 import type { ScottActivity, ScottState } from '../state';
 import { SCOTT_SPOTS, findScottSpot, type ScottSpotKind } from '../data/scottSpots';
+import { interiorWaypoint } from '../data/interior';
 
 // Ellen's husband, ambient and independent of the player: he potters
 // between fixed spots on his own clock, tinkering, napping, snacking,
@@ -16,6 +17,8 @@ const DURATIONS: Record<ScottSpotKind, [number, number]> = {
   snack: [15, 30],
   golf: [30, 60],
   putt: [25, 45],
+  tv: [45, 100],
+  drink: [25, 50],
 };
 
 export const ACTIVITY_FOR_KIND: Record<ScottSpotKind, Exclude<ScottActivity, 'traveling'>> = {
@@ -24,6 +27,8 @@ export const ACTIVITY_FOR_KIND: Record<ScottSpotKind, Exclude<ScottActivity, 'tr
   snack: 'snacking',
   golf: 'golfing',
   putt: 'putting',
+  tv: 'watchingTV',
+  drink: 'relaxing',
 };
 
 export interface ScottTickContext {
@@ -61,17 +66,18 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
     return;
   }
 
-  const dx = spot.x - scott.x;
-  const dy = spot.y - scott.y;
-  const d = Math.hypot(dx, dy);
+  const d = Math.hypot(spot.x - scott.x, spot.y - scott.y);
   if (d > ARRIVE_DIST) {
-    const step = Math.min(TRAVEL_SPEED * ctx.dtSeconds, d);
-    scott.x += (dx / d) * step;
-    scott.y += (dy / d) * step;
-    const mdx = spot.x - scott.x;
-    const mdy = spot.y - scott.y;
-    if (Math.abs(mdx) > 0.03 || Math.abs(mdy) > 0.03) {
-      scott.facing = Math.abs(mdx) > Math.abs(mdy) ? (mdx > 0 ? 'right' : 'left') : mdy > 0 ? 'down' : 'up';
+    // Indoors, the living room and greenhouse are joined by one doorway.
+    const wp = scott.zone === 'greenhouse' ? interiorWaypoint(scott.x, scott.y, spot.x, spot.y) : spot;
+    const dx = wp.x - scott.x;
+    const dy = wp.y - scott.y;
+    const wd = Math.hypot(dx, dy) || 1;
+    const step = Math.min(TRAVEL_SPEED * ctx.dtSeconds, wd);
+    scott.x += (dx / wd) * step;
+    scott.y += (dy / wd) * step;
+    if (Math.abs(dx) > 0.03 || Math.abs(dy) > 0.03) {
+      scott.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
     }
     return;
   }
@@ -81,6 +87,7 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
   scott.activity = ACTIVITY_FOR_KIND[spot.kind];
   const [minD, maxD] = DURATIONS[spot.kind];
   scott.nextChangeAt = ctx.now + minD + ctx.rand() * (maxD - minD);
-  // Putting is drawn side-on, lining up toward the hole on his right.
-  scott.facing = spot.kind === 'putt' ? 'right' : 'down';
+  // Putting is drawn side-on, lining up toward the hole on his right; on
+  // the couch he's facing the TV, back to the room.
+  scott.facing = spot.kind === 'putt' ? 'right' : spot.kind === 'tv' || spot.kind === 'drink' ? 'up' : 'down';
 }

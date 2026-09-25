@@ -4,6 +4,8 @@ import { SCOTT_SPOTS, findScottSpot } from '../src/game/data/scottSpots';
 import { createNewGame } from '../src/game/state';
 import { generateObstacles, buildBlockingSet } from '../src/game/world/Obstacles';
 import { zoneAt } from '../src/game/data/worldMap';
+import { roomAt, PARTITION_DOOR_YS } from '../src/game/data/interior';
+import { isCouchSpot } from '../src/game/data/scottSpots';
 
 describe('Scott (ambient NPC)', () => {
   it('starts already settled into an activity at his starting spot', () => {
@@ -94,5 +96,37 @@ describe('Scott (ambient NPC)', () => {
     tickScott(state.scott, { dtSeconds: 1, now: 100, rand: () => 0.5 });
     expect(state.scott.activity).toBe('putting');
     expect(state.scott.facing).toBe('right');
+  });
+
+  it('spends some of his time at home: the ball game on the couch, a drink, the putting mat', () => {
+    const living = SCOTT_SPOTS.filter((s) => s.zone === 'greenhouse' && roomAt(s.x) === 'living');
+    expect(living.map((s) => s.kind).sort()).toEqual(['drink', 'putt', 'tv']);
+    expect(ACTIVITY_FOR_KIND.tv).toBe('watchingTV');
+    expect(ACTIVITY_FOR_KIND.drink).toBe('relaxing');
+    // …but only occasionally: most of his spots are elsewhere.
+    expect(living.length / SCOTT_SPOTS.length).toBeLessThan(0.3);
+  });
+
+  it('sits facing the TV, and walks through the doorway to get there', () => {
+    const state = createNewGame();
+    const s = state.scott;
+    s.zone = 'greenhouse';
+    s.x = 8;
+    s.y = 4;
+    s.activity = 'traveling';
+    s.targetSpotId = 'living-couch-tv';
+    let crossed = false;
+    for (let i = 0; i < 500 && s.activity === 'traveling'; i++) {
+      const before = roomAt(s.x);
+      tickScott(s, { dtSeconds: 0.1, now: 100, rand: () => 0.5 });
+      if (before !== roomAt(s.x)) {
+        crossed = true;
+        expect(PARTITION_DOOR_YS).toContain(Math.floor(s.y));
+      }
+    }
+    expect(crossed).toBe(true);
+    expect(s.activity).toBe('watchingTV');
+    expect(s.facing).toBe('up');
+    expect(isCouchSpot(s.currentSpotId)).toBe(true);
   });
 });

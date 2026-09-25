@@ -3,6 +3,7 @@ import { createNewGame, SAVE_KEY, SAVE_VERSION } from '../src/game/state';
 import { loadGame, saveGame, loadOrCreate, resetGame, migrateSave, clearAllSaves } from '../src/game/engine/SaveManager';
 import { findScottSpot } from '../src/game/data/scottSpots';
 import { addToBasket } from '../src/game/systems/basket';
+import { HOUSE_FOOTPRINT } from '../src/game/data/worldMap';
 
 describe('save/load persistence', () => {
   beforeEach(() => {
@@ -151,5 +152,62 @@ describe('save migration', () => {
     saveGame(createNewGame());
     clearAllSaves();
     expect(loadGame()).toBeNull();
+  });
+});
+
+describe('the world the player made persists', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('round-trips furniture positions, beds, paths, cleared scrub, compost, fox history and curiosities', () => {
+    const state = createNewGame();
+    state.furniture.push({ id: 'bed1', kind: 'nurseryBed', x: 6.25, y: 6.5, rot: 1 });
+    state.seededFixtures.push('bed1');
+    state.furniture.push({ id: 'lamp', kind: 'growLamp', x: 12.125, y: 8.375 });
+    state.compost = 7;
+    state.gardenBeds.push({ id: 'gb', x: 50, y: 20, w: 3.5, h: 2.25, shape: 'oval', createdAt: 10 });
+    state.paths.push({ id: 'pa', points: [50, 30, 51.5, 30.2, 53, 30.9], width: 1.15, createdAt: 20 });
+    state.clearedObstacles.push('51,30');
+    state.plants.w = { id: 'w', defId: 'pothos', variantId: 'golden', seed: 1, growth: 700, location: { kind: 'wild', x: 51.35, y: 21.05, zone: 'meadow', bedId: 'gb' }, plantedAt: 0, lastCuttingAt: null, generation: 0, bornWild: false };
+    state.foxLog.trailsFollowed = 3;
+    state.foxFinds.push({ id: 'f', kind: 'curiosity', x: 20, y: 20, zone: 'woodland', seed: 1, curiosityId: 'lunaMoth', createdAt: 0, expiresAt: 9999 });
+    state.curiosities.flyAgaric = { foundAt: 5, count: 2 };
+    saveGame(state);
+    const loaded = loadGame()!;
+    expect(loaded.furniture).toEqual(state.furniture);
+    expect(loaded.seededFixtures).toEqual(['bed1']);
+    expect(loaded.compost).toBe(7);
+    expect(loaded.gardenBeds).toEqual(state.gardenBeds);
+    expect(loaded.paths).toEqual(state.paths);
+    expect(loaded.clearedObstacles).toEqual(['51,30']);
+    expect(loaded.plants.w.location).toEqual({ kind: 'wild', x: 51.35, y: 21.05, zone: 'meadow', bedId: 'gb' });
+    expect(loaded.foxLog.trailsFollowed).toBe(3);
+    expect(loaded.foxFinds).toHaveLength(1);
+    expect(loaded.curiosities.flyAgaric.count).toBe(2);
+  });
+
+  it('upgrades a save from before the house: new fields filled, and nothing left standing inside the house', () => {
+    const old = createNewGame() as unknown as Record<string, unknown>;
+    for (const k of ['seededFixtures', 'compost', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds', 'foxLog', 'curiosities']) delete old[k];
+    old.version = 5;
+    (old.plants as Record<string, unknown>).inHouse = { id: 'inHouse', defId: 'pothos', variantId: 'golden', seed: 1, growth: 5, location: { kind: 'wild', x: 72.2, y: 35.1, zone: 'meadow' }, plantedAt: 0, lastCuttingAt: null, generation: 0, bornWild: false };
+    (old.furniture as unknown[]).push({ id: 'old', kind: 'plantStand', x: 3, y: 6 });
+    const migrated = migrateSave(JSON.parse(JSON.stringify(old)))!;
+    expect(migrated.version).toBe(SAVE_VERSION);
+    expect(migrated.compost).toBe(0);
+    expect(migrated.gardenBeds).toEqual([]);
+    expect(migrated.foxLog.trailsStarted).toBe(0);
+    expect(migrated.furniture[0]).toMatchObject({ x: 3, y: 6 });
+    const loc = migrated.plants.inHouse.location as { x: number; y: number };
+    const inside = loc.x >= HOUSE_FOOTPRINT.x && loc.x < HOUSE_FOOTPRINT.x + HOUSE_FOOTPRINT.w && loc.y >= HOUSE_FOOTPRINT.y && loc.y < HOUSE_FOOTPRINT.y + HOUSE_FOOTPRINT.h + 1;
+    expect(inside).toBe(false);
+  });
+
+  it('drops a plant’s link to a bed that no longer exists, and forgets a half-run fox trail', () => {
+    const s = createNewGame();
+    s.plants.w = { id: 'w', defId: 'pothos', variantId: 'golden', seed: 1, growth: 5, location: { kind: 'wild', x: 50, y: 20, zone: 'meadow', bedId: 'gone' }, plantedAt: 0, lastCuttingAt: null, generation: 0, bornWild: false };
+    s.fox.behavior = 'fleeing';
+    const m = migrateSave(JSON.parse(JSON.stringify(s)))!;
+    expect((m.plants.w.location as { bedId?: string }).bedId).toBeUndefined();
+    expect(m.fox.behavior).toBe('gone');
   });
 });

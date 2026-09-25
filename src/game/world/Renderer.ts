@@ -19,6 +19,41 @@ import { demandSpecies } from '../systems/market';
 import type { LushField } from '../systems/wild';
 import { CHARACTERS } from '../systems/wild';
 import { PlantSpriteCache, type PlantMode } from './PlantArt';
+import type { ToolMode } from '../engine/Tools';
+import type { WorldFlourish } from '../engine/Game';
+import type { PlacedFurniture } from '../state';
+import {
+  drawHouseExterior,
+  drawGardenBed,
+  drawGardenPath,
+  drawPlantPreview,
+  drawBedPreview,
+  drawPathPreview,
+  drawFlourish,
+  drawFox as drawFoxArt,
+  drawFoxFindCuriosity,
+  drawNearGlint,
+  drawFindCover,
+} from './LandscapeArt';
+import { drawInteriorShell, drawFixture, isFlatFixture, type FixtureContext } from './HomeArt';
+import { LIVING_FIXTURES, PARTITION_X } from '../data/interior';
+import { FURNITURE_DEFS } from '../data/furniture';
+import { allFurniture, footprint } from '../systems/furniture';
+import { catLift } from '../systems/cat';
+import { foxFade } from '../systems/fox';
+import { isCouchSpot } from '../data/scottSpots';
+import { PATH_WIDTH } from '../systems/landscape';
+
+/** Everything the scene needs beyond the game state: what the player is doing with their hands, and passing effects. */
+export interface SceneExtras {
+  tools: ToolMode;
+  flourishes: WorldFlourish[];
+  cleared: Set<string>;
+  /** 1 just after stepping through a door, falling to 0. */
+  fade: number;
+}
+
+const NO_EXTRAS: SceneExtras = { tools: { kind: 'play' }, flourishes: [], cleared: new Set(), fade: 0 };
 
 /** Ground colour each kind of planting pulls the land toward as it thickens. */
 const LUSH_GROUND: Record<string, RGB> = {
@@ -125,7 +160,7 @@ export class Renderer {
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
 
-  renderOutdoor(camera: Camera, state: GameState, obstacles: Obstacle[], now: number, crouching = false, lush: LushField | null = null) {
+  renderOutdoor(camera: Camera, state: GameState, obstacles: Obstacle[], now: number, crouching = false, lush: LushField | null = null, extras: SceneExtras = NO_EXTRAS) {
     const zoneHere = zoneAt(Math.floor(state.player.x), Math.floor(state.player.y));
     this.clear(ZONES[zoneHere].tint);
     this.sprites.beginFrame();
@@ -134,18 +169,32 @@ export class Renderer {
     const inView = (x: number, y: number, pad = 2) => x > bounds.minX - pad && x < bounds.maxX + pad && y > bounds.minY - pad && y < bounds.maxY + pad;
 
     this.drawGround(camera, bounds, now, lush);
+    const gm = state.clock.totalMinutes;
+    // Ground the player has worked: beds first, paths over them.
+    for (const bed of state.gardenBeds) {
+      if (!inView(bed.x, bed.y, bed.w + bed.h + 2)) continue;
+      drawGardenBed(this.ctx, camera, bed, gm);
+    }
+    for (const path of state.paths) {
+      const xs = path.points.filter((_, i) => i % 2 === 0);
+      const ys = path.points.filter((_, i) => i % 2 === 1);
+      if (Math.max(...xs) < bounds.minX - 2 || Math.min(...xs) > bounds.maxX + 2 || Math.max(...ys) < bounds.minY - 2 || Math.min(...ys) > bounds.maxY + 2) continue;
+      drawGardenPath(this.ctx, camera, path, gm);
+    }
     this.drawGreenhouseExterior(camera, state.clock.totalMinutes);
+    drawHouseExterior(this.ctx, camera, state.clock.totalMinutes);
 
     for (const o of obstacles) {
-      if (!inView(o.x, o.y)) continue;
+      if (!inView(o.x, o.y) || extras.cleared.has(`${o.x},${o.y}`)) continue;
       this.drawObstacle(camera, o, lush ? lush.lush[o.y * GRID_W + o.x] : 0);
     }
 
     // Everything that stands up off the ground is depth-sorted together, so
     // Ellen can walk behind a big monstera and in front of a small one.
     const drawables: { y: number; draw: () => void }[] = [];
+    const movingId = extras.tools.kind === 'plant' ? extras.tools.plantId : null;
     for (const p of Object.values(state.plants)) {
-      if (p.location.kind !== 'wild' || !inView(p.location.x, p.location.y, 3)) continue;
+      if (p.location.kind !== 'wild' || !inView(p.location.x, p.location.y, 3) || p.id === movingId) continue;
       const loc = p.location;
       drawables.push({ y: loc.y, draw: () => this.drawWildPlant(camera, state, p, loc.x, loc.y, now) });
     }
@@ -165,7 +214,48 @@ export class Renderer {
       drawables.push({ y: MARKET_STALL.y + 0.8, draw: () => this.drawMarketStall(camera, state, now) });
     }
     if (state.fox.visible && !state.player.inGreenhouse) {
-      drawables.push({ y: state.fox.y, draw: () => this.atScale(camera, state.fox.x, state.fox.y, CHARACTER_SCALE.fox, () => this.drawFox(camera, state.fox.x, state.fox.y, now)) });
+      const fade = foxFade(state);
+      drawables.push({ y: state.fox.y, draw: () => this.atScale(camera, state.fox.x, state.fox.y, CHARACTER_SCALE.fox, () => drawFoxArt(this.ctx, camera, state.fox, now, fade)) });
+    }
+    for (const f of state.foxFinds) {
+      if (!inView(f.x, f.y)) continue;
+      const near = Math.hypot(f.x - state.player.x, f.y - state.player.y) < 3.5;
+      if (f.kind === 'curiosity') {
+        drawables.push({ y: f.y, draw: () => drawFoxFindCuriosity(this.ctx, camera, f, now, near) });
+      } else if (f.defId && f.variantId) {
+        const defId = f.defId;
+        const variantId = f.variantId;
+        drawables.push({
+          y: f.y,
+          draw: () => {
+            const s = camera.worldToScreen(f.x * TILE_SIZE, f.y * TILE_SIZE);
+            const tile = TILE_SIZE * camera.zoom;
+            this.drawPlantSprite(s.x, s.y + tile * 0.05, tile, defId, variantId, 2.4, f.seed, 'ground', now);
+            drawFindCover(this.ctx, camera, f.x, f.y, f.seed % 97);
+            if (near) drawNearGlint(this.ctx, s.x, s.y - tile * 0.4, tile, now);
+          },
+        });
+      }
+    }
+    const tools = extras.tools;
+    if (tools.kind === 'plant') {
+      const pm = tools;
+      // The plant being moved isn't drawn where it was while it's in your hands.
+      drawables.push({
+        y: pm.y + 0.01,
+        draw: () =>
+          drawPlantPreview(
+            this.ctx,
+            camera,
+            pm,
+            (sx, sy, alpha) => {
+              this.ctx.globalAlpha = alpha;
+              this.drawPlantSprite(sx, sy + TILE_SIZE * camera.zoom * 0.05, TILE_SIZE * camera.zoom, pm.ghost.defId, pm.ghost.variantId, stageFloat(pm.ghost.growth), pm.ghost.seed, 'ground', now);
+              this.ctx.globalAlpha = 1;
+            },
+            now
+          ),
+      });
     }
     drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
     if (state.scott.zone !== 'greenhouse') {
@@ -188,10 +278,36 @@ export class Renderer {
       if (nearFeet) this.drawObstacle(camera, o, 0);
     }
 
+    // Tool previews for marking out ground sit on top of the scene so they're never lost under foliage.
+    if (tools.kind === 'bed') {
+      const spec = tools.a && tools.b ? this.bedSpecOf(tools) : null;
+      if (spec) drawBedPreview(this.ctx, camera, spec, tools.block, state.compost);
+    } else if (tools.kind === 'path') {
+      if (tools.points.length >= 2) drawPathPreview(this.ctx, camera, tools.points, tools.preview, PATH_WIDTH);
+    }
+    const nowMs = performance.now();
+    for (const f of extras.flourishes) drawFlourish(this.ctx, camera, f, nowMs);
+
     this.drawPollinators(camera, state, bounds, now);
     this.drawAmbientParticles(camera, zoneHere, state.weather.condition, now);
     this.drawWeatherOverlay(camera, state, now);
     this.drawNightLights(camera, state, bounds, now);
+    this.drawFade(extras.fade);
+  }
+
+  private bedSpecOf(tools: Extract<ToolMode, { kind: 'bed' }>) {
+    const a = tools.a!;
+    const b = tools.b!;
+    const q = (v: number) => Math.round(v * 4) / 4;
+    return { x: q(Math.min(a.x, b.x)), y: q(Math.min(a.y, b.y)), w: q(Math.abs(b.x - a.x)), h: q(Math.abs(b.y - a.y)), shape: tools.shape };
+  }
+
+  /** A soft dip to dark as you step through a door, so rooms feel joined rather than swapped. */
+  private drawFade(fade: number) {
+    if (fade <= 0) return;
+    const { ctx } = this;
+    ctx.fillStyle = `rgba(14,10,6,${Math.min(1, fade) * 0.85})`;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
 
   /**
@@ -2003,7 +2119,7 @@ export class Renderer {
 
     const dir = Renderer.DIR[cat.facing];
     const moving = cat.activity === 'wandering';
-    const sitting = cat.activity === 'sitting';
+    const sitting = cat.activity === 'sitting' || cat.activity === 'hiding';
     const grooming = cat.activity === 'grooming';
 
     const walkPhase = now * 0.015;
@@ -2239,119 +2355,141 @@ export class Renderer {
 
   // ---------------- Indoor (greenhouse) ----------------
 
-  renderIndoor(outerCamera: Camera, state: GameState, now: number, crouching = false) {
+  renderIndoor(camera: Camera, state: GameState, now: number, crouching = false, extras: SceneExtras = NO_EXTRAS) {
     const { ctx } = this;
     this.clear('#241a12');
-
-    // The greenhouse is small and meant to feel close and cozy, so it
-    // zooms in well past a whole-room fit and instead follows the player
-    // with the view clamped to the room's own bounds — never showing the
-    // void beyond its walls, but zoomed in noticeably more than a static
-    // fit-the-whole-room camera would allow.
-    const camera = new Camera();
-    camera.viewW = outerCamera.viewW;
-    camera.viewH = outerCamera.viewH;
-    const shortAxis = Math.min(camera.viewW, camera.viewH);
-    const targetTilesVisible = 9.5;
-    const fitWholeRoom = Math.min(
-      camera.viewW / (GREENHOUSE_GRID_W * TILE_SIZE),
-      camera.viewH / (GREENHOUSE_GRID_H * TILE_SIZE)
-    );
-    camera.zoom = Math.max(fitWholeRoom, shortAxis / (targetTilesVisible * TILE_SIZE));
-
-    const clampAxis = (playerWorld: number, viewSize: number, worldTiles: number): number => {
-      const halfView = viewSize / 2 / camera.zoom;
-      const worldSize = worldTiles * TILE_SIZE;
-      if (worldSize <= viewSize / camera.zoom) return worldSize / 2;
-      return Math.min(Math.max(playerWorld, halfView), worldSize - halfView);
-    };
-    camera.x = clampAxis(state.player.x * TILE_SIZE, camera.viewW, GREENHOUSE_GRID_W);
-    camera.y = clampAxis(state.player.y * TILE_SIZE, camera.viewH, GREENHOUSE_GRID_H);
     const tile = TILE_SIZE * camera.zoom;
-
-    // Floorboards: three-tile planks, staggered row to row, each plank one
-    // slightly different tone, with dark seams between them.
-    const seams = new Path2D();
-    const grain = new Path2D();
-    for (let y = 0; y < GREENHOUSE_GRID_H; y++) {
-      const stagger = (y * 2) % 3;
-      for (let x = 0; x < GREENHOUSE_GRID_W; x++) {
-        const border = x === 0 || y === 0 || x === GREENHOUSE_GRID_W - 1 || y === GREENHOUSE_GRID_H - 1;
-        const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
-        const sx = Math.floor(screen.x);
-        const sy = Math.floor(screen.y);
-        if (border) {
-          ctx.fillStyle = '#3a4a40';
-          ctx.fillRect(sx, sy, Math.ceil(tile) + 1, Math.ceil(tile) + 1);
-          continue;
-        }
-        const plank = Math.floor((x + stagger) / 3);
-        ctx.fillStyle = lerpColor('#6e5238', '#5f4630', hash2(plank * 7.1, y * 3.3));
-        ctx.fillRect(sx, sy, Math.ceil(tile) + 1, Math.ceil(tile) + 1);
-        seams.moveTo(sx, sy);
-        seams.lineTo(sx + tile, sy);
-        if ((x + stagger) % 3 === 0) {
-          seams.moveTo(sx, sy);
-          seams.lineTo(sx, sy + tile);
-        }
-        const gy = sy + tile * (0.3 + 0.4 * hash2(x * 1.9, y * 2.7));
-        grain.moveTo(sx + tile * 0.1, gy);
-        grain.lineTo(sx + tile * 0.9, gy + tile * 0.02);
-      }
-    }
-    ctx.lineWidth = Math.max(1, tile * 0.02);
-    ctx.strokeStyle = 'rgba(40,26,14,0.55)';
-    ctx.stroke(seams);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(40,26,14,0.18)';
-    ctx.stroke(grain);
-
-    // exit door glow
-    const exitScreen = camera.worldToScreen(GREENHOUSE_EXIT.x * TILE_SIZE, GREENHOUSE_EXIT.y * TILE_SIZE);
-    ctx.fillStyle = 'rgba(150,200,255,0.25)';
-    ctx.fillRect(exitScreen.x - tile * 0.3, exitScreen.y, tile * 1.6, tile);
-
     this.sprites.beginFrame();
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    drawInteriorShell(ctx, camera, state, now);
+
+    const scottHome = state.scott.zone === 'greenhouse';
+    const fc: FixtureContext = {
+      state,
+      now,
+      scottWatching: scottHome && state.scott.activity === 'watchingTV',
+      scottRelaxing: scottHome && state.scott.activity === 'relaxing',
+    };
+    for (const f of LIVING_FIXTURES) if (isFlatFixture(f)) drawFixture(ctx, camera, f, fc);
+
+    const tools = extras.tools;
+    const arranging = tools.kind === 'arrange' ? tools : null;
+    // While a piece is being dragged it's drawn where the finger has it.
+    const pieces: PlacedFurniture[] = allFurniture(state).map((f) => (arranging?.drag && arranging.drag.id === f.id ? { ...f, x: arranging.drag.x, y: arranging.drag.y } : f));
+    if (arranging?.pending) pieces.push({ id: '__pending', kind: arranging.pending.kind, x: arranging.pending.x, y: arranging.pending.y, rot: arranging.pending.rot });
+
+    // Rugs lie under everything.
+    for (const f of pieces) if (FURNITURE_DEFS[f.kind]?.layer === 'flat') this.drawHouseRug(camera, f);
+
     this.drawGreenhouseProps(camera, now);
     if (!state.owned.includes('sunRoom')) {
       for (const c of STORAGE_CRATES) this.drawCrate(camera, c.x, c.y);
     }
 
-    const plantAt = (kind: 'nursery' | 'display', id: string) =>
+    const plantIn = (kind: 'nursery' | 'display', id: string) =>
       Object.values(state.plants).find((p) => (kind === 'nursery' ? p.location.kind === 'nursery' && p.location.bedId === id : p.location.kind === 'display' && p.location.slotId === id));
 
     const drawables: { y: number; draw: () => void }[] = [];
-    for (const bed of NURSERY_BEDS) {
-      if (bed.requires && !state.owned.includes(bed.requires)) continue;
-      drawables.push({ y: bed.y + 0.5, draw: () => this.drawNurseryBed(camera, bed.x, bed.y, plantAt('nursery', bed.id), now) });
-    }
-    const hanging: DisplaySlot[] = [];
-    for (const slot of displaySlots(state)) {
-      if (slot.kind === 'hanging') {
-        hanging.push(slot);
-        continue;
+    const hanging: { piece: PlacedFurniture; slot: DisplaySlot }[] = [];
+    for (const f of pieces) {
+      const def = FURNITURE_DEFS[f.kind];
+      if (!def || def.layer === 'flat') continue;
+      const fp = footprint(f.kind, f.x, f.y, f.rot ?? 0);
+      if (def.role === 'nursery') {
+        drawables.push({ y: fp.y + fp.h, draw: () => this.drawNurseryPiece(camera, f, plantIn('nursery', f.id), now) });
+      } else if (def.role === 'display') {
+        const slot: DisplaySlot = { id: f.id, x: f.x, y: f.y, kind: def.slotKind! };
+        if (def.layer === 'overhead') hanging.push({ piece: f, slot });
+        else drawables.push({ y: fp.y + fp.h, draw: () => this.drawDisplaySlot(camera, slot, plantIn('display', f.id), now, f.rot ?? 0) });
+      } else if (f.kind === 'growLamp') {
+        drawables.push({ y: fp.y + fp.h, draw: () => this.drawGrowLamp(camera, f, now) });
+      } else if (f.kind === 'wateringCan') {
+        drawables.push({ y: fp.y + fp.h, draw: () => this.drawWateringCan(camera, f) });
       }
-      drawables.push({ y: slot.y + 0.5, draw: () => this.drawDisplaySlot(camera, slot, plantAt('display', slot.id), now) });
+    }
+    for (const f of LIVING_FIXTURES) {
+      if (isFlatFixture(f)) continue;
+      drawables.push({ y: f.y + f.h, draw: () => drawFixture(ctx, camera, f, fc) });
     }
 
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
     drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
-    if (state.scott.zone === 'greenhouse') drawables.push({ y: state.scott.y, draw: () => this.atScale(camera, state.scott.x, state.scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, state.scott, now)) });
-    drawables.push({ y: state.cat.y, draw: () => this.atScale(camera, state.cat.x, state.cat.y, CHARACTER_SCALE.cat, () => this.drawCat(camera, state.cat, now)) });
+    if (scottHome) {
+      // On the couch he's sitting down, so he sits lower — the couch back hides the rest of him.
+      const seated = isCouchSpot(state.scott.currentSpotId) && (state.scott.activity === 'watchingTV' || state.scott.activity === 'relaxing');
+      const sy = state.scott.y + (seated ? -0.12 : 0);
+      drawables.push({
+        y: state.scott.y,
+        draw: () => this.atScale(camera, state.scott.x, sy, CHARACTER_SCALE.scott, () => this.drawScott(camera, seated ? { ...state.scott, y: sy } : state.scott, now)),
+      });
+    }
+    // Up on something (the couch, the TV), the cat is drawn raised and in front of it;
+    // hiding, she's tucked just behind a plant so its leaves cover her.
+    const lift = catLift(state.cat);
+    const catDepth = state.cat.y + (lift > 0 ? 1 : 0);
+    drawables.push({
+      y: catDepth,
+      draw: () => {
+        ctx.save();
+        ctx.translate(0, -lift * tile);
+        this.atScale(camera, state.cat.x, state.cat.y, CHARACTER_SCALE.cat, () => this.drawCat(camera, state.cat, now));
+        ctx.restore();
+      },
+    });
     drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
     // Hanging pots are overhead, so they draw over everyone.
-    for (const slot of hanging) this.drawDisplaySlot(camera, slot, plantAt('display', slot.id), now);
+    for (const h of hanging) this.drawDisplaySlot(camera, h.slot, plantIn('display', h.piece.id), now);
 
     if (state.owned.includes('growLights')) this.drawGrowLights(camera, now);
 
-    // Warm ambient tint + light shafts
+    // The living room is lamplit and warm; the greenhouse is bright and green.
     ctx.fillStyle = 'rgba(255,200,130,0.05)';
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    const edge = camera.worldToScreen((PARTITION_X + 0.5) * TILE_SIZE, 0);
+    if (edge.x < camera.viewW) {
+      ctx.fillStyle = isNight(state.clock.totalMinutes) ? 'rgba(255,170,90,0.08)' : 'rgba(255,190,120,0.05)';
+      ctx.fillRect(Math.max(0, edge.x), 0, camera.viewW, camera.viewH);
+    }
+
+    if (arranging) this.drawArrangeOverlay(camera, state, arranging, pieces);
+    this.drawFade(extras.fade);
+  }
+
+  /** While arranging: every movable piece is outlined; the one in hand shows whether it fits. */
+  private drawArrangeOverlay(camera: Camera, state: GameState, m: Extract<ToolMode, { kind: 'arrange' }>, pieces: PlacedFurniture[]) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const now = performance.now();
+    for (const f of pieces) {
+      const def = FURNITURE_DEFS[f.kind];
+      const fp = footprint(f.kind, f.x, f.y, f.rot ?? 0);
+      const a = camera.worldToScreen(fp.x * TILE_SIZE, fp.y * TILE_SIZE);
+      const isPending = f.id === '__pending';
+      const dragging = m.drag?.id === f.id;
+      const selected = m.selectedId === f.id || isPending;
+      const block = isPending ? m.pending?.block : dragging ? m.drag?.block : null;
+      const lift = def.layer === 'overhead' ? tile * 0.9 : 0;
+      ctx.save();
+      ctx.lineWidth = Math.max(1.5, tile * (selected || dragging ? 0.06 : 0.03));
+      if (block) ctx.strokeStyle = 'rgba(255,120,100,0.95)';
+      else if (selected || dragging) ctx.strokeStyle = `rgba(200,255,190,${0.75 + 0.25 * Math.sin(now * 0.006)})`;
+      else ctx.strokeStyle = 'rgba(246,239,224,0.35)';
+      if (!selected && !dragging) ctx.setLineDash([tile * 0.08, tile * 0.08]);
+      ctx.beginPath();
+      ctx.roundRect(a.x - tile * 0.06, a.y - tile * 0.06 - lift, fp.w * tile + tile * 0.12, fp.h * tile + tile * 0.12, tile * 0.08);
+      ctx.stroke();
+      if (block || ((selected || dragging) && !block)) {
+        ctx.fillStyle = block ? 'rgba(255,110,90,0.18)' : 'rgba(160,230,150,0.12)';
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    void state;
   }
 
   /**
@@ -2424,32 +2562,131 @@ export class Renderer {
 
   }
 
-  private drawNurseryBed(camera: Camera, x: number, y: number, plant: OwnedPlant | undefined, now: number) {
+  /** A nursery bed (a timber seed trough) or a propagation tray (shallow, with a clear lid), either way round. */
+  private drawNurseryPiece(camera: Camera, piece: PlacedFurniture, plant: OwnedPlant | undefined, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
-    const s = camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
+    const fp = footprint(piece.kind, piece.x, piece.y, piece.rot ?? 0);
+    const a = camera.worldToScreen(fp.x * TILE_SIZE, fp.y * TILE_SIZE);
+    const w = fp.w * tile;
+    const h = fp.h * tile;
+    const tray = piece.kind === 'propagationTray';
+    const depth = tile * (tray ? 0.1 : 0.2);
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(s.x - tile * 0.4, s.y + tile * 0.26, tile * 0.8, tile * 0.1);
-    ctx.fillStyle = '#6b4a2e';
-    ctx.fillRect(s.x - tile * 0.42, s.y - tile * 0.1, tile * 0.84, tile * 0.38);
-    ctx.fillStyle = '#3d2a1a';
-    ctx.fillRect(s.x - tile * 0.36, s.y - tile * 0.12, tile * 0.72, tile * 0.16);
-    ctx.strokeStyle = '#4a3220';
-    ctx.lineWidth = Math.max(1, tile * 0.03);
-    ctx.strokeRect(s.x - tile * 0.42, s.y - tile * 0.1, tile * 0.84, tile * 0.38);
-    // little seed-tray grid
+    ctx.fillRect(a.x + tile * 0.03, a.y + h + depth - tile * 0.02, w, tile * 0.08);
+    // Front face, then the soil-filled top.
+    ctx.fillStyle = tray ? '#2f4a3a' : '#6b4a2e';
+    ctx.fillRect(a.x, a.y + h - depth * 0.2, w, depth + depth * 0.2);
+    ctx.fillStyle = tray ? '#3d5c48' : '#7a5636';
+    ctx.fillRect(a.x, a.y - depth * 0.6, w, h + depth * 0.4);
+    ctx.fillStyle = tray ? '#4a3a2a' : '#3d2a1a';
+    ctx.fillRect(a.x + tile * 0.05, a.y - depth * 0.45, w - tile * 0.1, h + depth * 0.1);
+    // Seed-tray cells.
     ctx.strokeStyle = 'rgba(30,20,10,0.4)';
     ctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
+    const along = w >= h;
+    const n = Math.max(2, Math.round((along ? fp.w : fp.h) / 0.22));
+    for (let i = 1; i < n; i++) {
       ctx.beginPath();
-      ctx.moveTo(s.x - tile * 0.42 + i * tile * 0.21, s.y + tile * 0.04);
-      ctx.lineTo(s.x - tile * 0.42 + i * tile * 0.21, s.y + tile * 0.28);
+      if (along) {
+        ctx.moveTo(a.x + tile * 0.05 + ((w - tile * 0.1) * i) / n, a.y - depth * 0.45);
+        ctx.lineTo(a.x + tile * 0.05 + ((w - tile * 0.1) * i) / n, a.y + h - depth * 0.35);
+      } else {
+        ctx.moveTo(a.x + tile * 0.05, a.y - depth * 0.45 + ((h + depth * 0.1) * i) / n);
+        ctx.lineTo(a.x + w - tile * 0.05, a.y - depth * 0.45 + ((h + depth * 0.1) * i) / n);
+      }
       ctx.stroke();
     }
-    if (plant) this.drawPlantSprite(s.x, s.y - tile * 0.02, tile * 0.85, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'pot', now);
+    const cx = a.x + w / 2;
+    const cy = a.y + h / 2;
+    if (plant) this.drawPlantSprite(cx, cy - tile * 0.02, tile * 0.85, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'pot', now);
+    if (tray) {
+      // The clear lid, propped open at the back.
+      ctx.fillStyle = 'rgba(210,235,240,0.18)';
+      ctx.fillRect(a.x - tile * 0.02, a.y - depth * 0.6 - tile * 0.28, w + tile * 0.04, tile * 0.22);
+      ctx.strokeStyle = 'rgba(230,245,250,0.5)';
+      ctx.strokeRect(a.x - tile * 0.02, a.y - depth * 0.6 - tile * 0.28, w + tile * 0.04, tile * 0.22);
+    }
   }
 
-  private drawDisplaySlot(camera: Camera, slot: DisplaySlot, plant: OwnedPlant | undefined, now: number) {
+  private drawHouseRug(camera: Camera, piece: PlacedFurniture) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const fp = footprint(piece.kind, piece.x, piece.y, piece.rot ?? 0);
+    const a = camera.worldToScreen(fp.x * TILE_SIZE, fp.y * TILE_SIZE);
+    const w = fp.w * tile;
+    const h = fp.h * tile;
+    ctx.fillStyle = '#c9ae7e';
+    ctx.beginPath();
+    ctx.roundRect(a.x, a.y, w, h, tile * 0.1);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,80,44,0.45)';
+    ctx.lineWidth = Math.max(1, tile * 0.03);
+    for (let i = 1; i < 5; i++) {
+      ctx.beginPath();
+      ctx.roundRect(a.x + (i * tile) / 12, a.y + (i * tile) / 12, w - (i * tile) / 6, h - (i * tile) / 6, tile * 0.06);
+      ctx.stroke();
+    }
+  }
+
+  private drawGrowLamp(camera: Camera, piece: PlacedFurniture, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const s = camera.worldToScreen((piece.x + 0.5) * TILE_SIZE, (piece.y + 0.6) * TILE_SIZE);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y + tile * 0.1, tile * 0.16, tile * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2f2f2c';
+    ctx.fillRect(s.x - tile * 0.02, s.y - tile * 1.3, tile * 0.04, tile * 1.4);
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y + tile * 0.08, tile * 0.12, tile * 0.04, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#444';
+    ctx.beginPath();
+    ctx.moveTo(s.x - tile * 0.22, s.y - tile * 1.18);
+    ctx.lineTo(s.x + tile * 0.22, s.y - tile * 1.18);
+    ctx.lineTo(s.x + tile * 0.1, s.y - tile * 1.38);
+    ctx.lineTo(s.x - tile * 0.1, s.y - tile * 1.38);
+    ctx.closePath();
+    ctx.fill();
+    const flicker = 0.92 + 0.08 * Math.sin(now * 0.003 + piece.x);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(255,150,210,${0.5 * flicker})`;
+    ctx.fillRect(s.x - tile * 0.2, s.y - tile * 1.2, tile * 0.4, tile * 0.04);
+    const g = ctx.createRadialGradient(s.x, s.y - tile * 0.4, 0, s.x, s.y - tile * 0.2, tile * 2.6);
+    g.addColorStop(0, `rgba(255,160,220,${0.16 * flicker})`);
+    g.addColorStop(1, 'rgba(255,160,220,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(s.x - tile * 2.6, s.y - tile * 2.8, tile * 5.2, tile * 5.4);
+    ctx.restore();
+  }
+
+  private drawWateringCan(camera: Camera, piece: PlacedFurniture) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const s = camera.worldToScreen((piece.x + 0.5) * TILE_SIZE, (piece.y + 0.6) * TILE_SIZE);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y + tile * 0.06, tile * 0.16, tile * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#b8903e';
+    ctx.fillRect(s.x - tile * 0.12, s.y - tile * 0.2, tile * 0.24, tile * 0.26);
+    ctx.strokeStyle = '#b8903e';
+    ctx.lineWidth = Math.max(1.5, tile * 0.04);
+    ctx.beginPath();
+    ctx.moveTo(s.x + tile * 0.1, s.y - tile * 0.05);
+    ctx.lineTo(s.x + tile * 0.28, s.y - tile * 0.28);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(s.x - tile * 0.02, s.y - tile * 0.24, tile * 0.1, Math.PI, 0);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(s.x - tile * 0.09, s.y - tile * 0.17, tile * 0.05, tile * 0.18);
+  }
+
+  private drawDisplaySlot(camera: Camera, slot: DisplaySlot, plant: OwnedPlant | undefined, now: number, rot = 0) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     const s = camera.worldToScreen((slot.x + 0.5) * TILE_SIZE, (slot.y + 0.5) * TILE_SIZE);
@@ -2553,6 +2790,54 @@ export class Renderer {
           if (rarityRank(specimenRarity(plant.defId, plant.variantId)) >= 3) this.drawSparkle(s.x, top + tile * 0.4, tile, now, '#ffe9a8', 2);
           return;
         }
+        break;
+      }
+      case 'planter': {
+        // A deep glazed floor planter: the plant grows straight in it, bigger than in a pot.
+        ctx.fillStyle = 'rgba(0,0,0,0.24)';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y + tile * 0.34, tile * 0.34, tile * 0.09, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2f5f6a';
+        ctx.beginPath();
+        ctx.moveTo(s.x - tile * 0.32, s.y - tile * 0.12);
+        ctx.lineTo(s.x + tile * 0.32, s.y - tile * 0.12);
+        ctx.lineTo(s.x + tile * 0.24, s.y + tile * 0.32);
+        ctx.lineTo(s.x - tile * 0.24, s.y + tile * 0.32);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(s.x - tile * 0.24, s.y - tile * 0.08, tile * 0.06, tile * 0.34);
+        ctx.fillStyle = '#3f7a86';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y - tile * 0.12, tile * 0.33, tile * 0.09, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#3d2a1a';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y - tile * 0.11, tile * 0.27, tile * 0.065, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (!plant) return;
+        this.drawPlantSprite(s.x, s.y - tile * 0.1, tile * 1.18, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'pot', now);
+        if (rarityRank(specimenRarity(plant.defId, plant.variantId)) >= 3) this.drawSparkle(s.x, s.y - tile * 0.8, tile, now, '#ffe9a8', 2);
+        return;
+      }
+      case 'table': {
+        // A scrubbed potting table, long side facing us or turned end-on.
+        const long = rot % 2 === 0;
+        const hw = (long ? 0.65 : 0.28) * tile;
+        const hd = (long ? 0.28 : 0.65) * tile;
+        const top = s.y + tile * 0.06 - hd * 0.6;
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.fillRect(s.x - hw, s.y + tile * 0.06 + hd * 0.55, hw * 2, tile * 0.08);
+        ctx.fillStyle = '#6b4a2e';
+        for (const lx of [-hw + tile * 0.05, hw - tile * 0.1]) ctx.fillRect(s.x + lx, top + hd * 0.9, tile * 0.05, tile * 0.32);
+        ctx.fillStyle = '#b89468';
+        ctx.fillRect(s.x - hw, top, hw * 2, hd * 1.2);
+        ctx.fillStyle = '#9a7650';
+        ctx.fillRect(s.x - hw, top + hd * 1.2, hw * 2, tile * 0.07);
+        ctx.fillStyle = 'rgba(80,56,30,0.35)';
+        ctx.fillRect(s.x - hw * 0.6, top + hd * 0.4, tile * 0.12, tile * 0.05);
+        potY = top + hd * 0.35;
         break;
       }
       case 'shelf': {

@@ -1,14 +1,15 @@
 import type { Game } from '../game/engine/Game';
 import { Panel } from './Panel';
 import { el, clear } from './dom';
-import { PLANT_LIST, PLANTS, rarityRank, findVariant } from '../game/data/plants';
+import { PLANT_LIST, PLANTS, rarityRank, findVariant, latinLine } from '../game/data/plants';
+import { CURIOSITIES } from '../game/data/curiosities';
 import { ZONES } from '../game/data/zones';
 import type { OutdoorZoneId } from '../game/types';
 import { collectionTotals, speciesCounts, isEstablished, ESTABLISH_THRESHOLD } from '../game/systems/collection';
 import { describeRegion } from '../game/systems/wild';
 import { note, portrait, rarityBadge } from './common';
 
-type Tab = 'plants' | 'regions';
+type Tab = 'plants' | 'regions' | 'curiosities';
 
 const REGIONS: OutdoorZoneId[] = ['meadow', 'woodland', 'creek', 'dampForest', 'rockyClearing', 'overgrownClearing'];
 
@@ -27,6 +28,7 @@ export class JournalPanel {
     for (const [id, label] of [
       ['plants', 'Collection'],
       ['regions', 'Regions'],
+      ['curiosities', 'Curiosities'],
     ] as [Tab, string][]) {
       const btn = el('button', 'panel-tab', label);
       btn.dataset.tab = id;
@@ -50,9 +52,16 @@ export class JournalPanel {
   }
 
   private render() {
-    for (const c of Array.from(this.panel.tabsEl.children) as HTMLElement[]) c.classList.toggle('active', c.dataset.tab === this.tab);
+    // Curiosities only get a page once there's something on it.
+    const anyCurio = Object.keys(this.game.state.curiosities).length > 0;
+    if (!anyCurio && this.tab === 'curiosities') this.tab = 'plants';
+    for (const c of Array.from(this.panel.tabsEl.children) as HTMLElement[]) {
+      c.classList.toggle('active', c.dataset.tab === this.tab);
+      if (c.dataset.tab === 'curiosities') c.style.display = anyCurio ? '' : 'none';
+    }
     this.panel.clearBody();
     if (this.tab === 'regions') return this.renderRegions();
+    if (this.tab === 'curiosities') return this.renderCuriosities();
     if (this.detail) return this.renderDetail(this.detail);
     this.renderCollection();
   }
@@ -103,7 +112,9 @@ export class JournalPanel {
 
     const head = el('div', 'plant-head');
     const info = el('div', 'entry-info');
-    info.append(el('h3', undefined, def.name), el('div', 'latin', def.latin), rarityBadge(def.rarity));
+    info.append(el('h3', undefined, def.name));
+    if (latinLine(def.id)) info.appendChild(el('div', 'latin', latinLine(def.id)));
+    info.appendChild(rarityBadge(def.rarity));
     const habitat = el('div', 'entry-sub', `Grows wild in ${def.habitat.map((z) => ZONES[z].name.replace(/^The /, 'the ')).join(' and ')}`);
     info.appendChild(habitat);
     head.append(portrait(def.id, rec.variants[0] ?? def.variants[0].id, 3.4, 4, 120), info);
@@ -151,6 +162,31 @@ export class JournalPanel {
     if (c.wild > 0) {
       body.appendChild(note(c.wildSprouted > 0 ? `${c.wildPlanted} you planted, and ${c.wildSprouted} that came up by themselves.` : `${c.wildPlanted} you planted out. Once they’re large, they’ll start to spread.`));
     }
+  }
+
+  /** Mushrooms, insects and oddities — the things at the end of a fox's trail. */
+  private renderCuriosities() {
+    const state = this.game.state;
+    const body = this.panel.body;
+    const found = CURIOSITIES.filter((c) => state.curiosities[c.id]).length;
+    body.appendChild(el('div', 'collection-summary', `${found} of ${CURIOSITIES.length} noted`));
+    const list = el('div', 'entry-list');
+    const glyph = { fungus: '\u{1F344}', insect: '\u{1F98B}', oddity: '\u{1FAA8}' } as const;
+    for (const c of [...CURIOSITIES].sort((a, b) => rarityRank(a.rarity) - rarityRank(b.rarity))) {
+      const rec = state.curiosities[c.id];
+      const row = el('div', `entry-row${rec ? '' : ' missing'}`);
+      const icon = el('div', 'curio-icon', rec ? glyph[c.kind] : '?');
+      const info = el('div', 'entry-info');
+      if (rec) {
+        info.append(el('div', 'entry-name', c.name), el('div', 'entry-sub', c.description), rarityBadge(c.rarity));
+        if (rec.count > 1) info.appendChild(el('div', 'entry-sub dim', `Seen ${rec.count} times.`));
+      } else {
+        info.append(el('div', 'entry-name unknown', '???'));
+      }
+      row.append(icon, info);
+      list.appendChild(row);
+    }
+    body.appendChild(list);
   }
 
   private renderRegions() {

@@ -13,7 +13,11 @@ export type ZoneId =
 
 export type OutdoorZoneId = Exclude<ZoneId, 'greenhouse'>;
 
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'veryRare' | 'extremelyRare';
+/**
+ * 'mythic' sits above everything else and is reserved for a single species
+ * that the game never announces.
+ */
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'veryRare' | 'extremelyRare' | 'mythic';
 
 /**
  * How a plant is drawn. Each form is a distinct silhouette so a landscape
@@ -36,7 +40,8 @@ export type PlantForm =
   | 'paddle' // flat pads stacked on pads (bunny ear cactus)
   | 'jade' // a little woody tree tipped with fat leaves (jade plant)
   | 'spiky' // fleshy pointed leaves in an upright clump (aloe, haworthia)
-  | 'stones'; // squat split pebbles (living stones)
+  | 'stones' // squat split pebbles (living stones)
+  | 'palmate'; // tall stems of saw-edged leaflets fanned like an open hand
 
 /**
  * What kind of landscape a species pushes an area toward once it's
@@ -112,6 +117,13 @@ export interface PlantDef {
   needsLantern?: boolean;
   /** Only ever found where the fox leads. */
   foxOnly?: boolean;
+  /**
+   * Never grows in an ordinary wild patch, never shows up as the market's
+   * "wanted" plant: it turns up only through rare ecological chances.
+   */
+  secret?: boolean;
+  /** Can't be sold: the market simply won't take it. */
+  keepsake?: boolean;
 }
 
 export type ToolId = 'basket' | 'lantern';

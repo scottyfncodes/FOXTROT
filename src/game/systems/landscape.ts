@@ -1,0 +1,488 @@
+import type { GameState, GardenBed, GardenPath, OwnedPlant } from '../state';
+import { makeUid } from '../state';
+import type { OutdoorZoneId } from '../types';
+import { PLANTS, lookFor, specimenName } from '../data/plants';
+import { GRID_H, GRID_W, zoneAt } from '../data/worldMap';
+import { MINUTES_PER_DAY } from '../engine/Clock';
+import { addToBasket, basketFull } from './basket';
+import { rollSport } from './propagation';
+import { recordFound } from './collection';
+import { stageFloat, stageIndexOf } from './growth';
+import { SpatialGrid } from './spatial';
+
+// Shaping the land: digging garden beds, carving paths through what has
+// grown up, composting plants that ended up in the wrong place, and moving
+// young ones before they settle in. None of it is a construction menu —
+// every change is something the player does to a particular place, and the
+// world keeps growing around it afterwards.
+
+// ---------------------------------------------------------------- the world
+
+/** What the landscape tools need to know about the ground that isn't in GameState. */
+export interface LandscapeWorld {
+  /** Uncleared wild obstacle on this tile, if any. */
+  obstacleAt(tx: number, ty: number): 'tree' | 'bush' | 'rock' | 'flower' | 'reed' | null;
+  /** House, greenhouse, stall, water, map edge: nothing can go here. */
+  isBuiltOrWater(tx: number, ty: number): boolean;
+  /** A wild discovery patch (left alone by the tools). */
+  isSpot(tx: number, ty: number): boolean;
+}
+
+/** Trees and rocks stay; bushes, flowers and reeds can be cleared. */
+export function isHardObstacle(kind: string | null): boolean {
+  return kind === 'tree' || kind === 'rock';
+}
+
+// ---------------------------------------------------------------- sizes
+
+/** How much ground a plant covers, fully grown, in tiles (radius). */
+const FORM_RADIUS: Record<string, number> = {
+  trailing: 0.8,
+  fern: 0.7,
+  splitleaf: 0.8,
+  heart: 0.65,
+  strappy: 0.62,
+  spear: 0.4,
+  rosette: 0.38,
+  coin: 0.48,
+  patterned: 0.6,
+  beads: 0.6,
+  bloom: 0.55,
+  column: 0.4,
+  globe: 0.42,
+  paddle: 0.52,
+  jade: 0.5,
+  spiky: 0.46,
+  stones: 0.3,
+  palmate: 0.62,
+};
+
+export function matureRadius(defId: string, variantId?: string): number {
+  const def = PLANTS[defId];
+  if (!def) return 0.5;
+  const look = lookFor(defId, variantId ?? def.variants[0].id);
+  return (FORM_RADIUS[def.form] ?? 0.55) * Math.max(0.7, look.size);
+}
+
+/** How much ground it covers right now, as it grows. */
+export function currentRadius(p: Pick<OwnedPlant, 'defId' | 'variantId' | 'growth'>): number {
+  const sf = Math.min(4, stageFloat(p.growth));
+  return matureRadius(p.defId, p.variantId) * (0.35 + 0.65 * (sf / 4));
+}
+
+// ---------------------------------------------------------------- spatial index
+
+export function wildGrid(state: GameState): SpatialGrid<OwnedPlant> {
+  const grid = new SpatialGrid<OwnedPlant>(2);
+  for (const p of Object.values(state.plants)) if (p.location.kind === 'wild') grid.insert(p.location.x, p.location.y, p);
+  return grid;
+}
+
+// ---------------------------------------------------------------- beds
+
+export const BED_MIN = 1.5;
+export const BED_MAX = 9;
+
+export function bedCost(w: number, h: number): number {
+  return Math.max(2, Math.ceil((w * h) / 5));
+}
+
+export function bedContains(bed: Pick<GardenBed, 'x' | 'y' | 'w' | 'h' | 'shape'>, x: number, y: number, inset = 0): boolean {
+  if (bed.shape === 'oval') {
+    const rx = bed.w / 2 - inset;
+    const ry = bed.h / 2 - inset;
+    if (rx <= 0 || ry <= 0) return false;
+    const dx = (x - (bed.x + bed.w / 2)) / rx;
+    const dy = (y - (bed.y + bed.h / 2)) / ry;
+    return dx * dx + dy * dy <= 1;
+  }
+  return x >= bed.x + inset && x <= bed.x + bed.w - inset && y >= bed.y + inset && y <= bed.y + bed.h - inset;
+}
+
+export function bedAt(state: GameState, x: number, y: number): GardenBed | undefined {
+  return state.gardenBeds.find((b) => bedContains(b, x, y));
+}
+
+export function findBed(state: GameState, id: string): GardenBed | undefined {
+  return state.gardenBeds.find((b) => b.id === id);
+}
+
+export function plantsInBed(state: GameState, bedId: string): OwnedPlant[] {
+  return Object.values(state.plants).filter((p) => p.location.kind === 'wild' && p.location.bedId === bedId);
+}
+
+/** How many different species grow together in a bed. */
+export function bedDiversity(state: GameState, bedId: string): number {
+  return new Set(plantsInBed(state, bedId).map((p) => p.defId)).size;
+}
+
+export type BedBlock = 'too-small' | 'too-big' | 'compost' | 'blocked' | 'patch' | 'overlap';
+
+function rectsTouch(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }, gap = 0): boolean {
+  return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
+}
+
+/** Normalises a dragged rectangle (any corner to any corner). */
+export function normRect(x0: number, y0: number, x1: number, y1: number) {
+  return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+}
+
+/** Tiles a rectangle of ground covers (any overlap). */
+function tilesUnder(r: { x: number; y: number; w: number; h: number }): [number, number][] {
+  const out: [number, number][] = [];
+  for (let ty = Math.floor(r.y); ty < Math.ceil(r.y + r.h); ty++) for (let tx = Math.floor(r.x); tx < Math.ceil(r.x + r.w); tx++) out.push([tx, ty]);
+  return out;
+}
+
+export function bedBlockReason(state: GameState, bed: Omit<GardenBed, 'id' | 'createdAt'>, world: LandscapeWorld): BedBlock | null {
+  if (bed.w < BED_MIN || bed.h < BED_MIN) return 'too-small';
+  if (bed.w > BED_MAX || bed.h > BED_MAX) return 'too-big';
+  for (const [tx, ty] of tilesUnder(bed)) {
+    // Oval beds only care about the tiles their ellipse actually reaches.
+    if (bed.shape === 'oval' && !bedContains(bed, tx + 0.5, ty + 0.5, -0.35)) continue;
+    if (tx < 0 || ty < 0 || tx >= GRID_W || ty >= GRID_H) return 'blocked';
+    if (world.isBuiltOrWater(tx, ty) || isHardObstacle(world.obstacleAt(tx, ty))) return 'blocked';
+    if (world.isSpot(tx, ty)) return 'patch';
+  }
+  if (state.gardenBeds.some((b) => rectsTouch(b, bed, 0.2))) return 'overlap';
+  if (state.compost < bedCost(bed.w, bed.h)) return 'compost';
+  return null;
+}
+
+export interface BedResult {
+  bed: GardenBed;
+  cleared: number;
+  adopted: number;
+}
+
+/** Digs a bed: clears the scrub inside it, and takes in whatever you'd already planted there. */
+export function createBed(state: GameState, spec: Omit<GardenBed, 'id' | 'createdAt'>, world: LandscapeWorld, now: number): BedResult | null {
+  if (bedBlockReason(state, spec, world)) return null;
+  state.compost -= bedCost(spec.w, spec.h);
+  const bed: GardenBed = { id: makeUid('bed'), ...spec, createdAt: now };
+  state.gardenBeds.push(bed);
+  let cleared = 0;
+  for (const [tx, ty] of tilesUnder(bed)) {
+    if (!bedContains(bed, tx + 0.5, ty + 0.5, -0.2)) continue;
+    const kind = world.obstacleAt(tx, ty);
+    if (kind && !isHardObstacle(kind)) {
+      state.clearedObstacles.push(`${tx},${ty}`);
+      cleared++;
+    }
+  }
+  let adopted = 0;
+  for (const p of Object.values(state.plants)) {
+    if (p.location.kind !== 'wild' || p.location.bedId) continue;
+    if (bedContains(bed, p.location.x, p.location.y)) {
+      p.location.bedId = bed.id;
+      adopted++;
+    }
+  }
+  return { bed, cleared, adopted };
+}
+
+/** Fills a bed back in: its plants stay where they are, now free to roam. Half the compost comes back. */
+export function removeBed(state: GameState, id: string): boolean {
+  const idx = state.gardenBeds.findIndex((b) => b.id === id);
+  if (idx === -1) return false;
+  const [bed] = state.gardenBeds.splice(idx, 1);
+  state.compost += Math.floor(bedCost(bed.w, bed.h) / 2);
+  for (const p of Object.values(state.plants)) if (p.location.kind === 'wild' && p.location.bedId === id) delete p.location.bedId;
+  return true;
+}
+
+// ---------------------------------------------------------------- paths
+
+export const PATH_WIDTH = 1.15;
+export const PATH_MIN_LENGTH = 2;
+export const PATH_MAX_POINTS = 80;
+/** Game-minutes for the verges of a path to creep most of the way in. */
+export const ENCROACH_MINUTES = 4 * MINUTES_PER_DAY;
+
+export function pathPairs(points: number[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < points.length; i += 2) out.push([points[i], points[i + 1]]);
+  return out;
+}
+
+/** Thins a traced route to points about half a tile apart, rounded for a compact save. */
+export function simplifyRoute(route: { x: number; y: number }[], spacing = 0.5): number[] {
+  const pts: number[] = [];
+  let lx = NaN;
+  let ly = NaN;
+  for (const p of route) {
+    if (!Number.isNaN(lx) && Math.hypot(p.x - lx, p.y - ly) < spacing) continue;
+    pts.push(Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10);
+    lx = p.x;
+    ly = p.y;
+    if (pts.length >= PATH_MAX_POINTS * 2) break;
+  }
+  const last = route[route.length - 1];
+  if (last && pts.length >= 2 && Math.hypot(last.x - lx, last.y - ly) > 0.15 && pts.length < PATH_MAX_POINTS * 2) {
+    pts.push(Math.round(last.x * 10) / 10, Math.round(last.y * 10) / 10);
+  }
+  return pts;
+}
+
+export function routeLength(points: number[]): number {
+  let len = 0;
+  for (let i = 2; i + 1 < points.length; i += 2) len += Math.hypot(points[i] - points[i - 2], points[i + 1] - points[i - 1]);
+  return len;
+}
+
+function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+export function distToRoute(points: number[], x: number, y: number): number {
+  if (points.length < 2) return Infinity;
+  if (points.length < 4) return Math.hypot(x - points[0], y - points[1]);
+  let best = Infinity;
+  for (let i = 2; i + 1 < points.length; i += 2) {
+    const d = segDist(x, y, points[i - 2], points[i - 1], points[i], points[i + 1]);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/** 0 for a fresh path, rising toward 1 as its verges creep back in. */
+export function encroachment(path: GardenPath, now: number): number {
+  return Math.max(0, Math.min(1, (now - path.createdAt) / ENCROACH_MINUTES));
+}
+
+/**
+ * Whether (x, y) is on a path. `forSeedlings` uses the path's current,
+ * narrowing clear strip: over time new growth takes hold along its edges,
+ * but never down the middle where people walk.
+ */
+export function onPath(state: GameState, x: number, y: number, now: number, forSeedlings = false): GardenPath | undefined {
+  for (const path of state.paths) {
+    const half = path.width / 2;
+    const clear = forSeedlings ? half * (1 - encroachment(path, now) * 0.45) : half * 0.9;
+    if (distToRoute(path.points, x, y) < clear) return path;
+  }
+  return undefined;
+}
+
+export type PathBlock = 'too-short' | 'blocked' | 'bed';
+
+export interface PathPreview {
+  block: PathBlock | null;
+  /** Your plants that would be composted to make way. */
+  plants: OwnedPlant[];
+  /** Scrub that would be cleared. */
+  scrub: string[];
+  /** Points along the route that can't be cleared (trees, rocks, water, buildings). */
+  badPoints: number[];
+}
+
+export function previewPath(state: GameState, points: number[], world: LandscapeWorld, width = PATH_WIDTH): PathPreview {
+  const res: PathPreview = { block: null, plants: [], scrub: [], badPoints: [] };
+  if (points.length < 4 || routeLength(points) < PATH_MIN_LENGTH) res.block = 'too-short';
+  // Check the whole centreline, not just the traced points: a straight
+  // stretch mustn't slip through a tree between two of them.
+  const pairs = pathPairs(points);
+  const bad = new Set<string>();
+  const test = (x: number, y: number) => {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    const key = `${tx},${ty}`;
+    if (bad.has(key)) return;
+    if (tx < 0 || ty < 0 || tx >= GRID_W || ty >= GRID_H || world.isBuiltOrWater(tx, ty) || isHardObstacle(world.obstacleAt(tx, ty))) {
+      bad.add(key);
+      res.badPoints.push(x, y);
+    }
+  };
+  if (pairs.length === 1) test(pairs[0][0], pairs[0][1]);
+  for (let i = 1; i < pairs.length; i++) {
+    const [ax, ay] = pairs[i - 1];
+    const [bx, by] = pairs[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 0.3));
+    for (let k = 0; k <= n; k++) test(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+  }
+  if (res.badPoints.length) res.block = res.block ?? 'blocked';
+  // Paths go around garden beds, not through them.
+  if (!res.block && state.gardenBeds.some((b) => pathPairs(points).some(([x, y]) => bedContains(b, x, y, -width / 2 + 0.15)))) res.block = 'bed';
+  const half = width / 2;
+  const xs = points.filter((_, i) => i % 2 === 0);
+  const ys = points.filter((_, i) => i % 2 === 1);
+  if (xs.length) {
+    const x0 = Math.floor(Math.min(...xs) - half);
+    const x1 = Math.floor(Math.max(...xs) + half);
+    const y0 = Math.floor(Math.min(...ys) - half);
+    const y1 = Math.floor(Math.max(...ys) + half);
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        const kind = world.obstacleAt(tx, ty);
+        if (!kind || isHardObstacle(kind)) continue;
+        if (distToRoute(points, tx + 0.5, ty + 0.5) < half + 0.25) res.scrub.push(`${tx},${ty}`);
+      }
+    }
+  }
+  for (const p of Object.values(state.plants)) {
+    if (p.location.kind !== 'wild') continue;
+    if (distToRoute(points, p.location.x, p.location.y) < half + currentRadius(p) * 0.35) res.plants.push(p);
+  }
+  return res;
+}
+
+export interface PathResult {
+  path: GardenPath;
+  composted: number;
+  compost: number;
+  cleared: number;
+}
+
+/** Carves a path: clears the scrub along it and composts whatever of yours was growing in the way. */
+export function createPath(state: GameState, points: number[], world: LandscapeWorld, now: number): PathResult | null {
+  const preview = previewPath(state, points, world);
+  if (preview.block) return null;
+  let compost = 0;
+  for (const p of preview.plants) {
+    compost += compostYield(p).compost;
+    delete state.plants[p.id];
+  }
+  state.compost += compost;
+  for (const key of preview.scrub) if (!state.clearedObstacles.includes(key)) state.clearedObstacles.push(key);
+  const path: GardenPath = { id: makeUid('path'), points: [...points], width: PATH_WIDTH, createdAt: now };
+  state.paths.push(path);
+  return { path, composted: preview.plants.length, compost, cleared: preview.scrub.length };
+}
+
+/** Lets a path grow back over. The scrub it cleared stays cleared — whatever grows there now is up to your plants. */
+export function removePath(state: GameState, id: string): boolean {
+  const idx = state.paths.findIndex((p) => p.id === id);
+  if (idx === -1) return false;
+  state.paths.splice(idx, 1);
+  return true;
+}
+
+export function pathAt(state: GameState, x: number, y: number, slack = 0.2): GardenPath | undefined {
+  return state.paths.find((p) => distToRoute(p.points, x, y) < p.width / 2 + slack);
+}
+
+// ---------------------------------------------------------------- compost
+
+export interface CompostYield {
+  compost: number;
+}
+
+/** Bigger plants make more compost. */
+export function compostYield(p: Pick<OwnedPlant, 'growth'>): CompostYield {
+  const stage = stageIndexOf(p.growth);
+  return { compost: [1, 1, 2, 3, 5][stage] };
+}
+
+export interface CompostResult {
+  compost: number;
+  /** A cutting saved from it — not always, and not always true to type. */
+  cutting: { defId: string; variantId: string; changed: boolean; newVariant: boolean } | null;
+  /** There would have been a cutting, but the basket was full. */
+  noRoom: boolean;
+  name: string;
+}
+
+/**
+ * Composts an outdoor plant, clearing its ground. Always gives compost; a
+ * well-grown plant also usually leaves something to propagate from — but
+ * not reliably the same thing: roughly half the time it's true to type,
+ * otherwise it's the plain species or (rarely) a sport. Taking out a
+ * special plant is a real decision.
+ */
+export function compostPlant(state: GameState, plantId: string, now: number, rand: () => number = Math.random): CompostResult | null {
+  const p = state.plants[plantId];
+  if (!p || p.location.kind !== 'wild') return null;
+  const name = specimenName(p.defId, p.variantId);
+  const { compost } = compostYield(p);
+  state.compost += compost;
+  delete state.plants[plantId];
+  const result: CompostResult = { compost, cutting: null, noRoom: false, name };
+  const stage = stageIndexOf(p.growth);
+  if (stage < 2 || rand() >= 0.6) return result;
+  const def = PLANTS[p.defId];
+  let variantId = p.variantId;
+  const r = rand();
+  if (r < 0.12) variantId = rollSport(p.defId, p.variantId, rand) ?? p.variantId;
+  else if (r < 0.5) variantId = def.variants[0].id;
+  if (basketFull(state)) {
+    result.noRoom = true;
+    return result;
+  }
+  addToBasket(state, { defId: p.defId, variantId, seed: Math.floor(rand() * 1e9), growth: 0, generation: p.generation + 1, origin: 'cutting', collectedAt: now });
+  const found = recordFound(state, p.defId, variantId, now);
+  result.cutting = { defId: p.defId, variantId, changed: variantId !== p.variantId, newVariant: found.newVariant };
+  return result;
+}
+
+// ---------------------------------------------------------------- planting & moving
+
+export type PlantingBlock = 'bounds' | 'water' | 'building' | 'obstacle' | 'spot' | 'path' | 'crowded' | 'decor';
+
+export interface PlantingCheck {
+  block: PlantingBlock | null;
+  /** The plant that's in the way, for 'crowded'. */
+  blocker?: OwnedPlant;
+  zone: OutdoorZoneId | null;
+  bedId?: string;
+}
+
+/**
+ * Whether a plant of this species could be planted exactly at (x, y).
+ * Plants can go close together — right between two others, if there's
+ * physically room for a young one — but not on top of one another.
+ */
+export function checkPlanting(
+  state: GameState,
+  defId: string,
+  x: number,
+  y: number,
+  world: LandscapeWorld,
+  now: number,
+  opts: { ignoreId?: string; grid?: SpatialGrid<OwnedPlant> } = {}
+): PlantingCheck {
+  const tx = Math.floor(x);
+  const ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= GRID_W || ty >= GRID_H) return { block: 'bounds', zone: null };
+  const zone = zoneAt(tx, ty);
+  if (zone === 'greenhouse') return { block: 'building', zone: null };
+  const oz = zone as OutdoorZoneId;
+  if (world.isBuiltOrWater(tx, ty)) return { block: 'water', zone: oz };
+  if (world.obstacleAt(tx, ty) && world.obstacleAt(tx, ty) !== 'flower') return { block: 'obstacle', zone: oz };
+  if (world.isSpot(tx, ty)) return { block: 'spot', zone: oz };
+  if (onPath(state, x, y, now)) return { block: 'path', zone: oz };
+  if (state.decor.some((d) => Math.hypot(d.x - x, d.y - y) < 0.55)) return { block: 'decor', zone: oz };
+  const mine = matureRadius(defId) * 0.4;
+  let blocker: OwnedPlant | undefined;
+  const test = (p: OwnedPlant) => {
+    if (p.id === opts.ignoreId || p.location.kind !== 'wild') return false;
+    const need = Math.max(0.55, currentRadius(p) * 0.62 + mine);
+    if (Math.hypot(p.location.x - x, p.location.y - y) < need) {
+      blocker = p;
+      return true;
+    }
+    return false;
+  };
+  if (opts.grid) opts.grid.query(x, y, 2, test);
+  else for (const p of Object.values(state.plants)) if (test(p)) break;
+  if (blocker) return { block: 'crowded', blocker, zone: oz };
+  return { block: null, zone: oz, bedId: bedAt(state, x, y)?.id };
+}
+
+/** Young plants can still be dug up and moved; once large, they've settled in for good. */
+export function canTransplant(p: OwnedPlant): boolean {
+  return p.location.kind === 'wild' && stageIndexOf(p.growth) < 3;
+}
+
+export function transplant(state: GameState, plantId: string, x: number, y: number, world: LandscapeWorld, now: number): boolean {
+  const p = state.plants[plantId];
+  if (!p || !canTransplant(p)) return false;
+  const check = checkPlanting(state, p.defId, x, y, world, now, { ignoreId: plantId });
+  if (check.block || !check.zone) return false;
+  p.location = { kind: 'wild', x, y, zone: check.zone };
+  if (check.bedId) p.location.bedId = check.bedId;
+  return true;
+}

@@ -665,9 +665,32 @@ export const PLANTS: Record<string, PlantDef> = {
   },
 };
 
+// The single rarest plant in the valley. It is never announced and never
+// explained: it doesn't grow in any ordinary patch, can't be bought or sold,
+// and only turns up through a handful of unlikely ecological chances (see
+// systems/rarity.ts). It is simply a plant — discovered, grown, propagated
+// and planted out like any other.
+PLANTS.cannabisSativa = {
+  id: 'cannabisSativa',
+  name: 'Cannabis sativa',
+  latin: 'Cannabis sativa',
+  form: 'palmate',
+  rarity: 'mythic',
+  habitat: ['meadow', 'overgrownClearing'],
+  landscape: 'jungle',
+  description: 'A tall, quick annual herb. Each leaf is an open hand of narrow, saw-edged leaflets. Nobody in the valley has a record of it growing here.',
+  hint: 'An open hand of narrow, saw-edged leaves. Nobody has recorded it here.',
+  look: { hue: 104, sat: 46, light: 36, accentHue: 80, variegation: 'none', size: 1.15, leafWidth: 0.8 },
+  variants: [{ id: 'wild', name: 'Wild', rarity: 'mythic', description: 'Unmistakable, once you have seen it.', look: {} }],
+  growthRate: 1.25,
+  spread: 0.4,
+  secret: true,
+  keepsake: true,
+};
+
 export const PLANT_LIST: PlantDef[] = Object.values(PLANTS);
 
-export const RARITY_ORDER: Rarity[] = ['common', 'uncommon', 'rare', 'veryRare', 'extremelyRare'];
+export const RARITY_ORDER: Rarity[] = ['common', 'uncommon', 'rare', 'veryRare', 'extremelyRare', 'mythic'];
 
 export const RARITY_LABEL: Record<Rarity, string> = {
   common: 'Common',
@@ -675,6 +698,7 @@ export const RARITY_LABEL: Record<Rarity, string> = {
   rare: 'Rare',
   veryRare: 'Very Rare',
   extremelyRare: 'Extremely Rare',
+  mythic: 'Mythic',
 };
 
 export function rarityRank(r: Rarity): number {
@@ -706,7 +730,14 @@ export function specimenName(defId: string, variantId: string): string {
 export function fullName(defId: string, variantId: string): string {
   const def = PLANTS[defId];
   const variant = findVariant(defId, variantId);
+  if (def && def.variants.length === 1) return def.name;
   return def && variant ? `${def.name} ‘${variant.name}’` : defId;
+}
+
+/** The latin name, unless it's the same as the plant's own name. */
+export function latinLine(defId: string): string {
+  const def = PLANTS[defId];
+  return def && def.latin !== def.name ? def.latin : '';
 }
 
 export function lookFor(defId: string, variantId: string) {

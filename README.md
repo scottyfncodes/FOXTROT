@@ -31,6 +31,21 @@ grow in patches all over it.
   upgrades.
 - **Collect.** The field journal tracks every species and variant, with
   unfound ones shown as silhouettes and "???" until you see them.
+- **Come home.** The greenhouse is attached to a house. The front door opens
+  into a living room — couch, TV, the cat's bed, a putting mat, doorways to
+  the rest of the house — and a doorway leads through into the greenhouse,
+  whose garden door opens onto the valley. Scott is sometimes home watching
+  the ball game or practising his putting; the cat has her own places, and
+  her own ideas about your plants.
+- **Arrange it yourself.** Everything indoors — beds, trays, stands, tables,
+  planters, hooks, lamps, rugs — can be dragged anywhere, turned, or put
+  away (🪑 button indoors). Plants move with their pots.
+- **Shape the land.** Drag a plant to exactly where it should grow; move it
+  while it's young. Compost plants in the wrong place (for compost, and
+  maybe a cutting — maybe not quite the same). Dig garden beds (🌿 button)
+  whose plants spread only within them, and carve paths through the
+  growth that you can walk quickly along while their verges creep back in.
+- **Follow the fox.** Sometimes it runs. Sometimes it's worth following.
 
 Time keeps passing (up to three game days per absence) while the tab is
 closed, and the welcome-back message tells you what grew and what spread.
@@ -50,8 +65,10 @@ npm test            # vitest — growth, propagation, spots, spreading, market, 
 ```
 
 Controls: WASD/arrow keys to move, `E` (or the on-screen button on touch
-devices) to interact. The basket (🧺) is where you plant things out and
-place garden decor. Progress autosaves to `localStorage`.
+devices) to interact. Tap a plant, bed or path in the world to look at it.
+The basket (🧺) is where you plant things out and place garden decor. While
+placing, drag with a finger (or mouse), then ✓ / ✕ (Enter / Esc; R turns
+furniture). Progress autosaves to `localStorage`.
 
 ## Architecture
 
@@ -70,6 +87,13 @@ place garden decor. Progress autosaves to `localStorage`.
   procedural: `PlantArt.ts` draws every species/variant at any growth stage and
   caches plants as sprites so a region with hundreds of plants stays fast.
 - `src/ui/` — HUD, basket, greenhouse, market and journal panels.
+- `src/game/engine/Tools.ts` — the touch-first placement state machine
+  (plant, arrange, bed, path), driven in world coordinates.
+- `src/game/systems/landscape.ts` (beds, paths, compost, precise planting,
+  transplanting), `furniture.ts` (free indoor placement), `fox.ts` +
+  `foxFinds.ts` (trails and what's at the end), `spatial.ts` (spatial hash
+  for plant queries).
+- `src/game/data/interior.ts` — the house + greenhouse interior layout.
 - `tests/` — vitest coverage of the systems above.
 
 Every owned plant is one record with a location (nursery bed, display spot,

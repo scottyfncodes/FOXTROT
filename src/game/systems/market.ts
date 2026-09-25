@@ -1,7 +1,7 @@
 import type { BasketItem, GameState } from '../state';
 import type { Rarity } from '../types';
 import { PLANTS, PLANT_LIST, specimenRarity } from '../data/plants';
-import { findShopItem, type DecorId, DECOR_IDS, type FurnitureId, FURNITURE_IDS } from '../data/shop';
+import { findShopItem, type DecorId, DECOR_IDS, type FurnitureId, FURNITURE_IDS, COMPOST_PER_SACK } from '../data/shop';
 import { MINUTES_PER_DAY } from '../engine/Clock';
 import { hashString } from '../engine/Random';
 import { takeFromBasket } from './basket';
@@ -18,6 +18,7 @@ export const RARITY_PRICE: Record<Rarity, number> = {
   rare: 100,
   veryRare: 260,
   extremelyRare: 700,
+  mythic: 0,
 };
 
 /**
@@ -53,8 +54,8 @@ export function glutFactor(state: GameState, defId: string): number {
 export function demandSpecies(state: GameState): string {
   const day = Math.floor(state.clock.totalMinutes / MINUTES_PER_DAY);
   // Prefer something the player has actually found, so the tip is usable.
-  const found = PLANT_LIST.filter((p) => state.collection[p.id] && !p.foxOnly);
-  const pool = found.length >= 2 ? found : PLANT_LIST.filter((p) => p.rarity === 'common' || p.rarity === 'uncommon');
+  const found = PLANT_LIST.filter((p) => state.collection[p.id] && !p.foxOnly && !p.secret && !p.keepsake);
+  const pool = found.length >= 2 ? found : PLANT_LIST.filter((p) => (p.rarity === 'common' || p.rarity === 'uncommon') && !p.secret);
   return pool[hashString(`demand:${day}`) % pool.length].id;
 }
 
@@ -72,9 +73,15 @@ export function priceOf(state: GameState, item: Pick<BasketItem, 'defId' | 'vari
   return Math.max(1, Math.round(p * stallBonus(state) * glutFactor(state, item.defId)));
 }
 
+/** Some plants aren't for sale at any price: the stall simply won't take them. */
+export function canSell(defId: string): boolean {
+  const def = PLANTS[defId];
+  return !!def && !def.keepsake;
+}
+
 export function sellItem(state: GameState, uid: string, now: number): number | null {
   const item = state.basket.find((i) => i.uid === uid);
-  if (!item || !PLANTS[item.defId]) return null;
+  if (!item || !canSell(item.defId)) return null;
   const price = priceOf(state, item);
   takeFromBasket(state, uid);
   state.coins += price;
@@ -102,7 +109,9 @@ export function buyItem(state: GameState, itemId: string): boolean {
   const item = findShopItem(itemId);
   if (!item || buyBlockReason(state, itemId)) return false;
   state.coins -= item.price;
-  if (item.repeatable && (DECOR_IDS as string[]).includes(itemId)) {
+  if (itemId === 'compostSack') {
+    state.compost += COMPOST_PER_SACK;
+  } else if (item.repeatable && (DECOR_IDS as string[]).includes(itemId)) {
     const id = itemId as DecorId;
     state.decorStock[id] = (state.decorStock[id] ?? 0) + 1;
   } else if (item.repeatable && (FURNITURE_IDS as string[]).includes(itemId)) {

@@ -991,3 +991,218 @@ button {
     font-size: 12px;
   }
 }
+
+/* ---------- Rarity: the top tier ---------- */
+
+.rarity-mythic {
+  color: #5f8f3a;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Shaping the world: tools ---------- */
+
+.hud-chip.compost {
+  color: var(--ink);
+}
+
+.tool-btn {
+  font-size: 20px;
+}
+
+/* While the hands are busy, the snip button steps aside; arranging uses the
+   finger for panning, so the joystick goes too. */
+.hud.tool-active .action-btn,
+.hud.tool-active .interaction-prompt {
+  display: none;
+}
+
+.hud.arrange-active .joystick-zone {
+  display: none;
+}
+
+.land-menu {
+  position: absolute;
+  top: calc(var(--safe-top) + 60px);
+  right: calc(var(--safe-right) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.land-menu.open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.land-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 176px;
+  min-height: 52px;
+  padding: 0 16px;
+  border-radius: 14px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--ink);
+  font-size: 15px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+}
+
+.land-icon {
+  font-size: 20px;
+  width: 24px;
+  text-align: center;
+}
+
+.mode-bar {
+  position: absolute;
+  bottom: calc(var(--safe-bottom) + 18px);
+  /* Leaves the joystick's corner free, so you can walk while you plan. */
+  left: calc(var(--safe-left) + 158px);
+  right: calc(var(--safe-right) + 14px);
+  display: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.mode-bar.open {
+  display: flex;
+}
+
+.mode-bar.arranging {
+  left: calc(var(--safe-left) + 14px);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mode-bar {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(440px, calc(100vw - 28px));
+  }
+}
+
+.mode-status {
+  align-self: stretch;
+  text-align: center;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+}
+
+.mode-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mode-btn {
+  min-width: 56px;
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+  touch-action: manipulation;
+}
+
+.mode-btn.confirm {
+  flex: 1;
+  background: var(--accent-strong);
+  border-color: var(--accent);
+  color: #f4ecd8;
+}
+
+.mode-btn.cancel {
+  font-size: 20px;
+}
+
+.mode-btn.shape {
+  font-size: 22px;
+}
+
+.mode-btn:disabled {
+  opacity: 0.45;
+}
+
+.mode-btn.stock {
+  flex: 0 0 auto;
+  min-height: 48px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.stock-tray {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.stock-tray::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Plant card, ground card ---------- */
+
+.compost-box {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--panel-border);
+}
+
+.compost-line {
+  font-size: 13px;
+  color: var(--ink-dim);
+  margin-bottom: 10px;
+}
+
+.primary-btn.danger {
+  background: var(--rust);
+  border-color: var(--rust);
+}
+
+.curio-icon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: var(--leaf-soft);
+}
+
+.entry-row.missing .curio-icon {
+  color: var(--ink-dim);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.entry-name.unknown {
+  color: var(--ink-dim);
+  letter-spacing: 0.1em;
+}

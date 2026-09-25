@@ -2,6 +2,8 @@ import { createNewGame, SAVE_KEY, SAVE_VERSION, type GameState } from '../state'
 import { findScottSpot } from '../data/scottSpots';
 import { findCatSpot } from '../data/catSpots';
 import { PLANTS } from '../data/plants';
+import { FURNITURE_DEFS } from '../data/furniture';
+import { HOUSE_FOOTPRINT, HOUSE_DOOR } from '../data/worldMap';
 
 // Older builds stored each schema version under its own key; they're read
 // once as a fallback so those players' progress is recovered, not lost.
@@ -9,9 +11,14 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
-const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market'] as const;
-const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture'] as const;
-const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock'] as const;
+const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog'] as const;
+const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture', 'seededFixtures', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds'] as const;
+const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock', 'curiosities'] as const;
+
+/** Anything standing where the house now is gets moved out onto the lawn in front of it. */
+function inHouse(x: number, y: number): boolean {
+  return x >= HOUSE_FOOTPRINT.x - 0.3 && x < HOUSE_FOOTPRINT.x + HOUSE_FOOTPRINT.w + 0.3 && y >= HOUSE_FOOTPRINT.y - 0.3 && y < HOUSE_DOOR.y + 1.6;
+}
 
 // Anything below this can't be a wall-clock epoch in ms; older builds saved
 // a page-relative performance.now() value here.
@@ -47,6 +54,8 @@ export function migrateSave(raw: unknown): GameState | null {
     if (!isRecord(merged[key])) merged[key] = defaults[key];
   }
   if (typeof merged.coins !== 'number' || !Number.isFinite(merged.coins)) merged.coins = defaults.coins;
+  if (typeof merged.compost !== 'number' || !Number.isFinite(merged.compost)) merged.compost = defaults.compost;
+  const fromVersion = raw.version;
   // Only the lantern survives from the old tool set; the rest of the old
   // collecting/ecosystem state (journal, inventory, populations) belonged
   // to species that no longer exist and is simply left behind.
@@ -61,6 +70,38 @@ export function migrateSave(raw: unknown): GameState | null {
     if (!isRecord(p) || !PLANTS[p.defId as string] || !isRecord(p.location)) delete state.plants[id];
   }
   state.basket = state.basket.filter((b) => isRecord(b) && !!PLANTS[b.defId]);
+  state.furniture = state.furniture.filter((f) => isRecord(f) && !!FURNITURE_DEFS[f.kind] && Number.isFinite(f.x) && Number.isFinite(f.y));
+  state.gardenBeds = state.gardenBeds.filter((b) => isRecord(b) && [b.x, b.y, b.w, b.h].every(Number.isFinite));
+  state.paths = state.paths.filter((p) => isRecord(p) && Array.isArray(p.points) && p.points.length >= 4);
+  state.foxFinds = state.foxFinds.filter((f) => isRecord(f) && (f.kind === 'curiosity' || !!PLANTS[f.defId ?? '']));
+  for (const p of Object.values(state.plants)) {
+    const loc = p.location;
+    if (loc.kind === 'wild' && loc.bedId && !state.gardenBeds.some((b) => b.id === loc.bedId)) delete loc.bedId;
+  }
+  // A fox caught mid-trail when the page closed has long since gone.
+  if (['fleeing', 'lookingBack', 'vanishing'].includes(state.fox.behavior)) {
+    state.fox.behavior = 'gone';
+    state.fox.visible = false;
+  }
+
+  // Builds before the house was added: nothing may be left standing inside it.
+  if (fromVersion < 6) {
+    let i = 0;
+    for (const p of Object.values(state.plants)) {
+      if (p.location.kind === 'wild' && inHouse(p.location.x, p.location.y)) {
+        p.location.x = HOUSE_FOOTPRINT.x + HOUSE_FOOTPRINT.w + 0.7 + (i % 3) * 0.9;
+        p.location.y = HOUSE_DOOR.y + 1.8 + Math.floor(i / 3) * 0.9;
+        i++;
+      }
+    }
+    for (const d of state.decor) {
+      if (inHouse(d.x, d.y)) {
+        d.x = HOUSE_FOOTPRINT.x + HOUSE_FOOTPRINT.w + 0.7 + (i % 3) * 0.9;
+        d.y = HOUSE_DOOR.y + 1.8 + Math.floor(i / 3) * 0.9;
+        i++;
+      }
+    }
+  }
   if (!(state.clock.lastRealTimestamp >= MIN_EPOCH_MS)) state.clock.lastRealTimestamp = Date.now();
 
   // Spot coordinates are data, not save state: re-seat a settled NPC on
