@@ -153,6 +153,8 @@ export class HUD {
       greenhouseExit: 'OUT',
       frontDoor: 'OUT',
       rock: 'HAUL',
+      decor: 'MOVE',
+      setDown: 'DROP',
     };
     setText(this.actionBtn, verbs[n.kind] ?? 'GO');
   }

@@ -85,6 +85,7 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'picketFence', name: 'Picket Fence', category: 'garden', price: 12, repeatable: true, description: 'A short run of white fence to frame a bed.' },
   { id: 'gardenLantern', name: 'Garden Lantern', category: 'garden', price: 30, repeatable: true, description: 'Glows warmly after dark.' },
   { id: 'birdbath', name: 'Birdbath', category: 'garden', price: 45, repeatable: true, description: 'A stone basin. Birds and butterflies will visit.' },
+  { id: 'gardenTrellis', name: 'Garden Trellis', category: 'garden', price: 50, repeatable: true, description: 'A freestanding cedar lattice for the garden. Frames a bed or a path.' },
   { id: 'gardenBench', name: 'Garden Bench', category: 'garden', price: 60, repeatable: true, description: 'Somewhere to sit and look at what you’ve made.' },
 
   // Equipment
@@ -102,7 +103,7 @@ export function findShopItem(id: string): ShopItem | undefined {
 }
 
 /** Items added to the market in a later build, so older saves see them as NEW. */
-export const INTRODUCED_IN_V7 = ['nurseryBed'];
+export const INTRODUCED_IN_V7 = ['nurseryBed', 'gardenTrellis'];
 
 export interface PotStyle {
   id: string;
@@ -128,8 +129,8 @@ export function findPotStyle(id: string): PotStyle {
   return POT_STYLES.find((p) => p.id === id) ?? POT_STYLES[0];
 }
 
-export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenBench';
-export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenBench'];
+export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenTrellis' | 'gardenBench';
+export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenTrellis', 'gardenBench'];
 
 /**
  * Everything that can stand (or hang) indoors. The first group is sold at

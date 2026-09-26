@@ -899,6 +899,38 @@ export class Renderer {
         ctx.fill();
         break;
       }
+      case 'gardenTrellis': {
+        // A freestanding cedar lattice on two posts, a vine or two up it.
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(s.x - tile * 0.42, s.y - tile * 0.02, tile * 0.84, tile * 0.07);
+        ctx.fillStyle = '#7a5636';
+        ctx.fillRect(s.x - tile * 0.42, s.y - tile * 0.95, tile * 0.06, tile * 0.95);
+        ctx.fillRect(s.x + tile * 0.36, s.y - tile * 0.95, tile * 0.06, tile * 0.95);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(s.x - tile * 0.36, s.y - tile * 0.9, tile * 0.72, tile * 0.82);
+        ctx.clip();
+        ctx.strokeStyle = '#a37b4f';
+        ctx.lineWidth = Math.max(1, tile * 0.03);
+        for (let i = -4; i <= 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(s.x + i * tile * 0.18 - tile * 0.45, s.y - tile * 0.9);
+          ctx.lineTo(s.x + i * tile * 0.18 + tile * 0.45, s.y);
+          ctx.moveTo(s.x + i * tile * 0.18 + tile * 0.45, s.y - tile * 0.9);
+          ctx.lineTo(s.x + i * tile * 0.18 - tile * 0.45, s.y);
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.fillStyle = '#4f7a3e';
+        for (let i = 0; i < 7; i++) {
+          const lx = s.x - tile * 0.28 + hash2(d.x * 5 + i, d.y) * tile * 0.56;
+          const ly = s.y - tile * 0.1 - hash2(d.x, d.y * 3 + i) * tile * 0.7;
+          ctx.beginPath();
+          ctx.ellipse(lx, ly, tile * 0.05, tile * 0.03, i, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
       case 'gardenBench': {
         ctx.fillStyle = 'rgba(0,0,0,0.2)';
         ctx.fillRect(s.x - tile * 0.45, s.y - tile * 0.02, tile * 0.9, tile * 0.08);

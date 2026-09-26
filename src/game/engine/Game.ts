@@ -65,7 +65,7 @@ import {
   crossOf,
 } from '../systems/propagation';
 import { sellItem, buyItem } from '../systems/market';
-import { placeDecor, pickUpDecor, nearestDecor } from '../systems/decor';
+import { placeDecor, pickUpDecor, nearestDecor, moveDecor, decorFits } from '../systems/decor';
 
 export type InteractableKind =
   | 'spot'
@@ -79,7 +79,9 @@ export type InteractableKind =
   | 'foxFind'
   | 'bed'
   | 'display'
-  | 'rock';
+  | 'rock'
+  | 'decor'
+  | 'setDown';
 
 export interface Interactable {
   kind: InteractableKind;
@@ -159,6 +161,8 @@ export class Game {
   tools: ToolController;
   world: LandscapeWorld;
   obstacleMap = new Map<string, Obstacle>();
+  /** The garden piece Ellen is carrying to somewhere new, if any. */
+  carryingDecorId: string | null = null;
   cleared = new Set<string>();
   flourishes: WorldFlourish[] = [];
   /** performance.now() when the last doorway was stepped through, for a soft fade. */
@@ -551,6 +555,8 @@ export class Game {
   /** In through one of the greenhouse's doors (the garden door unless told otherwise). */
   private enterGreenhouse(door: GreenhouseDoor = GREENHOUSE_DOORS[0]) {
     const p = this.state.player;
+    // Anything being carried is left where it was last held.
+    this.carryingDecorId = null;
     if (this.tools.active) this.tools.cancel();
     p.inGreenhouse = true;
     const o = DOOR_OUTWARD[door.wall];
@@ -567,6 +573,8 @@ export class Game {
   /** In through the front door: home. */
   private enterHouse() {
     const p = this.state.player;
+    // Anything being carried is left where it was last held.
+    this.carryingDecorId = null;
     if (this.tools.active) this.tools.cancel();
     p.inGreenhouse = true;
     p.x = FRONT_DOOR.x + 0.5;
@@ -626,7 +634,25 @@ export class Game {
       }
     };
 
+    if (!p.inGreenhouse && this.carryingDecorId) {
+      const piece = this.state.decor.find((d) => d.id === this.carryingDecorId);
+      if (piece) {
+        const spot = this.carrySpot();
+        piece.x = spot.x;
+        piece.y = spot.y;
+        const name = findShopItem(piece.decorId)?.name ?? 'it';
+        const ok = this.canSetDecorHere(spot.x, spot.y, piece.id);
+        this.nearest = { kind: 'setDown', id: piece.id, x: spot.x, y: spot.y, label: ok ? `Set the ${name} down here` : `No room for the ${name} here`, available: ok };
+        return;
+      }
+      this.carryingDecorId = null;
+    }
+
     if (!p.inGreenhouse) {
+      for (const d of this.state.decor) {
+        const name = findShopItem(d.decorId)?.name ?? 'decor';
+        consider({ kind: 'decor', id: d.id, x: d.x, y: d.y, label: `Move the ${name}`, available: true }, d.x, d.y, 1.0);
+      }
       for (const spot of DISCOVERY_SPOTS) {
         const c = spotContent(this.state, spot);
         if (!c) continue;
@@ -742,6 +768,11 @@ export class Game {
       this.collectFind(n.id);
     } else if (n.kind === 'rock') {
       this.haulRock(n.id);
+    } else if (n.kind === 'decor') {
+      this.carryingDecorId = n.id;
+      this.pushToast('Carrying it. Walk to where it should go, then set it down.', 'info');
+    } else if (n.kind === 'setDown') {
+      this.setDownDecor();
     } else if (n.kind === 'bed' || n.kind === 'display') {
       this.onOpenGreenhouse?.({ kind: n.kind, id: n.id });
     }
@@ -770,6 +801,32 @@ export class Game {
     } else {
       this.pushToast(`Took a cutting of ${name}.`, 'info');
     }
+    this.onStateTouched?.();
+  }
+
+  /** Where a carried garden piece would land: just in front of Ellen. */
+  private carrySpot(): { x: number; y: number } {
+    const p = this.state.player;
+    const off = { up: [0, -0.7], down: [0, 0.8], left: [-0.8, 0.2], right: [0.8, 0.2] }[p.facing];
+    return { x: p.x + off[0], y: p.y + off[1] };
+  }
+
+  private canSetDecorHere(x: number, y: number, ignoreId: string): boolean {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    if (!this.isOpenGround(tx, ty)) return false;
+    return decorFits(this.state, x, y, ignoreId);
+  }
+
+  /** Puts the carried garden piece down where it's being held. */
+  setDownDecor() {
+    const id = this.carryingDecorId;
+    if (!id) return;
+    const spot = this.carrySpot();
+    if (!this.canSetDecorHere(spot.x, spot.y, id)) return this.pushToast('No room for it just here.', 'info');
+    moveDecor(this.state, id, spot.x, spot.y);
+    this.carryingDecorId = null;
+    this.audio.playToolChime();
     this.onStateTouched?.();
   }
 

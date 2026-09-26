@@ -25,6 +25,20 @@ export function nearestDecor(state: GameState, x: number, y: number, range: numb
   return best;
 }
 
+/** Room for a piece at (x, y): not on top of another piece (ignoring the one being moved). */
+export function decorFits(state: GameState, x: number, y: number, ignoreId?: string): boolean {
+  return !state.decor.some((d) => d.id !== ignoreId && Math.hypot(d.x - x, d.y - y) < 0.7);
+}
+
+/** Moves a placed piece straight to (x, y), if there's room for it there. */
+export function moveDecor(state: GameState, id: string, x: number, y: number): boolean {
+  const piece = state.decor.find((d) => d.id === id);
+  if (!piece || !decorFits(state, x, y, id)) return false;
+  piece.x = x;
+  piece.y = y;
+  return true;
+}
+
 /** Picks a placed piece back up into stock, to move it somewhere else. */
 export function pickUpDecor(state: GameState, id: string): boolean {
   const idx = state.decor.findIndex((d) => d.id === id);
