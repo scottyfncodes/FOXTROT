@@ -6,10 +6,10 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/*.png'],
+      includeAssets: ['icons/*.png', 'icons/*.svg'],
       manifest: {
-        name: 'Foxtrot',
-        short_name: 'Foxtrot',
+        name: 'Foxtail',
+        short_name: 'Foxtail',
         description: 'A cozy houseplant collecting and world-transforming game.',
         theme_color: '#1b3a34',
         background_color: '#0d2420',
@@ -18,9 +18,9 @@ export default defineConfig({
         start_url: './',
         scope: './',
         icons: [
-          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'icons/foxtail-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icons/foxtail-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'icons/foxtail-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {

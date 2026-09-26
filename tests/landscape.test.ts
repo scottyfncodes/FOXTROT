@@ -332,3 +332,38 @@ describe('hauling rocks away', () => {
     expect(state.coins).toBe(1000);
   });
 });
+
+describe('garden trellis', () => {
+  it('is sold as garden decor, and a vine planted at its foot climbs it', async () => {
+    const { createNewGame } = await import('../src/game/state');
+    const { buyItem } = await import('../src/game/systems/market');
+    const { placeDecor, trellisAt } = await import('../src/game/systems/decor');
+    const { climbsTrellis } = await import('../src/game/systems/furniture');
+    const { PLANTS } = await import('../src/game/data/plants');
+    const state = createNewGame();
+    state.coins = 500;
+    expect(buyItem(state, 'gardenTrellis')).toBe(true);
+    expect(state.decorStock.gardenTrellis).toBe(1);
+    const t = placeDecor(state, 'gardenTrellis', 60.5, 42.5)!;
+    expect(t).not.toBeNull();
+    // Right at its foot, in front: climbs. Behind it, or off to one side: doesn't.
+    expect(trellisAt(state, t.x, t.y + 0.3)?.id).toBe(t.id);
+    expect(trellisAt(state, t.x + 0.4, t.y + 0.6)?.id).toBe(t.id);
+    expect(trellisAt(state, t.x, t.y - 0.5)).toBeNull();
+    expect(trellisAt(state, t.x + 1.2, t.y + 0.3)).toBeNull();
+    expect(climbsTrellis(PLANTS.pothos.form)).toBe(true);
+    expect(climbsTrellis(PLANTS.monstera.form)).toBe(false);
+  });
+
+  it('lets a plant go in right at its foot, where other decor needs room around it', async () => {
+    const { createNewGame } = await import('../src/game/state');
+    const { checkPlanting } = await import('../src/game/systems/landscape');
+    const state = createNewGame();
+    const world = { isBuiltOrWater: () => false, obstacleAt: () => null, isSpot: () => false };
+    state.decor.push({ id: 't', decorId: 'gardenTrellis', x: 60.5, y: 42.5 }, { id: 'b', decorId: 'birdbath', x: 64.5, y: 42.5 });
+    expect(checkPlanting(state, 'pothos', 60.5, 42.8, world as never, 0).block).not.toBe('decor');
+    expect(checkPlanting(state, 'pothos', 64.5, 42.8, world as never, 0).block).toBe('decor');
+    // Not behind it, though: that's where the lattice is.
+    expect(checkPlanting(state, 'pothos', 60.5, 42.2, world as never, 0).block).toBe('decor');
+  });
+});

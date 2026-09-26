@@ -24,7 +24,7 @@ describe('market Buy tab', () => {
     const subheads = Array.from(body.querySelectorAll('.shop-subhead')).map((h) => h.textContent);
     expect(subheads).toEqual(['🌱Production', '🏡Space', '🪴Display']);
     const production = Array.from(body.querySelectorAll('.shop-row.purpose-production .entry-name')).map((n) => n.textContent);
-    expect(production).toEqual(expect.arrayContaining(['Two More Nursery Beds', 'Nursery Bed', 'Grow Lights', 'Grow Lamp']));
+    expect(production).toEqual(expect.arrayContaining(['Extra Nursery Beds', 'Nursery Bed', 'Grow Lights', 'Grow Lamp']));
     for (const row of Array.from(body.querySelectorAll('.shop-row[class*="purpose-"]'))) {
       const badge = row.querySelector('.purpose-badge')!;
       // Not colour alone: every badge has an icon and an accessible label.

@@ -74,6 +74,10 @@ const FORM_RADIUS: Record<string, number> = {
   spiky: 0.46,
   stones: 0.3,
   palmate: 0.62,
+  trap: 0.34,
+  dew: 0.3,
+  pitcher: 0.45,
+  cups: 0.62,
 };
 
 export function matureRadius(defId: string, variantId?: string): number {
@@ -473,7 +477,9 @@ export function checkPlanting(
   if (world.obstacleAt(tx, ty) && world.obstacleAt(tx, ty) !== 'flower') return { block: 'obstacle', zone: oz };
   if (world.isSpot(tx, ty)) return { block: 'spot', zone: oz };
   if (onPath(state, x, y, now)) return { block: 'path', zone: oz };
-  if (state.decor.some((d) => Math.hypot(d.x - x, d.y - y) < 0.55)) return { block: 'decor', zone: oz };
+  // A trellis wants a plant right at its foot; anything else needs a little room.
+  const decorGap = (d: { decorId: string; y: number }) => (d.decorId === 'gardenTrellis' && y >= d.y ? 0.2 : 0.55);
+  if (state.decor.some((d) => Math.hypot(d.x - x, d.y - y) < decorGap(d))) return { block: 'decor', zone: oz };
   const mine = matureRadius(defId) * 0.4;
   let blocker: OwnedPlant | undefined;
   const test = (p: OwnedPlant) => {

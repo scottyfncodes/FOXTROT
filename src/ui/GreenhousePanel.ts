@@ -58,15 +58,7 @@ export class GreenhousePanel {
       if (plant) this.renderPlant(plant);
       else this.renderDisplayChoice(t.id);
     }
-    // Anything indoors can be moved — with its plant, if it has one.
-    if (findFurniture(this.game.state, t.id)) {
-      const row = el('div', 'action-row');
-      row.appendChild(button('Move it…', () => {
-        this.panel.close();
-        this.game.beginArrange(undefined, t.id);
-      }, 'secondary-btn'));
-      this.panel.body.appendChild(row);
-    }
+    // Moving the piece (plant and all) lives in arrange mode, the 🪑 button indoors.
   }
 
   private renderPotting(bedId: string) {
@@ -178,7 +170,12 @@ export class GreenhousePanel {
     body.appendChild(track);
     const next = minutesToNextStage(state, plant);
     body.appendChild(
-      note(next === null ? `${STAGE_LABEL[STAGES[idx]]} — fully grown, and still filling out.` : `${STAGE_LABEL[STAGES[idx]]}. ${STAGE_LABEL[STAGES[idx + 1]]} in ${realTime(next)}.`, 'growth-note')
+      note(
+        next !== null
+          ? `${STAGE_LABEL[STAGES[idx]]}. ${STAGE_LABEL[STAGES[idx + 1]]} in ${realTime(next)}.`
+          : `${STAGE_LABEL[STAGES[idx]]} — fully grown, and still filling out.`,
+        'growth-note'
+      )
     );
 
     const est = isEstablished(state, plant.defId);

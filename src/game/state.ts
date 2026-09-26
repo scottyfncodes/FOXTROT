@@ -6,6 +6,7 @@ import { SHOP_ITEMS } from './data/shop';
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
 // fills new fields from createNewGame(). The storage key stays fixed.
 export const SAVE_VERSION = 7;
+// The storage key keeps the game's working title so existing saves carry over.
 export const SAVE_KEY = 'foxtrot-save-v4';
 
 export type Facing = 'up' | 'down' | 'left' | 'right';
@@ -220,6 +221,17 @@ export interface CatState {
   lookX?: number | null;
 }
 
+export interface PuttingRecord {
+  /** Rounds played to the end. */
+  rounds: number;
+  /** Fewest strokes for the full course, or null before the first finished round. */
+  best: number | null;
+  /** How many holes the course had when that best was set: a longer course starts a fresh record. */
+  holes?: number;
+  /** Holes aced at least once, by hole id. */
+  aces: string[];
+}
+
 export interface GameState {
   version: number;
   createdAt: number;
@@ -255,6 +267,8 @@ export interface GameState {
   clearedObstacles: string[];
   foxFinds: FoxFind[];
   foxLog: FoxLog;
+  /** Putt-putt on the living-room mat. */
+  putting: PuttingRecord;
   /** Mushrooms, insects and other oddities found in the wild, by id. */
   curiosities: Record<string, { foundAt: number; count: number }>;
   tools: { lantern: number };
@@ -285,7 +299,7 @@ export function createNewGame(): GameState {
     createdAt: now,
     player: { x: PLAYER_START.x, y: PLAYER_START.y, facing: 'down', inGreenhouse: false },
     clock: { totalMinutes: 8 * 60, lastRealTimestamp: now },
-    weather: { condition: 'clear', nextChangeAt: 8 * 60 + 180 },
+    weather: { condition: 'clear', nextChangeAt: 8 * 60 + 360 },
     coins: 20,
     owned: [],
     purchases: {},
@@ -303,6 +317,7 @@ export function createNewGame(): GameState {
     clearedObstacles: [],
     foxFinds: [],
     foxLog: { sightings: 0, trailsStarted: 0, trailsFollowed: 0, trailsLost: 0, finds: 0, lastTrailAt: null },
+    putting: { rounds: 0, best: null, aces: [] },
     curiosities: {},
     tools: { lantern: 0 },
     basket: [],

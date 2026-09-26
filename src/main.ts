@@ -8,6 +8,7 @@ import { MarketPanel } from './ui/MarketPanel';
 import { StartOverlay } from './ui/StartOverlay';
 import { PlantCard } from './ui/PlantCard';
 import { GroundCard } from './ui/GroundCard';
+import { PuttingPanel } from './ui/PuttingPanel';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const game = new Game(canvas);
@@ -21,11 +22,13 @@ const greenhouse = new GreenhousePanel(game);
 const market = new MarketPanel(game);
 const plantCard = new PlantCard(game);
 const groundCard = new GroundCard(game);
+const putting = new PuttingPanel(game);
 
 hud.onJournal = () => journal.open();
 hud.onBasket = () => basket.open();
 game.onOpenGreenhouse = (target) => greenhouse.open(target);
 game.onOpenMarket = () => market.open();
+game.onOpenPutting = () => putting.open();
 game.onOpenPlantCard = (id) => plantCard.open(id);
 game.onOpenGroundCard = (target) => groundCard.open(target);
 game.onStateTouched = () => {
@@ -39,7 +42,7 @@ game.onStateTouched = () => {
 game.onFrame = () => hud.update();
 
 if (import.meta.env.DEV) {
-  (window as unknown as { __foxtrot: unknown }).__foxtrot = { game };
+  (window as unknown as { __foxtail: unknown }).__foxtail = { game, putting };
 }
 
 new StartOverlay(

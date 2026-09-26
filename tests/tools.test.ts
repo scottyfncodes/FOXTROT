@@ -153,3 +153,30 @@ describe('marking out ground', () => {
     expect(state.paths).toHaveLength(1);
   });
 });
+
+describe('a press that turns into a pinch', () => {
+  it('drops a dragged piece back where it was and restores the old selection', () => {
+    const { state, tools } = setup(true);
+    tools.startArrange();
+    const before = { ...findFurniture(state, 'stand1')! };
+    expect(tools.pointerDown(10.5, 3.4)).toBe('grab');
+    tools.pointerMove(12.5, 5.4);
+    tools.cancelPress(null);
+    const after = findFurniture(state, 'stand1')!;
+    expect({ x: after.x, y: after.y }).toEqual({ x: before.x, y: before.y });
+    const m = tools.mode;
+    expect(m.kind === 'arrange' && m.selectedId).toBe(null);
+    expect(m.kind === 'arrange' && m.drag).toBe(null);
+  });
+
+  it('throws away a half-drawn bed rather than leaving a scrap of one', () => {
+    const { tools } = setup();
+    tools.startBed();
+    tools.pointerDown(55, 31);
+    tools.pointerMove(57, 33);
+    tools.cancelPress();
+    const m = tools.mode;
+    expect(m.kind === 'bed' && m.a).toBe(null);
+    expect(tools.canConfirm()).toBe(false);
+  });
+});

@@ -186,12 +186,16 @@ button {
   margin-right: 6px;
 }
 
+/* Full-width lane, so a toast can use the screen's width rather than
+   shrinking to half of it and stacking tall over the player. */
 .toast-stack {
+  /* Its own layer above open panels, so news still gets through while a
+     plant, bed or planter is open. */
   position: fixed;
   z-index: 30;
   top: calc(max(env(safe-area-inset-top), 48px) + 60px);
-  left: 50%;
-  transform: translateX(-50%);
+  left: calc(env(safe-area-inset-left, 0px) + 16px);
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -206,9 +210,44 @@ button {
   padding: 8px 14px;
   font-size: 13px;
   box-shadow: var(--shadow);
-  animation: toast-in 0.25s ease, toast-out 0.4s ease 3.6s forwards;
-  max-width: 320px;
+  animation: toast-in 0.25s ease;
+  max-width: 380px;
   text-align: center;
+  line-height: 1.35;
+}
+
+/* Leaving is driven by the scheduler, so how long a message stays up follows
+   what it says, not a fixed stylesheet timer. */
+.toast.leaving {
+  animation: toast-out 0.4s ease forwards;
+}
+
+.toast.sig-important {
+  font-size: 14px;
+}
+
+/* A moment worth pausing on: a little larger, a soft glow, a slower arrival. */
+.toast.sig-major {
+  font-size: 15px;
+  padding: 12px 18px;
+  border-width: 1.5px;
+  box-shadow: var(--shadow), 0 0 22px rgba(240, 200, 120, 0.28);
+  animation: toast-moment-in 0.6s ease;
+}
+
+.toast.sig-major.leaving {
+  animation: toast-out 0.6s ease forwards;
+}
+
+@keyframes toast-moment-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .toast.discovery {
@@ -1271,3 +1310,48 @@ button {
 /* On a phone the price button stays put while the text wraps beside it. */
 .shop-row .entry-info { overflow-wrap: anywhere; }
 .shop-row > button { flex-shrink: 0; }
+
+/* ---------- Putt-putt ---------- */
+
+.putt-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.putt-hole {
+  font-weight: 600;
+  color: var(--leaf-strong);
+}
+
+.putt-score {
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.putt-canvas {
+  display: block;
+  margin: 0 auto;
+  border-radius: 10px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.putt-status {
+  min-height: 2.6em;
+  margin: 8px 0 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+  text-align: center;
+}
+
+.putt-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}

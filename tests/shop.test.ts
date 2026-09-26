@@ -23,7 +23,7 @@ describe('market organisation', () => {
   });
 
   it('classes growing capacity as production', () => {
-    for (const id of ['nurseryBeds', 'nurseryBed', 'growLights', 'growLamp']) expect(findShopItem(id)!.purpose, id).toBe('production');
+    for (const id of ['nurseryBeds', 'moreNurseryBeds', 'nurseryBed', 'growLights', 'growLamp']) expect(findShopItem(id)!.purpose, id).toBe('production');
   });
 
   it('classes stands, shelves, hooks and decor as display, and the sun room as space', () => {
@@ -46,10 +46,10 @@ describe('market organisation', () => {
 describe('prices and formulas are unchanged', () => {
   it('keeps every fixed shop price', () => {
     const expected: Record<string, number> = {
-      hangingHooks: 90, plantShelf: 120, nurseryBeds: 160, tieredStand: 240, growLights: 360, plantStand: 45, ironPedestal: 80, ceilingHook: 40,
+      hangingHooks: 90, plantShelf: 120, nurseryBeds: 160, moreNurseryBeds: 280, tieredStand: 240, growLights: 360, plantStand: 45, ironPedestal: 80, ceilingHook: 40,
       wallTrellis: 95, pottingTable: 85, floorPlanter: 110, growLamp: 150, wateringCan: 15, houseRug: 40, sunRoom: 700,
       potGlazed: 25, potSpeckled: 35, potBasket: 40, potCopper: 70, potPorcelain: 140,
-      compostSack: 20, steppingStones: 6, picketFence: 12, gardenLantern: 30, birdbath: 45, gardenBench: 60,
+      compostSack: 20, steppingStones: 6, picketFence: 12, gardenLantern: 30, birdbath: 45, gardenBench: 60, gardenTrellis: 55,
       basketMedium: 80, basketLarge: 340, rootingKit: 260, stallAwning: 120, stallCrates: 260,
     };
     const state = createNewGame();

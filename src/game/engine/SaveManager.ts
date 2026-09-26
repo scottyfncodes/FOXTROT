@@ -1,6 +1,7 @@
 import { createNewGame, SAVE_KEY, SAVE_VERSION, type GameState } from '../state';
 import { findScottSpot } from '../data/scottSpots';
-import { findCatSpot } from '../data/catSpots';
+import { findCatSpot, spotPosition } from '../data/catSpots';
+import { fixtureOffset } from '../systems/furniture';
 import { PLANTS } from '../data/plants';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { SHOP_ITEMS, INTRODUCED_IN_V7 } from '../data/shop';
@@ -12,7 +13,7 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
-const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog'] as const;
+const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog', 'putting'] as const;
 const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture', 'seededFixtures', 'seenShop', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds'] as const;
 const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock', 'curiosities', 'purchases'] as const;
 
@@ -51,6 +52,10 @@ export function migrateSave(raw: unknown): GameState | null {
   for (const key of ARRAY_FIELDS) {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   }
+  const putting = merged.putting as Loose;
+  if (!Array.isArray(putting.aces)) putting.aces = [];
+  if (typeof putting.rounds !== 'number') putting.rounds = 0;
+  if (typeof putting.best !== 'number') putting.best = null;
   for (const key of RECORD_FIELDS) {
     if (!isRecord(merged[key])) merged[key] = defaults[key];
   }
@@ -134,15 +139,18 @@ export function migrateSave(raw: unknown): GameState | null {
   // A spot that's since been removed (he no longer naps outdoors): he gets
   // up and moves on at once instead of staying put somewhere that's gone.
   if (state.scott.currentSpotId && !scottSpot && state.scott.activity !== 'traveling') state.scott.nextChangeAt = state.clock.totalMinutes;
+  const offset = (id: string) => fixtureOffset(state, id);
   if (scottSpot && state.scott.activity !== 'traveling') {
-    state.scott.x = scottSpot.x;
-    state.scott.y = scottSpot.y;
+    const at = spotPosition(scottSpot, offset);
+    state.scott.x = at.x;
+    state.scott.y = at.y;
     state.scott.zone = scottSpot.zone;
   }
   const catSpot = state.cat.currentSpotId ? findCatSpot(state.cat.currentSpotId) : undefined;
   if (catSpot && state.cat.activity !== 'wandering') {
-    state.cat.x = catSpot.x;
-    state.cat.y = catSpot.y;
+    const at = spotPosition(catSpot, offset);
+    state.cat.x = at.x;
+    state.cat.y = at.y;
   }
   return state;
 }
@@ -155,7 +163,7 @@ export function loadGame(): GameState | null {
       const state = migrateSave(JSON.parse(raw));
       if (state) return state;
     } catch (err) {
-      console.warn(`Foxtrot: couldn't read save "${key}".`, err);
+      console.warn(`Foxtail: couldn't read save "${key}".`, err);
     }
   }
   return null;
@@ -165,7 +173,7 @@ export function saveGame(state: GameState): void {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
   } catch (err) {
-    console.warn('Foxtrot: failed to save game.', err);
+    console.warn('Foxtail: failed to save game.', err);
   }
 }
 

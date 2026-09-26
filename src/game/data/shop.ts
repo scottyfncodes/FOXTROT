@@ -55,7 +55,8 @@ export const SHOP_ITEMS: ShopItem[] = [
   // Greenhouse
   { id: 'hangingHooks', name: 'Hanging Hook Rail', category: 'greenhouse', price: 90, purpose: 'display', role: 'foundation', blurb: 'Adds 3 hanging spots', description: 'A rail of three ceiling hooks for hanging pots. Trailing plants look spectacular up here.' },
   { id: 'plantShelf', name: 'Wall Shelf', category: 'greenhouse', price: 120, purpose: 'display', role: 'expansion', blurb: 'Adds 3 display spots', description: 'A reclaimed-wood shelf along the west wall. Room for three more plants.' },
-  { id: 'nurseryBeds', name: 'Two More Nursery Beds', category: 'greenhouse', price: 160, purpose: 'production', role: 'expansion', blurb: 'Adds 2 growing beds', description: 'Two more beds for rooting cuttings and raising young plants.' },
+  { id: 'nurseryBeds', name: 'Extra Nursery Beds', category: 'greenhouse', price: 160, purpose: 'production', role: 'expansion', blurb: 'Adds 2 growing beds', description: 'Two more beds for rooting cuttings and raising young plants.' },
+  { id: 'moreNurseryBeds', name: 'Two More Nursery Beds', category: 'greenhouse', price: 280, after: 'nurseryBeds', purpose: 'production', role: 'expansion', blurb: 'Adds 2 growing beds', description: 'Another pair of beds below the others. More cuttings rooting at once.' },
   { id: 'tieredStand', name: 'Tiered Plant Stand', category: 'greenhouse', price: 240, purpose: 'display', role: 'expansion', blurb: 'Adds 3 display spots', description: 'A three-step iron stand by the east glass. Three more display spots in the best light.' },
   { id: 'growLights', name: 'Grow Lights', category: 'greenhouse', price: 360, purpose: 'production', role: 'foundation', blurb: 'Everything indoors grows 1.5× faster', description: 'Warm lamps over the whole greenhouse. Everything indoors grows half again as fast.' },
   // Greenhouse furniture: bought by the piece and set down wherever you
@@ -85,8 +86,8 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'picketFence', name: 'Picket Fence', category: 'garden', price: 12, repeatable: true, description: 'A short run of white fence to frame a bed.' },
   { id: 'gardenLantern', name: 'Garden Lantern', category: 'garden', price: 30, repeatable: true, description: 'Glows warmly after dark.' },
   { id: 'birdbath', name: 'Birdbath', category: 'garden', price: 45, repeatable: true, description: 'A stone basin. Birds and butterflies will visit.' },
-  { id: 'gardenTrellis', name: 'Garden Trellis', category: 'garden', price: 50, repeatable: true, description: 'A freestanding cedar lattice for the garden. Frames a bed or a path.' },
   { id: 'gardenBench', name: 'Garden Bench', category: 'garden', price: 60, repeatable: true, description: 'Somewhere to sit and look at what you’ve made.' },
+  { id: 'gardenTrellis', name: 'Garden Trellis', category: 'garden', price: 55, repeatable: true, description: 'A freestanding cedar lattice. Plant a vine or trailer at its foot and it climbs instead of sprawling.' },
 
   // Equipment
   { id: 'basketMedium', name: 'Collector’s Satchel', category: 'equipment', price: 80, description: 'Carry up to 10 plants.' },
@@ -103,7 +104,7 @@ export function findShopItem(id: string): ShopItem | undefined {
 }
 
 /** Items added to the market in a later build, so older saves see them as NEW. */
-export const INTRODUCED_IN_V7 = ['nurseryBed', 'gardenTrellis'];
+export const INTRODUCED_IN_V7 = ['nurseryBed'];
 
 export interface PotStyle {
   id: string;
@@ -129,13 +130,15 @@ export function findPotStyle(id: string): PotStyle {
   return POT_STYLES.find((p) => p.id === id) ?? POT_STYLES[0];
 }
 
-export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenTrellis' | 'gardenBench';
-export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenTrellis', 'gardenBench'];
+export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenBench' | 'gardenTrellis';
+export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenBench', 'gardenTrellis'];
 
 /**
  * Everything that can stand (or hang) indoors. The first group is sold at
  * the market; the second is the greenhouse's own original fittings, which
- * can be moved or stored like anything else once the player picks them up.
+ * can be moved or stored like anything else once the player picks them up;
+ * the third is the living room's furniture, which can be moved but stays.
+ * FURNITURE_IDS lists only what can ever be in stock.
  */
 export type FurnitureId =
   | 'plantStand'
@@ -150,7 +153,23 @@ export type FurnitureId =
   | 'nurseryBed'
   | 'wallShelf'
   | 'tieredStand'
-  | 'sunroomStand';
+  | 'sunroomStand'
+  // The living room's own furniture: moved like anything else, never put away.
+  | 'tv'
+  | 'couch'
+  | 'coffeeTable'
+  | 'sideTable'
+  | 'catTree'
+  | 'catBed'
+  | 'puttingMat'
+  | 'rug'
+  | 'bookshelf'
+  | 'doormat'
+  | 'coatRack'
+  | 'floorLamp'
+  // The greenhouse's own set dressing: moved like anything else, never put away.
+  | 'scoutBed'
+  | 'ellenDesk';
 export const FURNITURE_IDS: FurnitureId[] = [
   'plantStand',
   'ironPedestal',

@@ -4,6 +4,7 @@ import { ZONES } from '../game/data/zones';
 import { zoneAt } from '../game/data/worldMap';
 import { isNight, minuteOfDay } from '../game/engine/Clock';
 import { ModeBar } from './ModeBar';
+import { ToastScheduler } from '../game/systems/toasts';
 
 function formatClock(totalMinutes: number): string {
   const m = minuteOfDay(totalMinutes);
@@ -36,6 +37,7 @@ export class HUD {
   private interactionPrompt = el('div', 'interaction-prompt');
   private promptLabel = document.createTextNode('');
   private toastStack = el('div', 'toast-stack');
+  private toasts = new ToastScheduler<HTMLElement>();
   private joystickZone = el('div', 'joystick-zone');
   private joystickThumb = el('div', 'joystick-thumb');
   private actionBtn = el('button', 'action-btn', 'SNIP');
@@ -110,14 +112,24 @@ export class HUD {
   }
 
   private showToast(t: ToastEvent) {
-    const node = el('div', `toast ${t.kind}`, t.text);
-    this.toastStack.appendChild(node);
-    setTimeout(() => node.remove(), t.kind === 'hint' || t.kind === 'discovery' ? 7000 : 4200);
-    while (this.toastStack.children.length > 3) this.toastStack.firstChild?.remove();
+    const node = el('div', `toast ${t.kind} sig-${t.significance}`, t.text);
+    node.setAttribute('role', 'status');
+    this.toasts.push(node, t.text, t.significance, performance.now());
+    this.pumpToasts();
+  }
+
+  private pumpToasts() {
+    const { show, hide } = this.toasts.tick(performance.now());
+    for (const node of hide) {
+      node.classList.add('leaving');
+      setTimeout(() => node.remove(), 450);
+    }
+    for (const node of show) this.toastStack.appendChild(node);
   }
 
   // Called every frame: only touch the DOM when what's shown actually changes.
   update() {
+    this.pumpToasts();
     const state = this.game.state;
     const zone = state.player.inGreenhouse ? 'greenhouse' : zoneAt(Math.floor(state.player.x), Math.floor(state.player.y));
     const cover = zone === 'greenhouse' ? 0 : this.game.lush.zoneCover[zone] ?? 0;
@@ -158,6 +170,7 @@ export class HUD {
       rock: 'HAUL',
       decor: 'MOVE',
       setDown: 'DROP',
+      puttingMat: 'PUTT',
     };
     setText(this.actionBtn, verbs[n.kind] ?? 'GO');
   }

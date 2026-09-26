@@ -9,6 +9,8 @@ export interface ScottSpot {
   /** Overworld tile coords for outdoor zones, interior tile coords (greenhouse + living room) for the 'greenhouse' zone. */
   x: number;
   y: number;
+  /** The living-room piece this spot belongs to: move it and the spot moves with it. */
+  anchor?: string;
 }
 
 // Ellen's husband doesn't follow anyone — he potters between a handful of
@@ -28,11 +30,11 @@ export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
   // The living room: the ball game on the couch, a drink with his feet up,
   // the putting mat when it's raining — and the only place he naps,
-  // stretched out on the couch (the cat, often, curled at his feet).
-  { id: 'living-couch-tv', kind: 'tv', zone: 'greenhouse', x: 21.35, y: 3.5 },
-  { id: 'living-couch-drink', kind: 'drink', zone: 'greenhouse', x: 20.8, y: 3.5 },
-  { id: 'living-couch-nap', kind: 'nap', zone: 'greenhouse', x: 21.0, y: 3.5 },
-  { id: 'living-putting', kind: 'putt', zone: 'greenhouse', x: 19.7, y: 8.55 },
+  // stretched out along the couch.
+  { id: 'living-couch-tv', kind: 'tv', zone: 'greenhouse', x: 21.35, y: 3.5, anchor: 'lr-couch' },
+  { id: 'living-couch-drink', kind: 'drink', zone: 'greenhouse', x: 20.8, y: 3.5, anchor: 'lr-couch' },
+  { id: 'living-couch-nap', kind: 'nap', zone: 'greenhouse', x: 21.35, y: 3.5, anchor: 'lr-couch' },
+  { id: 'living-putting', kind: 'putt', zone: 'greenhouse', x: 19.7, y: 8.55, anchor: 'lr-putting' },
 ];
 
 /** Spots where he's sitting on the couch, seen from behind. */
@@ -40,8 +42,7 @@ export function isCouchSpot(id: string | null): boolean {
   return id === 'living-couch-tv' || id === 'living-couch-drink';
 }
 
-/** Where he naps: lying along the couch seat, so drawn raised and in front of it. */
-export const COUCH_NAP_LIFT = 0.22;
+/** Stretched out asleep along the couch. */
 export function isCouchNap(id: string | null): boolean {
   return id === 'living-couch-nap';
 }

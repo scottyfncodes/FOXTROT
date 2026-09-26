@@ -36,6 +36,8 @@ export const NURSERY_BEDS: NurseryBed[] = [
   { id: 'bed4', x: 4, y: 4 },
   { id: 'bed5', x: 6, y: 2, requires: 'nurseryBeds' },
   { id: 'bed6', x: 6, y: 4, requires: 'nurseryBeds' },
+  { id: 'bed7', x: 4, y: 6, requires: 'moreNurseryBeds' },
+  { id: 'bed8', x: 6, y: 6, requires: 'moreNurseryBeds' },
 ];
 
 export const DISPLAY_SLOTS: DisplaySlot[] = [

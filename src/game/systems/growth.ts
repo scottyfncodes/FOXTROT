@@ -105,7 +105,8 @@ export function tickGrowth(state: GameState, minutes: number): StageUp[] {
   const ctx = growthContext(state);
   for (const plant of Object.values(state.plants)) {
     const before = stageIndexOf(plant.growth);
-    plant.growth += minutes * growthMultiplier(state, plant, ctx);
+    const grown = plant.growth + minutes * growthMultiplier(state, plant, ctx);
+    plant.growth = grown;
     const after = stageIndexOf(plant.growth);
     if (after !== before) ups.push({ plantId: plant.id, from: STAGES[before], to: STAGES[after] });
   }
