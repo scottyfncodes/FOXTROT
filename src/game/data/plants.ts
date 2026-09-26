@@ -686,6 +686,49 @@ PLANTS.cannabisSativa = {
   spread: 0.4,
   secret: true,
   keepsake: true,
+  unlisted: true,
+};
+
+// Its shorter, broad-leafed cousin, from the rocky high ground. It turns up
+// the same unlikely ways the sativa does.
+PLANTS.cannabisIndica = {
+  id: 'cannabisIndica',
+  name: 'Cannabis indica',
+  latin: 'Cannabis indica',
+  form: 'palmate',
+  rarity: 'mythic',
+  habitat: ['rockyClearing', 'woodland'],
+  landscape: 'jungle',
+  description: 'A short, bushy herb with broad, dark leaflets spread like a wide hand. Nobody in the valley has a record of it growing here.',
+  hint: 'A broad, dark, open hand of leaves. Nobody has recorded it here.',
+  look: { hue: 118, sat: 42, light: 28, accentHue: 96, variegation: 'none', size: 0.95, leafWidth: 1.15 },
+  variants: [{ id: 'wild', name: 'Wild', rarity: 'mythic', description: 'Broad-leafed and compact.', look: {} }],
+  growthRate: 1.1,
+  spread: 0.35,
+  secret: true,
+  keepsake: true,
+  unlisted: true,
+};
+
+// Never found: only made, by crossing the two.
+PLANTS.cannabisHybrid = {
+  id: 'cannabisHybrid',
+  name: 'Cannabis hybrid',
+  latin: 'Cannabis sativa × indica',
+  form: 'palmate',
+  rarity: 'mythic',
+  habitat: ['meadow', 'rockyClearing'],
+  landscape: 'jungle',
+  description: 'A cross of the sativa and the indica: taller than one, fuller than the other, with leaflets somewhere in between.',
+  hint: 'Something that only comes from two others.',
+  look: { hue: 110, sat: 44, light: 32, accentHue: 88, variegation: 'none', size: 1.05, leafWidth: 0.98 },
+  variants: [{ id: 'cross', name: 'Cross', rarity: 'mythic', description: 'Half of each parent.', look: {} }],
+  growthRate: 1.2,
+  spread: 0.35,
+  secret: true,
+  keepsake: true,
+  unlisted: true,
+  parents: ['cannabisSativa', 'cannabisIndica'],
 };
 
 export const PLANT_LIST: PlantDef[] = Object.values(PLANTS);

@@ -8,7 +8,7 @@ import { displaySlots, findFurniture } from '../game/systems/furniture';
 import { ESTABLISH_THRESHOLD, isEstablished } from '../game/systems/collection';
 import { STAGES, STAGE_LABEL, stageFloat, stageIndexOf, minutesToNextStage } from '../game/systems/growth';
 import { cuttingBlockReason, occupantOf, placementBlockReason, cuttingCooldown } from '../game/systems/propagation';
-import { button, note, portrait, rarityBadge, realTime } from './common';
+import { button, note, portrait, rarityBadge, realTime, crossButton } from './common';
 
 type Target = { kind: 'bed' | 'display'; id: string };
 
@@ -207,6 +207,8 @@ export class GreenhousePanel {
       this.game.cutFrom(plant.id);
       this.render();
     }, 'primary-btn', !!block));
+    const crossBtn = crossButton(this.game, plant, () => this.render());
+    if (crossBtn) actions.appendChild(crossBtn);
     const liftLabel = plant.location.kind === 'nursery' && est && idx >= 1 ? 'Lift — to display or plant out' : 'Lift into basket';
     actions.appendChild(button(liftLabel, () => {
       this.game.lift(plant.id);

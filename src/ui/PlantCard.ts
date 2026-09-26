@@ -6,7 +6,7 @@ import { STAGES, STAGE_LABEL, stageFloat, stageIndexOf, minutesToNextStage } fro
 import { cuttingBlockReason, cuttingCooldown } from '../game/systems/propagation';
 import { canTransplant, compostYield, findBed } from '../game/systems/landscape';
 import { zoneLabel } from '../game/engine/Game';
-import { button, note, portrait, rarityBadge, realTime } from './common';
+import { button, note, portrait, rarityBadge, realTime, crossButton } from './common';
 
 /**
  * A plant out in the landscape, looked at up close: how it's doing, and
@@ -84,6 +84,8 @@ export class PlantCard {
       this.game.cutFrom(plant.id);
       this.render();
     }, 'primary-btn', !!block));
+    const crossBtn = crossButton(this.game, plant, () => this.render());
+    if (crossBtn) actions.appendChild(crossBtn);
     if (canTransplant(plant)) {
       actions.appendChild(button('Move it', () => {
         this.panel.close();

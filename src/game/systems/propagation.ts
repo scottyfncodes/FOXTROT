@@ -81,6 +81,64 @@ export function takeCutting(state: GameState, plantId: string, now: number, rand
   return { item, sport, newVariant: found.newVariant };
 }
 
+/** For one parent of a cross, its partner and what the two make together. */
+export function crossOf(defId: string): { partner: string; child: string } | null {
+  for (const def of Object.values(PLANTS)) {
+    if (!def.parents) continue;
+    const [a, b] = def.parents;
+    if (defId === a) return { partner: b, child: def.id };
+    if (defId === b) return { partner: a, child: def.id };
+  }
+  return null;
+}
+
+export type CrossBlock = 'no-cross' | 'no-partner' | 'not-rooted' | 'recovering' | 'basket-full';
+
+/** A rooted plant of the partner species the player is growing, ready to give pollen. */
+export function crossPartner(state: GameState, plant: OwnedPlant, now: number): OwnedPlant | undefined {
+  const cross = crossOf(plant.defId);
+  if (!cross) return undefined;
+  const ready = (p: OwnedPlant) => isRooted(p.growth) && (p.lastCuttingAt === null || now - p.lastCuttingAt >= cuttingCooldown(state));
+  return Object.values(state.plants).find((p) => p.defId === cross.partner && p.id !== plant.id && ready(p));
+}
+
+export function crossBlockReason(state: GameState, plant: OwnedPlant, now: number): CrossBlock | null {
+  const cross = crossOf(plant.defId);
+  if (!cross) return 'no-cross';
+  if (!Object.values(state.plants).some((p) => p.defId === cross.partner)) return 'no-partner';
+  const own = cuttingBlockReason(state, plant, now);
+  if (own) return own;
+  if (!crossPartner(state, plant, now)) return 'recovering';
+  return null;
+}
+
+/**
+ * Cross-pollinates a plant with a rooted one of its partner species: the
+ * seed that sets comes up as the hybrid, straight into the basket. Both
+ * parents then need the same rest they would after a cutting.
+ */
+export function crossPollinate(state: GameState, plantId: string, now: number, rand: () => number = Math.random): { item: BasketItem; newSpecies: boolean } | null {
+  const plant = state.plants[plantId];
+  if (!plant || crossBlockReason(state, plant, now)) return null;
+  const partner = crossPartner(state, plant, now)!;
+  const child = crossOf(plant.defId)!.child;
+  const item = addToBasket(state, {
+    defId: child,
+    variantId: PLANTS[child].variants[0].id,
+    seed: Math.floor(rand() * 1e9),
+    growth: 0,
+    generation: Math.max(plant.generation, partner.generation) + 1,
+    origin: 'cutting',
+    collectedAt: now,
+  });
+  if (!item) return null;
+  plant.lastCuttingAt = now;
+  partner.lastCuttingAt = now;
+  ensureRecord(state, plant.defId, now).propagated += 1;
+  const found = recordFound(state, child, item.variantId, now);
+  return { item, newSpecies: found.newSpecies };
+}
+
 function newPlantFrom(item: BasketItem, location: PlantLocation, now: number): OwnedPlant {
   return {
     id: makeUid('plant'),

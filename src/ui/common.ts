@@ -3,6 +3,10 @@ import { drawPortrait } from '../game/world/PlantArt';
 import { RARITY_LABEL, rarityRank } from '../game/data/plants';
 import type { Rarity } from '../game/types';
 import { GAME_MINUTES_PER_REAL_SECOND } from '../game/engine/Clock';
+import { PLANTS } from '../game/data/plants';
+import type { OwnedPlant } from '../game/state';
+import type { Game } from '../game/engine/Game';
+import { crossOf, crossBlockReason } from '../game/systems/propagation';
 
 /** A small canvas painting of a plant, drawn with the same art as the world. */
 export function portrait(defId: string, variantId: string, sf: number, seed: number, size: number, silhouette = false): HTMLCanvasElement {
@@ -43,4 +47,19 @@ export function button(label: string, onClick: () => void, cls = 'primary-btn', 
   b.disabled = disabled;
   b.addEventListener('click', onClick);
   return b;
+}
+
+/** "Cross with …" for a plant that has a crossing partner; null for everything else. */
+export function crossButton(game: Game, plant: OwnedPlant, after: () => void): HTMLButtonElement | null {
+  const cross = crossOf(plant.defId);
+  if (!cross) return null;
+  const state = game.state;
+  const block = crossBlockReason(state, plant, state.clock.totalMinutes);
+  const partner = PLANTS[cross.partner].name;
+  const label =
+    block === 'no-partner' ? `Needs a ${partner} to cross` : block === 'basket-full' ? 'Basket full' : block ? 'Not ready to cross' : `Cross with ${partner}`;
+  return button(label, () => {
+    game.crossFrom(plant.id);
+    after();
+  }, 'secondary-btn', !!block);
 }

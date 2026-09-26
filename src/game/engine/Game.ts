@@ -58,6 +58,9 @@ import {
   setPot,
   creditGrown,
   occupantOf,
+  crossBlockReason,
+  crossPollinate,
+  crossOf,
 } from '../systems/propagation';
 import { sellItem, buyItem } from '../systems/market';
 import { placeDecor, pickUpDecor, nearestDecor } from '../systems/decor';
@@ -736,6 +739,26 @@ export class Game {
     } else {
       this.pushToast(`Took a cutting of ${name}.`, 'info');
     }
+    this.onStateTouched?.();
+  }
+
+  /** Cross-pollinates a cannabis plant with its partner species; the hybrid seed goes in the basket. */
+  crossFrom(plantId: string) {
+    const plant = this.state.plants[plantId];
+    if (!plant) return;
+    const now = this.state.clock.totalMinutes;
+    const block = crossBlockReason(this.state, plant, now);
+    if (block === 'basket-full') return this.pushToast('Your basket is full.', 'info');
+    if (block === 'not-rooted') return this.pushToast('It needs to root and grow a little before it can be crossed.', 'info');
+    if (block === 'recovering') return this.pushToast('Both plants need to be rooted and rested to cross them.', 'info');
+    if (block === 'no-partner') return this.pushToast(`You’d need a ${PLANTS[crossOf(plant.defId)!.partner].name} of your own to cross it with.`, 'info');
+    const res = crossPollinate(this.state, plantId, now);
+    if (!res) return;
+    this.actionAnimUntil = now + 1.4;
+    this.audio.playDiscoveryChime();
+    const name = specimenName(res.item.defId, res.item.variantId);
+    if (res.newSpecies) this.announce(`A cross! ${name}.`, specimenRarity(res.item.defId, res.item.variantId));
+    else this.pushToast(`Crossed them: a ${name} seedling is in your basket.`, 'info');
     this.onStateTouched?.();
   }
 
