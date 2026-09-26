@@ -23,14 +23,14 @@ export const CAT_SPOTS: CatSpot[] = [
   { id: 'shelf-perch', kind: 'perch', x: 15.4, y: 7.1 },
   { id: 'door-sun-nap', kind: 'sleep', x: 8, y: 10 },
   // Living room
-  { id: 'couch-nap', kind: 'sleep', x: 22.5, y: 3.62, lift: 0.22, weight: 1.6 },
-  { id: 'cat-bed', kind: 'sleep', x: 25.15, y: 6.2, weight: 1.3 },
+  { id: 'couch-nap', kind: 'sleep', x: 21.95, y: 3.5, lift: 0.22, weight: 1.6 },
+  { id: 'cat-bed', kind: 'sleep', x: 25.15, y: 6.15, weight: 1.3 },
   { id: 'window-perch', kind: 'perch', x: 25.35, y: 4.15, lift: 0.3 },
-  { id: 'cattree-base', kind: 'groom', x: 25.4, y: 2.45 },
-  { id: 'rug-groom', kind: 'groom', x: 21.2, y: 5.0 },
-  { id: 'coffee-table', kind: 'perch', x: 21.55, y: 2.5, lift: 0.28, weight: 0.35 },
-  { id: 'tv-top', kind: 'sleep', x: 21.55, y: 1.02, lift: 0.52, weight: 0.2 },
-  { id: 'putting-mat', kind: 'groom', x: 23.1, y: 8.75, weight: 0.4 },
+  { id: 'cattree-base', kind: 'groom', x: 25.3, y: 2.35 },
+  { id: 'rug-groom', kind: 'groom', x: 21.1, y: 4.6 },
+  { id: 'coffee-table', kind: 'perch', x: 21.35, y: 2.42, lift: 0.28, weight: 0.35 },
+  { id: 'tv-top', kind: 'sleep', x: 21.35, y: 1.0, lift: 0.52, weight: 0.2 },
+  { id: 'putting-mat', kind: 'groom', x: 22.1, y: 8.75, weight: 0.4 },
 ];
 
 export function findCatSpot(id: string): CatSpot | undefined {

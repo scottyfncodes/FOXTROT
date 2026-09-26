@@ -193,7 +193,7 @@ export function removeBed(state: GameState, id: string): boolean {
 
 // ---------------------------------------------------------------- paths
 
-export const PATH_WIDTH = 1.15;
+export const PATH_WIDTH = 0.9;
 export const PATH_MIN_LENGTH = 2;
 export const PATH_MAX_POINTS = 80;
 /** Game-minutes for the verges of a path to creep most of the way in. */

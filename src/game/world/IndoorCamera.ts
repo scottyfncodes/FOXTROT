@@ -13,13 +13,22 @@ export function makeIndoorCamera(outer: Camera, focusX: number, focusY: number):
   camera.viewW = outer.viewW;
   camera.viewH = outer.viewH;
   const shortAxis = Math.min(camera.viewW, camera.viewH);
-  const targetTilesVisible = 9.5;
+  // A little closer than the old greenhouse-only 9.5: the interior is wider
+  // now, and Ellen should read as the anchor of the room, not a figure in it.
+  const targetTilesVisible = 8;
   const fitWholeRoom = Math.min(camera.viewW / (INTERIOR_W * TILE_SIZE), camera.viewH / (INTERIOR_H * TILE_SIZE));
   camera.zoom = Math.max(fitWholeRoom, shortAxis / (targetTilesVisible * TILE_SIZE));
   const clampAxis = (world: number, viewSize: number, worldTiles: number): number => {
     const halfView = viewSize / 2 / camera.zoom;
     const worldSize = worldTiles * TILE_SIZE;
-    if (worldSize <= viewSize / camera.zoom) return worldSize / 2;
+    // When the whole room fits on this axis (a phone held upright), still
+    // follow her — just never so far that a wall slides off-screen. Pinning
+    // the room's centre left Ellen tiles above or below the middle.
+    if (worldSize <= viewSize / camera.zoom) {
+      // Lean most of the way toward her, so the room stays balanced on screen.
+      const leaned = worldSize / 2 + (world - worldSize / 2) * 0.65;
+      return Math.min(Math.max(leaned, worldSize - halfView), halfView);
+    }
     return Math.min(Math.max(world, halfView), worldSize - halfView);
   };
   camera.x = clampAxis(focusX * TILE_SIZE, camera.viewW, INTERIOR_W);

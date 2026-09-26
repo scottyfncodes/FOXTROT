@@ -328,8 +328,8 @@ export function createNewGame(): GameState {
     },
     market: { day: 0, sold: {} },
     cat: {
-      x: 22.5,
-      y: 3.62,
+      x: 21.95,
+      y: 3.5,
       facing: 'down',
       activity: 'sleeping',
       currentSpotId: 'couch-nap',

@@ -56,17 +56,19 @@ export interface LivingFixture extends InteriorRect {
 
 // Rects are in interior tile units, top-left origin.
 export const LIVING_FIXTURES: LivingFixture[] = [
-  { id: 'lr-rug', kind: 'rug', x: 19.4, y: 1.7, w: 4.6, h: 3.1, solid: false },
-  { id: 'lr-tv', kind: 'tv', x: 20.6, y: 0.75, w: 1.9, h: 0.5, solid: true },
-  { id: 'lr-coffee', kind: 'coffeeTable', x: 20.9, y: 2.25, w: 1.3, h: 0.5, solid: true },
-  { id: 'lr-couch', kind: 'couch', x: 20.0, y: 3.3, w: 3.1, h: 0.95, solid: true },
-  { id: 'lr-side', kind: 'sideTable', x: 23.3, y: 3.4, w: 0.6, h: 0.6, solid: true },
-  { id: 'lr-lamp', kind: 'floorLamp', x: 19.35, y: 3.5, w: 0.4, h: 0.4, solid: true },
-  { id: 'lr-bookshelf', kind: 'bookshelf', x: 22.9, y: 0.7, w: 1.4, h: 0.5, solid: true },
-  { id: 'lr-cattree', kind: 'catTree', x: 25.0, y: 1.5, w: 0.8, h: 0.8, solid: true },
-  { id: 'lr-catbed', kind: 'catBed', x: 24.7, y: 5.9, w: 0.9, h: 0.6, solid: false },
-  { id: 'lr-putting', kind: 'puttingMat', x: 18.7, y: 8.2, w: 5.4, h: 0.8, solid: false },
-  { id: 'lr-doormat', kind: 'doormat', x: 21.6, y: 10.2, w: 1.8, h: 0.6, solid: false },
+  // Sized against Ellen (about one tile tall): a two-seat couch, a modest
+  // TV, a mat long enough to putt on — the room frames her, not the other way round.
+  { id: 'lr-rug', kind: 'rug', x: 19.6, y: 1.8, w: 3.5, h: 2.5, solid: false },
+  { id: 'lr-tv', kind: 'tv', x: 20.7, y: 0.8, w: 1.3, h: 0.42, solid: true },
+  { id: 'lr-coffee', kind: 'coffeeTable', x: 20.88, y: 2.2, w: 0.95, h: 0.42, solid: true },
+  { id: 'lr-couch', kind: 'couch', x: 20.35, y: 3.2, w: 2.0, h: 0.8, solid: true },
+  { id: 'lr-side', kind: 'sideTable', x: 22.5, y: 3.3, w: 0.5, h: 0.5, solid: true },
+  { id: 'lr-lamp', kind: 'floorLamp', x: 19.8, y: 3.35, w: 0.35, h: 0.35, solid: true },
+  { id: 'lr-bookshelf', kind: 'bookshelf', x: 23.3, y: 0.75, w: 1.0, h: 0.42, solid: true },
+  { id: 'lr-cattree', kind: 'catTree', x: 25.0, y: 1.6, w: 0.6, h: 0.6, solid: true },
+  { id: 'lr-catbed', kind: 'catBed', x: 24.8, y: 5.9, w: 0.75, h: 0.5, solid: false },
+  { id: 'lr-putting', kind: 'puttingMat', x: 19.2, y: 8.3, w: 3.8, h: 0.6, solid: false },
+  { id: 'lr-doormat', kind: 'doormat', x: 21.75, y: 10.25, w: 1.5, h: 0.5, solid: false },
   { id: 'lr-coats', kind: 'coatRack', x: 24.7, y: 10.0, w: 0.5, h: 0.5, solid: true },
 ];
 
@@ -75,7 +77,7 @@ export function findFixture(kind: LivingFixtureKind): LivingFixture {
 }
 
 /** The cup at the far end of the putting mat. */
-export const PUTTING_CUP = { x: 23.7, y: 8.6 };
+export const PUTTING_CUP = { x: 22.6, y: 8.6 };
 
 /** Openings into the rest of the house — drawn as warm, dim doorways, never entered. */
 export const IMPLIED_DOORWAYS = [
