@@ -89,8 +89,34 @@ describe('putt-putt physics', () => {
 });
 
 describe('the course', () => {
-  it('has six holes, every one laid out on the mat', () => {
-    expect(COURSE).toHaveLength(6);
+  it('eases in: the front holes are open, the obstacles come later', () => {
+    expect(COURSE[0].obstacles).toHaveLength(0);
+    expect(COURSE[1].obstacles).toHaveLength(0);
+    expect(COURSE[COURSE.length - 1].obstacles.length).toBeGreaterThan(0);
+  });
+
+  it('draws a nearly-there putt into the cup', () => {
+    const hole = COURSE[0];
+    // Rolling slowly, just past the edge of the cup: the lip gathers it in.
+    const b: Ball = { x: hole.cup.x + 0.32, y: hole.cup.y + 0.6, vx: 0, vy: -0.95 };
+    let e = null;
+    for (let i = 0; i < 2000 && e !== 'sunk' && (b.vx !== 0 || b.vy !== 0); i++) e = stepBall(b, hole, 1 / 240);
+    expect(e).toBe('sunk');
+  });
+
+  it('previews the line only as far as the first bounce', async () => {
+    const { previewPath } = await import('../src/game/systems/putting');
+    const hole = COURSE.find((h) => h.id === 'mug')!;
+    const path = previewPath(hole, hole.tee, -Math.PI / 2, 1);
+    const last = path[path.length - 1];
+    // Stops at the mug, well short of the cup behind it.
+    expect(last.y).toBeGreaterThan(hole.cup.y + 1);
+    expect(path.length).toBeGreaterThan(2);
+  });
+
+  it('has nine holes, every one laid out on the mat', () => {
+    expect(COURSE).toHaveLength(9);
+    expect(new Set(COURSE.map((h) => h.id)).size).toBe(9);
     for (const h of COURSE) {
       for (const p of [h.tee, h.cup]) {
         expect(p.x).toBeGreaterThan(0);
@@ -128,6 +154,16 @@ describe('the putting record', () => {
     expect(recordRound(rec, 18)).toBe(true);
     expect(recordRound(rec, 20)).toBe(false);
     expect(recordRound(rec, 16)).toBe(true);
-    expect(rec).toEqual({ rounds: 3, best: 16, aces: ['hallway'] });
+    expect(rec).toMatchObject({ rounds: 3, best: 16, aces: ['hallway'] });
+  });
+
+  it('starts a fresh best when the course grows', async () => {
+    const { recordRound, bestRound } = await import('../src/game/systems/putting');
+    // A best set on the old six-hole course.
+    const rec = { rounds: 4, best: 15, aces: ['mug'] as string[] };
+    expect(bestRound(rec)).toBeNull();
+    expect(recordRound(rec, 26)).toBe(true);
+    expect(bestRound(rec)).toBe(26);
+    expect(rec.aces).toEqual(['mug']);
   });
 });

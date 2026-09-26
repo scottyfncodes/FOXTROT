@@ -1,4 +1,4 @@
-// Putt-putt on the living-room mat: a six-hole course laid out with
+// Putt-putt on the living-room mat: a nine-hole course laid out with
 // whatever was lying around the house — a mug, a slipper, a couple of
 // books, and the cat, who got there first.
 //
@@ -11,13 +11,17 @@ import type { PuttingRecord } from '../state';
 export const COURSE_W = 3.6;
 export const COURSE_L = 9;
 export const BALL_R = 0.1;
-export const CUP_R = 0.19;
+export const CUP_R = 0.25;
 /** Rolling resistance, units/s². */
 export const ROLL = 1.3;
 /** The hardest putt, units/s. */
 export const MAX_SPEED = 5.4;
 /** Faster than this over the cup and it lips out. */
-export const CAPTURE_SPEED = 1.8;
+export const CAPTURE_SPEED = 2.5;
+/** Near the cup a slow ball is drawn in, like the lip of a real hole, units/s². */
+const CUP_PULL = 2.2;
+/** How far out that pull reaches, as a multiple of the cup's radius. */
+const CUP_PULL_REACH = 2.2;
 /** Give up on a hole after this many strokes. */
 export const STROKE_LIMIT = 6;
 const STOP_SPEED = 0.06;
@@ -56,7 +60,8 @@ export interface Hole {
   obstacles: Obstacle[];
 }
 
-// The course is drawn a little wider than the real mat, so it plays well on a phone.
+// The course is drawn a little wider than the real mat, so it plays well on a
+// phone. It starts gentle and saves the tricky ones for the back nine.
 export const COURSE: Hole[] = [
   {
     id: 'hallway',
@@ -68,13 +73,44 @@ export const COURSE: Hole[] = [
     obstacles: [],
   },
   {
+    id: 'rug',
+    name: 'Rug Run',
+    par: 2,
+    tee: { x: 0.8, y: 8.1 },
+    cup: { x: 2.7, y: 1.4 },
+    slope: { x: 0, y: 0 },
+    obstacles: [],
+  },
+  {
     id: 'mug',
     name: 'Around the Mug',
     par: 2,
     tee: { x: 1.8, y: 8.1 },
     cup: { x: 1.8, y: 1.15 },
     slope: { x: 0, y: 0 },
-    obstacles: [{ shape: 'circle', kind: 'mug', x: 1.8, y: 4.4, r: 0.42 }],
+    obstacles: [{ shape: 'circle', kind: 'mug', x: 1.8, y: 4.4, r: 0.36 }],
+  },
+  {
+    id: 'uphill',
+    name: 'Uphill Lie',
+    par: 2,
+    tee: { x: 1.0, y: 8.1 },
+    cup: { x: 2.6, y: 1.5 },
+    // The far end of the mat is propped on a paperback: everything rolls back toward the tee.
+    slope: { x: 0, y: 0.28 },
+    obstacles: [],
+  },
+  {
+    id: 'chicane',
+    name: 'Coaster Chicane',
+    par: 3,
+    tee: { x: 1.8, y: 8.1 },
+    cup: { x: 1.8, y: 1.2 },
+    slope: { x: 0, y: 0 },
+    obstacles: [
+      { shape: 'circle', kind: 'mug', x: 1.15, y: 5.6, r: 0.3 },
+      { shape: 'circle', kind: 'mug', x: 2.45, y: 3.4, r: 0.3 },
+    ],
   },
   {
     id: 'slipper',
@@ -84,19 +120,9 @@ export const COURSE: Hole[] = [
     cup: { x: 0.75, y: 1.05 },
     slope: { x: 0, y: 0 },
     obstacles: [
-      { shape: 'rect', kind: 'slipper', x: 0, y: 4.0, w: 2.4, h: 0.45 },
-      { shape: 'rect', kind: 'book', x: 1.4, y: 6.2, w: 2.2, h: 0.4 },
+      { shape: 'rect', kind: 'slipper', x: 0, y: 4.0, w: 2.0, h: 0.42 },
+      { shape: 'rect', kind: 'book', x: 1.75, y: 6.2, w: 1.85, h: 0.38 },
     ],
-  },
-  {
-    id: 'uphill',
-    name: 'Uphill Lie',
-    par: 2,
-    tee: { x: 1.0, y: 8.1 },
-    cup: { x: 2.6, y: 1.5 },
-    // The far end of the mat is propped on a paperback: everything rolls back toward the tee.
-    slope: { x: 0, y: 0.42 },
-    obstacles: [],
   },
   {
     id: 'gate',
@@ -104,11 +130,11 @@ export const COURSE: Hole[] = [
     par: 3,
     tee: { x: 1.8, y: 8.1 },
     cup: { x: 1.1, y: 1.2 },
-    // …and the floor isn't level either.
-    slope: { x: 0.24, y: 0 },
+    // …and the floor isn't quite level either.
+    slope: { x: 0.14, y: 0 },
     obstacles: [
-      { shape: 'rect', kind: 'book', x: 0, y: 4.5, w: 1.45, h: 0.4 },
-      { shape: 'rect', kind: 'book', x: 2.2, y: 4.5, w: 1.4, h: 0.4 },
+      { shape: 'rect', kind: 'book', x: 0, y: 4.5, w: 1.3, h: 0.38 },
+      { shape: 'rect', kind: 'book', x: 2.35, y: 4.5, w: 1.25, h: 0.38 },
     ],
   },
   {
@@ -119,8 +145,21 @@ export const COURSE: Hole[] = [
     cup: { x: 1.8, y: 1.2 },
     slope: { x: 0, y: 0 },
     obstacles: [
-      { shape: 'circle', kind: 'cat', x: 1.8, y: 2.95, r: 0.65 },
-      { shape: 'circle', kind: 'mug', x: 0.6, y: 5.55, r: 0.33 },
+      { shape: 'circle', kind: 'cat', x: 1.8, y: 3.0, r: 0.6 },
+      { shape: 'circle', kind: 'mug', x: 0.6, y: 5.55, r: 0.3 },
+    ],
+  },
+  {
+    id: 'nightcap',
+    name: 'Nightcap',
+    par: 3,
+    tee: { x: 1.8, y: 8.1 },
+    cup: { x: 1.8, y: 1.3 },
+    slope: { x: 0, y: 0 },
+    // Someone left their tea right in front of the hole. Go round, or bank it.
+    obstacles: [
+      { shape: 'circle', kind: 'mug', x: 1.8, y: 2.7, r: 0.34 },
+      { shape: 'rect', kind: 'slipper', x: 0, y: 5.6, w: 1.1, h: 0.4 },
     ],
   },
 ];
@@ -181,6 +220,11 @@ export function stepBall(ball: Ball, hole: Hole, dt: number): BallEvent | null {
   const dxc = ball.x - hole.cup.x;
   const dyc = ball.y - hole.cup.y;
   const dc = Math.hypot(dxc, dyc);
+  // A slow ball near the hole is drawn toward it: a putt that's nearly there drops.
+  if (dc > 1e-6 && dc < CUP_R * CUP_PULL_REACH && Math.hypot(ball.vx, ball.vy) < CAPTURE_SPEED) {
+    ball.vx -= (dxc / dc) * CUP_PULL * dt;
+    ball.vy -= (dyc / dc) * CUP_PULL * dt;
+  }
   if (dc < CUP_R) {
     const v = Math.hypot(ball.vx, ball.vy);
     if (v < CAPTURE_SPEED) {
@@ -274,6 +318,29 @@ export function simulatePutt(hole: Hole, from: { x: number; y: number }, angle: 
   return { ball, sunk: false, events };
 }
 
+/**
+ * Where a putt would roll, up to its first bounce (or a short way, whichever
+ * comes first): the faint guide drawn while aiming. It never gives away the
+ * whole putt, just the line.
+ */
+export function previewPath(hole: Hole, from: { x: number; y: number }, angle: number, power: number, maxLength = 3.2): { x: number; y: number }[] {
+  const ball: Ball = { x: from.x, y: from.y, vx: 0, vy: 0 };
+  strike(ball, angle, power);
+  const pts = [{ x: ball.x, y: ball.y }];
+  const dt = 1 / 120;
+  let travelled = 0;
+  for (let t = 0; t < 6 && ballMoving(ball) && travelled < maxLength; t += dt) {
+    const px = ball.x;
+    const py = ball.y;
+    const e = stepBall(ball, hole, dt);
+    travelled += Math.hypot(ball.x - px, ball.y - py);
+    if (Math.round(t / dt) % 4 === 0) pts.push({ x: ball.x, y: ball.y });
+    if (e === 'wall' || e === 'hit' || e === 'sunk' || e === 'lip') break;
+  }
+  pts.push({ x: ball.x, y: ball.y });
+  return pts;
+}
+
 /** Golf's names for a score against par. */
 export function scoreName(strokes: number, par: number): string {
   if (strokes === 1) return 'Hole in one!';
@@ -302,9 +369,18 @@ export function recordAce(rec: PuttingRecord, holeId: string): boolean {
   return true;
 }
 
+/** The best round on the course as it is now (a best from an older, shorter course doesn't count). */
+export function bestRound(rec: PuttingRecord): number | null {
+  return rec.holes === COURSE.length ? rec.best : null;
+}
+
 /** Notes a finished round; true if it's a new best. */
 export function recordRound(rec: PuttingRecord, total: number): boolean {
   rec.rounds += 1;
+  if (rec.holes !== COURSE.length) {
+    rec.holes = COURSE.length;
+    rec.best = null;
+  }
   if (rec.best === null || total < rec.best) {
     rec.best = total;
     return true;

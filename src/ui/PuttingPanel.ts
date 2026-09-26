@@ -16,6 +16,8 @@ import {
   stepBall,
   strike,
   toPar,
+  previewPath,
+  bestRound,
   type Ball,
   type Obstacle,
 } from '../game/systems/putting';
@@ -113,7 +115,7 @@ export class PuttingPanel {
         el('span', 'putt-score', `Stroke ${this.strokes[this.hole] + (this.phase === 'aim' ? 1 : 0)} · Round ${this.hole === 0 ? 'E' : toPar(played, parPlayed)}`)
       );
     }
-    const best = this.game.state.putting.best;
+    const best = bestRound(this.game.state.putting);
     if (this.phase === 'done') {
       this.status.textContent = this.scorecard();
     } else if (this.phase === 'aim') {
@@ -235,7 +237,7 @@ export class PuttingPanel {
     const first = this.game.state.putting.rounds === 1;
     this.banner = {
       text: `${this.total} · ${toPar(this.total, COURSE_PAR)}`,
-      sub: first ? 'Your first round on the mat.' : best ? 'A new best round!' : `Best round: ${this.game.state.putting.best}`,
+      sub: first ? 'Your first round on the mat.' : best ? 'A new best round!' : `Best round: ${bestRound(this.game.state.putting)}`,
       until: Infinity,
     };
     this.refresh();
@@ -330,15 +332,17 @@ export class PuttingPanel {
     // Aim line and power, while pulling back.
     const aim = this.phase === 'aim' ? this.aim() : null;
     if (aim && this.pull) {
-      const len = (0.6 + aim.power * 3.2) * s;
       const bx = X(this.ball.x);
       const by = Y(this.ball.y);
-      ctx.setLineDash([6, 6]);
-      ctx.strokeStyle = `rgba(255,255,255,${0.5 + aim.power * 0.4})`;
-      ctx.lineWidth = 2.5;
+      // The line it will take, as far as its first bounce: a guide, not the whole answer.
+      const path = previewPath(hole, this.ball, aim.angle, aim.power);
+      ctx.setLineDash([2, 7]);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = `rgba(255,255,255,${0.55 + aim.power * 0.35})`;
+      ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(bx, by);
-      ctx.lineTo(bx + Math.cos(aim.angle) * len, by + Math.sin(aim.angle) * len);
+      for (const pt of path) ctx.lineTo(X(pt.x), Y(pt.y));
       ctx.stroke();
       ctx.setLineDash([]);
       // The putter, drawn back behind the ball.
