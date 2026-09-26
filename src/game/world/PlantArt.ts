@@ -43,7 +43,7 @@ interface Paint {
 
 // ------------------------------------------------------------ leaf shapes
 
-type LeafShape = 'heart' | 'oval' | 'lance' | 'succulent' | 'spear' | 'spike';
+type LeafShape = 'heart' | 'oval' | 'lance' | 'succulent' | 'spear' | 'spike' | 'fiddle';
 
 /** Builds a leaf path at the origin, attached at (0,0), pointing up (−y). */
 function leafPath(ctx: CanvasRenderingContext2D, shape: LeafShape, L: number, W: number, ruffle: number) {
@@ -66,6 +66,15 @@ function leafPath(ctx: CanvasRenderingContext2D, shape: LeafShape, L: number, W:
     ctx.quadraticCurveTo(-W * 0.9, -L * 0.55, 0, -L);
     ctx.quadraticCurveTo(W * 0.9, -L * 0.55, W, 0);
     ctx.closePath();
+  } else if (shape === 'fiddle') {
+    // Narrow at the stalk, pinched at the waist, broad and rounded at the top.
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(W * 0.5, -L * 0.04, W * 0.78, -L * 0.28, W * 0.64, -L * 0.46);
+    ctx.bezierCurveTo(W * 0.56, -L * 0.56, W * 1.12, -L * 0.6, W * 1.02, -L * 0.84);
+    ctx.bezierCurveTo(W * 0.92, -L * 1.02, W * 0.28, -L * 1.04, 0, -L * 0.96);
+    ctx.bezierCurveTo(-W * 0.28, -L * 1.04, -W * 0.92, -L * 1.02, -W * 1.02, -L * 0.84);
+    ctx.bezierCurveTo(-W * 1.12, -L * 0.6, -W * 0.56, -L * 0.56, -W * 0.64, -L * 0.46);
+    ctx.bezierCurveTo(-W * 0.78, -L * 0.28, -W * 0.5, -L * 0.04, 0, 0);
   } else if (shape === 'succulent') {
     ctx.moveTo(0, 0);
     ctx.bezierCurveTo(W * 1.35, -L * 0.15, W * 1.0, -L * 0.8, 0, -L);
@@ -1067,6 +1076,82 @@ function drawJade(p: Paint) {
   }
 }
 
+function drawFig(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  // A cutting is a green stem with a leaf or two; with age the stem browns
+  // into a trunk, grows taller, and a big plant throws out a side branch.
+  const age = Math.min(1, sf / 3);
+  // Turn toward bark brown the short way round the colour wheel (a burgundy stem shouldn't pass through blue).
+  const dh = ((30 - look.hue + 540) % 360) - 180;
+  const bark = hsl(look.hue + dh * age, 20 + (1 - age) * 14, 30 + (1 - age) * 8);
+  const H = S * (0.42 + Math.min(sf, 4.6) * 0.3);
+  const lean = (rand() - 0.5) * 0.12;
+  const trunkW = Math.max(1, S * (0.035 + Math.min(sf, 4) * 0.012));
+  const at = (t: number) => ({ x: Math.sin(lean) * H * t + Math.sin(t * Math.PI) * S * 0.04, y: -H * t });
+  stroke(ctx, bark, trunkW, () => {
+    ctx.moveTo(0, 0);
+    for (let i = 1; i <= 8; i++) {
+      const q = at(i / 8);
+      ctx.lineTo(q.x, q.y);
+    }
+  });
+  // Stems that carry leaves: the trunk, plus a branch or two on a big plant.
+  const stems: { from: number; to: number; x0: number; y0: number; a: number; len: number }[] = [];
+  const tip = at(1);
+  stems.push({ from: 0.3, to: 1, x0: 0, y0: 0, a: lean, len: H });
+  const branches = sf >= 3.2 ? (sf >= 4 ? 2 : 1) : 0;
+  for (let b = 0; b < branches; b++) {
+    const t = 0.5 + b * 0.14 + rand() * 0.06;
+    const o = at(t);
+    const side = b % 2 === 0 ? 1 : -1;
+    const a = lean + side * (0.55 + rand() * 0.25);
+    const len = H * (0.34 + rand() * 0.08);
+    stroke(ctx, bark, trunkW * 0.62, () => {
+      ctx.moveTo(o.x, o.y);
+      ctx.quadraticCurveTo(o.x + Math.sin(a) * len * 0.4, o.y - len * 0.35, o.x + Math.sin(a) * len, o.y - Math.cos(a) * len);
+    });
+    stems.push({ from: 0.35, to: 1, x0: o.x, y0: o.y, a, len });
+  }
+  const fiddle = !!look.fiddle;
+  const wide = look.leafWidth ?? 1;
+  const baseL = S * (fiddle ? 0.5 : 0.44) * (0.8 + Math.min(sf, 3) * 0.07);
+  const drawLeafAt = (x: number, y: number, a: number, L: number, dim: number) =>
+    withTransform(ctx, x, y, a, () => {
+      // A short stalk, then the leaf.
+      stroke(ctx, stemColor(look, -4), Math.max(0.6, L * 0.04), () => {
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -L * 0.12);
+      });
+      ctx.translate(0, -L * 0.1);
+      leaf(p, { shape: fiddle ? 'fiddle' : 'oval', L, W: L * (fiddle ? 0.5 : 0.34) * wide, dim });
+    });
+  for (const st of stems) {
+    const n = Math.max(1, Math.round((st === stems[0] ? 1.5 : 1) + Math.min(sf, 4.6) * (st === stems[0] ? 1.2 : 0.7)));
+    for (let i = 0; i < n; i++) {
+      // Leaves alternate up the stem, lower ones wider and drooping, upper ones lifting.
+      const t = st.from + (st.to - st.from) * (n === 1 ? 1 : i / (n - 1));
+      const x = st.x0 + Math.sin(st.a) * st.len * t;
+      const y = st.y0 - Math.cos(st.a) * st.len * t;
+      const side = i % 2 === 0 ? 1 : -1;
+      const spread = (1.25 - t * 0.7) * (0.85 + rand() * 0.3);
+      const L = baseL * (1.05 - t * 0.25) * (0.88 + rand() * 0.2);
+      drawLeafAt(x, y, st.a + side * spread, L, (1 - t) * 8);
+    }
+  }
+  // The newest leaf at the very top, still upright, and the sheath it came out of.
+  const topL = baseL * 0.62;
+  drawLeafAt(tip.x, tip.y, lean + (rand() - 0.5) * 0.3, topL, -2);
+  ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 50, look.accentLight ?? 45, 0.9);
+  withTransform(ctx, tip.x, tip.y, lean, () => {
+    ctx.beginPath();
+    ctx.moveTo(-topL * 0.06, 0);
+    ctx.quadraticCurveTo(-topL * 0.05, -topL * 0.3, 0, -topL * 0.42);
+    ctx.quadraticCurveTo(topL * 0.05, -topL * 0.3, topL * 0.06, 0);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
 function drawSpiky(p: Paint) {
   const { ctx, look, rand, S, sf } = p;
   const pups = sf >= 2.5 ? Math.min(4, Math.floor((sf - 2) * 2)) : 0;
@@ -1646,6 +1731,7 @@ const FORM_DRAW: Record<PlantForm, (p: Paint) => void> = {
   dew: drawDew,
   pitcher: drawPitcher,
   cups: drawCups,
+  fig: drawFig,
 };
 
 /**
@@ -1677,6 +1763,7 @@ function extent(form: PlantForm, mode: PlantMode): { w: number; up: number; down
   if (form === 'trap') return { w: 1.3, up: 1.0, down: 0.4 };
   if (form === 'dew') return { w: 1.3, up: 1.6, down: 0.4 };
   if (form === 'pitcher') return { w: 1.2, up: 2.1, down: 0.4 };
+  if (form === 'fig') return { w: 1.5, up: 2.5, down: 0.4 };
   if (form === 'cups') return { w: 1.7, up: 1.6, down: mode === 'ground' ? 0.5 : 1.4 };
   return { w: 1.35, up: 1.6, down: 0.5 };
 }

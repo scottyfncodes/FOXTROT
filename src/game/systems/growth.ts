@@ -2,6 +2,8 @@ import type { GameState, GrowthStage, OwnedPlant, PlacedFurniture } from '../sta
 import { PLANTS } from '../data/plants';
 import { GROW_LAMP_BOOST } from '../data/furniture';
 import { allFurniture, growLampCenters, underGrowLamp } from './furniture';
+import { gardenPlanter } from './decor';
+import { zoneAt } from '../data/worldMap';
 
 export const STAGES: GrowthStage[] = ['cutting', 'young', 'established', 'large', 'specimen'];
 
@@ -68,11 +70,16 @@ export function growthMultiplier(state: GameState, plant: OwnedPlant, ctx?: Grow
   const def = PLANTS[plant.defId];
   if (!def) return 0;
   let m = def.growthRate;
+  const planter = plant.location.kind === 'display' ? gardenPlanter(state, plant.location.slotId) : undefined;
   if (plant.location.kind === 'wild') {
     // Planted out in its own kind of country, a plant romps away; anywhere
     // else it still grows, just more slowly.
     m *= def.habitat.includes(plant.location.zone) ? 1.3 : 0.85;
     if (plant.location.bedId) m *= BED_GROWTH_BOOST;
+  } else if (planter) {
+    // Potted up on a garden trellis it's outdoors, in whatever country the trellis stands in.
+    const zone = zoneAt(Math.floor(planter.x), Math.floor(planter.y));
+    m *= zone !== 'greenhouse' && def.habitat.includes(zone) ? 1.3 : 0.85;
   } else {
     if (state.owned.includes('growLights')) m *= 1.5;
     const c = ctx ?? growthContext(state);

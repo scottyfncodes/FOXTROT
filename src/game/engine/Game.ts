@@ -9,7 +9,7 @@ import { Renderer } from '../world/Renderer';
 import { generateObstacles, buildBlockingSet, type Obstacle } from '../world/Obstacles';
 import { isBlockedOutdoor, isBlockedIndoor, indoorSolids, type IndoorSolids } from '../world/Collision';
 import { tryMove } from '../world/Movement';
-import { HOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, isInBounds, isWater, isInsideHomeFootprint } from '../data/worldMap';
+import { HOUSE_DOOR, GRID_W, GRID_H, TILE_SIZE, zoneAt, rectContains, isInBounds, isWater, isInsideHomeFootprint } from '../data/worldMap';
 import { FRONT_DOOR, roomAt, GREENHOUSE_DOORS, DOOR_OUTWARD, type GreenhouseDoor } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture, fixtureOffset, footprint } from '../systems/furniture';
@@ -52,7 +52,7 @@ import { tickCat } from '../systems/cat';
 import { spotContent, collectSpot } from '../systems/spots';
 import { advanceWorld, canPlantAt, computeLushness, type LushField } from '../systems/wild';
 import { STAGE_LABEL, stageIndexOf } from '../systems/growth';
-import { hasFound, recordFound, isEstablished } from '../systems/collection';
+import { hasFound, recordFound, isEstablished, recordGrown } from '../systems/collection';
 import {
   takeCutting,
   cuttingBlockReason,
@@ -68,7 +68,8 @@ import {
   crossOf,
 } from '../systems/propagation';
 import { sellItem, buyItem } from '../systems/market';
-import { placeDecor, pickUpDecor, nearestDecor, moveDecor, decorFits } from '../systems/decor';
+import { pickUpDecor, nearestDecor, moveDecor, decorFits, isGardenPlanter } from '../systems/decor';
+import { stallRect } from '../systems/yard';
 
 export type InteractableKind =
   | 'spot'
@@ -202,6 +203,8 @@ export class Game {
   fadeFrom = 0;
   /** Indoors while arranging, the view can be panned away from Ellen. */
   indoorFocus: { x: number; y: number } | null = null;
+  /** The same outdoors, while arranging the garden. */
+  outdoorFocus: { x: number; y: number } | null = null;
   private catInterests: CatInterest[] = [];
   private catInterestAcc = CAT_INTEREST_MS;
   private press: {
@@ -245,6 +248,8 @@ export class Game {
     this.blockingSet = buildBlockingSet(this.obstacles, this.cleared);
     this.indoorSolid = indoorSolids(this.state);
     this.lush = computeLushness(this.state);
+    // Saves from before the journal waited for things to be grown: whatever is already rooted counts.
+    recordGrown(this.state, this.state.clock.totalMinutes);
     this.world = {
       obstacleAt: (tx, ty) => {
         const key = `${tx},${ty}`;
@@ -255,7 +260,7 @@ export class Game {
         !isInBounds(tx, ty) ||
         isWater(tx, ty) ||
         isInsideHomeFootprint(tx, ty) ||
-        rectContains(MARKET_STALL, tx, ty) ||
+        rectContains(stallRect(this.state), tx, ty) ||
         GREENHOUSE_DOORS.some((d) => {
           const o = DOOR_OUTWARD[d.wall];
           return (tx === d.outside.x && ty === d.outside.y) || (tx === d.outside.x + o.x && ty === d.outside.y + o.y);
@@ -268,9 +273,11 @@ export class Game {
       world: this.world,
       now: () => this.state.clock.totalMinutes,
       player: () => ({ x: this.state.player.x, y: this.state.player.y }),
+      openGround: (tx, ty) => this.isOpenGround(tx, ty),
     });
     this.tools.onChange = () => {
       if (this.tools.mode.kind !== 'arrange') this.indoorFocus = null;
+      if (this.tools.mode.kind !== 'yard') this.outdoorFocus = null;
       this.onToolsChanged?.();
     };
 
@@ -384,6 +391,10 @@ export class Game {
     this.spreadCarry = result.carry;
     const now = this.state.clock.totalMinutes;
     if (result.ups.length || result.spreads.length) this.lushDirty = true;
+    // A find only goes in the journal once it's been grown: a plant of it rooted in your care.
+    for (const g of recordGrown(this.state, now)) {
+      if (!offline) this.pushToast(`${specimenName(g.defId, g.variantId)} took — it’s in your field journal now.`, 'discovery');
+    }
 
     const grew = new Set<string>();
     for (const up of result.ups) {
@@ -461,7 +472,7 @@ export class Game {
       const dy = move.y * speed * dtSeconds;
       const blocked = this.state.player.inGreenhouse
         ? (x: number, y: number) => isBlockedIndoor(x, y, this.indoorSolid)
-        : (x: number, y: number) => isBlockedOutdoor(x, y, this.blockingSet);
+        : (x: number, y: number) => isBlockedOutdoor(x, y, this.blockingSet, stallRect(this.state));
       const next = tryMove(this.state.player.x, this.state.player.y, dx, dy, blocked);
       this.state.player.x = next.x;
       this.state.player.y = next.y;
@@ -489,7 +500,7 @@ export class Game {
         discoveryPoints: DISCOVERY_SPOTS,
         rand: Math.random,
         pickTrailDestination: (rand) => this.pickTrailDestination(rand),
-        isOpen: (x, y) => this.isOpenGround(Math.floor(x), Math.floor(y)) && !isBlockedOutdoor(x, y, this.blockingSet),
+        isOpen: (x, y) => this.isOpenGround(Math.floor(x), Math.floor(y)) && !isBlockedOutdoor(x, y, this.blockingSet, stallRect(this.state)),
       });
       if (foxResult.revealedDiscoveryId) {
         this.pushToast('The fox lingers here, watching something growing in the shadows.', 'discovery');
@@ -723,7 +734,12 @@ export class Game {
     if (!p.inGreenhouse) {
       for (const d of this.state.decor) {
         const name = findShopItem(d.decorId)?.name ?? 'decor';
-        consider({ kind: 'decor', id: d.id, x: d.x, y: d.y, label: `Move the ${name}`, available: true }, d.x, d.y, 1.0);
+        if (isGardenPlanter(d.decorId)) {
+          // A garden trellis is a planter, like the one indoors: walking up to it opens it. It moves with the 🪑 button.
+          const plant = occupantOf(this.state, { slotId: d.id });
+          const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : `Empty ${name.toLowerCase()}`;
+          consider({ kind: 'display', id: d.id, x: d.x, y: d.y, label, available: true }, d.x, d.y, 1.0);
+        } else consider({ kind: 'decor', id: d.id, x: d.x, y: d.y, label: `Move the ${name}`, available: true }, d.x, d.y, 1.0);
       }
       for (const spot of DISCOVERY_SPOTS) {
         const c = spotContent(this.state, spot);
@@ -764,8 +780,9 @@ export class Game {
           consider({ kind: 'rock', id: `${tx},${ty}`, x: tx, y: ty, label, available: afford }, tx + 0.5, ty + 0.5);
         }
       }
-      const mx = MARKET_STALL.x + MARKET_STALL.w / 2;
-      const my = MARKET_STALL.y + 1.1;
+      const stall = stallRect(this.state);
+      const mx = stall.x + stall.w / 2;
+      const my = stall.y + 1.1;
       consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Plant Stand & Supply', available: true }, mx, my, 1.6);
       for (const d of GREENHOUSE_DOORS) {
         if (Math.hypot(p.x - (d.outside.x + 0.5), p.y - (d.outside.y + 0.5)) < INTERACT_RANGE) {
@@ -1019,12 +1036,28 @@ export class Game {
     this.hint('zoom', touch ? 'Pinch with two fingers to zoom in and out — here, and anywhere in the valley.' : 'Scroll (or press + and −) to zoom in and out — here, and anywhere in the valley.', 'normal');
   }
 
+  /** The 🪑 button: arrange the house indoors, or the garden outdoors. */
   beginArrange(stock?: FurnitureId, selectId?: string) {
-    if (!this.state.player.inGreenhouse) return;
+    if (!this.state.player.inGreenhouse) return this.beginYard();
     this.indoorFocus = { x: this.state.player.x, y: this.state.player.y };
     this.tools.startArrange(stock, stock ? this.viewCentre() : undefined);
     if (selectId) this.tools.select(selectId);
     this.zoomHint();
+  }
+
+  /** Arranging outdoors: drag the garden decor and the market stall about. */
+  beginYard(stock?: DecorId) {
+    if (this.state.player.inGreenhouse) return;
+    // Whatever was in Ellen's hands is set back where it was picked up from.
+    this.carryingDecorId = null;
+    this.outdoorFocus = { x: this.state.player.x, y: this.state.player.y };
+    this.tools.startYard(stock, stock ? { x: this.state.player.x, y: this.state.player.y + 0.8 } : undefined);
+    this.zoomHint();
+    this.hint('yard', 'Drag any garden piece — or the Plant Stand & Supply itself — to move it. Drag the ground to look around.');
+  }
+
+  addDecorFromStock(id: DecorId) {
+    this.tools.addDecorFromStock(id, this.viewCentre());
   }
 
   beginBed(shape: 'rect' | 'oval' = 'rect') {
@@ -1053,6 +1086,7 @@ export class Game {
   cancelTool() {
     this.tools.cancel();
     this.indoorFocus = null;
+    this.outdoorFocus = null;
     this.onStateTouched?.();
   }
 
@@ -1314,7 +1348,7 @@ export class Game {
     const base = { id: e.pointerId, sx: e.clientX, sy: e.clientY, lastSX: e.clientX, lastSY: e.clientY, moved: false, touch };
     if (this.tools.active) {
       const m = this.tools.mode;
-      const prevSelected = m.kind === 'arrange' ? m.selectedId : undefined;
+      const prevSelected = m.kind === 'arrange' || m.kind === 'yard' ? m.selectedId : undefined;
       const w = this.toolPoint(e, touch);
       const r = this.tools.pointerDown(w.x, w.y);
       this.press = { ...base, kind: r === 'pan' ? 'pan' : 'tool', prevSelected };
@@ -1347,6 +1381,12 @@ export class Game {
       // Keep the focus inside the rooms so panning back is immediate.
       const c2 = makeIndoorCamera(this.camera, this.indoorFocus.x, this.indoorFocus.y);
       this.indoorFocus = { x: c2.x / 32, y: c2.y / 32 };
+    } else if (pr.kind === 'pan' && !this.state.player.inGreenhouse && this.outdoorFocus) {
+      const k = this.camera.zoom * TILE_SIZE;
+      this.outdoorFocus = {
+        x: Math.max(0, Math.min(GRID_W, this.outdoorFocus.x - (e.clientX - pr.lastSX) / k)),
+        y: Math.max(0, Math.min(GRID_H, this.outdoorFocus.y - (e.clientY - pr.lastSY) / k)),
+      };
     }
     pr.lastSX = e.clientX;
     pr.lastSY = e.clientY;
@@ -1478,15 +1518,6 @@ export class Game {
     this.onStateTouched?.();
   }
 
-  placeDecorHere(decorId: DecorId) {
-    const p = this.state.player;
-    if (p.inGreenhouse) return;
-    const x = p.x;
-    const y = p.y + 0.4;
-    if (!this.isOpenGround(Math.floor(x), Math.floor(y))) return this.pushToast('Not enough room here.', 'info');
-    if (placeDecor(this.state, decorId, x, y)) this.onStateTouched?.();
-  }
-
   /** Where a piece set down "in front of Ellen" would go. */
   furnitureTile(): { x: number; y: number } {
     const p = this.state.player;
@@ -1518,7 +1549,10 @@ export class Game {
   }
 
   nearbyDecor() {
-    return this.state.player.inGreenhouse ? null : nearestDecor(this.state, this.state.player.x, this.state.player.y + 0.4, 1.2);
+    if (this.state.player.inGreenhouse) return null;
+    const d = nearestDecor(this.state, this.state.player.x, this.state.player.y + 0.4, 1.2);
+    // A planter with a plant in it can't be picked up.
+    return d && !occupantOf(this.state, { slotId: d.id }) ? d : null;
   }
 
   pickUpNearbyDecor() {
@@ -1545,9 +1579,11 @@ export class Game {
       world: this.world,
       now: () => this.state.clock.totalMinutes,
       player: () => ({ x: this.state.player.x, y: this.state.player.y }),
+      openGround: (tx, ty) => this.isOpenGround(tx, ty),
     });
     this.tools.onChange = () => {
       if (this.tools.mode.kind !== 'arrange') this.indoorFocus = null;
+      if (this.tools.mode.kind !== 'yard') this.outdoorFocus = null;
       this.onToolsChanged?.();
     };
     this.refreshCleared();
@@ -1558,7 +1594,9 @@ export class Game {
   }
 
   private render(now: number) {
-    this.camera.follow(this.state.player.x, this.state.player.y);
+    // Arranging the garden, the view can be panned away from Ellen.
+    const focus = this.tools.mode.kind === 'yard' && this.outdoorFocus ? this.outdoorFocus : this.state.player;
+    this.camera.follow(focus.x, focus.y);
     const crouching = this.state.clock.totalMinutes < this.actionAnimUntil;
     const scene = { tools: this.tools.mode, flourishes: this.flourishes, cleared: this.cleared, fade: Math.max(0, 1 - (now - this.fadeFrom) / FADE_MS), kiss: this.chase.kiss };
     if (this.state.player.inGreenhouse) {

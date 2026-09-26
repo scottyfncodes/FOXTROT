@@ -77,10 +77,10 @@ export class BasketPanel {
         const item = SHOP_ITEMS.find((s) => s.id === id)!;
         const row = el('div', 'entry-row');
         const info = el('div', 'entry-info');
-        info.append(el('div', 'entry-name', `${item.name} ×${state.decorStock[id]}`), el('div', 'entry-sub', outdoors ? 'Placed where you’re standing.' : 'Step outside to place it.'));
-        row.append(info, button('Place', () => {
-          this.game.placeDecorHere(id);
-          this.render();
+        info.append(el('div', 'entry-name', `${item.name} ×${state.decorStock[id]}`), el('div', 'entry-sub', outdoors ? 'Drag it exactly where you want it. Move it again any time.' : 'Step outside to place it.'));
+        row.append(info, button('Place…', () => {
+          this.panel.close();
+          this.game.beginYard(id);
         }, 'secondary-btn', !outdoors));
         list.appendChild(row);
       }

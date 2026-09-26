@@ -13,7 +13,8 @@ import {
   rollSport,
 } from '../src/game/systems/propagation';
 import { addToBasket } from '../src/game/systems/basket';
-import { isEstablished, ESTABLISH_THRESHOLD } from '../src/game/systems/collection';
+import { isEstablished, ESTABLISH_THRESHOLD, recordFound, recordGrown, hasGrown, collectionTotals } from '../src/game/systems/collection';
+import { tickGrowth } from '../src/game/systems/growth';
 import { STAGE_AT } from '../src/game/systems/growth';
 import { PLANTS } from '../src/game/data/plants';
 
@@ -155,5 +156,34 @@ describe('greenhouse vs wild', () => {
     const item = liftPlant(state, 'a', 0)!;
     expect(item.growth).toBe(900);
     expect(state.plants.a).toBeUndefined();
+  });
+});
+
+describe('the journal only counts what’s been grown', () => {
+  it('records a find once a plant of it has rooted, not when the cutting is taken', () => {
+    const state = createNewGame();
+    recordFound(state, 'monstera', 'deliciosa', 0);
+    const p = nurseryPlant(state, 'm', 0);
+    state.plants.m = p;
+    expect(recordGrown(state, 0)).toEqual([]);
+    expect(hasGrown(state, 'monstera')).toBe(false);
+    expect(collectionTotals(state).species).toBe(0);
+
+    tickGrowth(state, 10_000);
+    expect(recordGrown(state, 1)).toEqual([{ defId: 'monstera', variantId: 'deliciosa' }]);
+    expect(hasGrown(state, 'monstera', 'deliciosa')).toBe(true);
+    expect(collectionTotals(state)).toMatchObject({ species: 1, variants: 1 });
+    // Once is enough — and it stays recorded after the plant has gone.
+    expect(recordGrown(state, 2)).toEqual([]);
+    delete state.plants.m;
+    expect(hasGrown(state, 'monstera', 'deliciosa')).toBe(true);
+  });
+
+  it('waits for a sport out in the valley to be noticed', () => {
+    const state = createNewGame();
+    state.plants.s = { ...nurseryPlant(state, 's', STAGE_AT.large), variantId: 'albo', unnoticed: true, location: { kind: 'wild', x: 55, y: 30, zone: 'woodland' } };
+    expect(recordGrown(state, 0)).toEqual([]);
+    delete state.plants.s.unnoticed;
+    expect(recordGrown(state, 0)).toEqual([{ defId: 'monstera', variantId: 'albo' }]);
   });
 });

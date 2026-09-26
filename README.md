@@ -10,7 +10,7 @@ grow in patches all over it.
 
 - **Discover.** Every wild patch shows the actual plant growing there, and
   re-rolls what grows in it over time, weighted by rarity (Common → Uncommon →
-  Rare → Very Rare → Extremely Rare). 36 species, over 100 variants: variegated,
+  Rare → Very Rare → Extremely Rare). 39 species, over 100 variants: variegated,
   dark-leaved, crested, glowing… and, down in the creek bogs and the damp
   forest, carnivores: sundews, flytraps and pitcher plants. Some only appear in the rain, some only by
   lantern light, and a few only where the fox leads you.
@@ -31,7 +31,8 @@ grow in patches all over it.
   hanging hooks, grow lights, a sun-room expansion, garden decor and stall
   upgrades.
 - **Collect.** The field journal tracks every species and variant, with
-  unfound ones shown as silhouettes and "???" until you see them.
+  the rest shown as silhouettes and "???". Finding one isn't enough: it's
+  recorded once you've grown it — once a plant of it roots in your care.
 - **Come home.** The greenhouse is attached to a house. The front door opens
   into a living room — couch, TV, the cat's bed, a putting mat, doorways to
   the rest of the house — and a doorway leads through into the greenhouse,
@@ -45,6 +46,8 @@ grow in patches all over it.
   away (🪑 button indoors). Plants move with their pots. The living room's
   own furniture (couch, TV, cat bed, cat tree, putting mat…) can be moved
   too, and the cat and Scott follow their favourite spots wherever they go.
+  Outdoors the same 🪑 button arranges the garden: drag any decor — or the
+  Plant Stand & Supply stall itself — somewhere new.
 - **Putt-putt.** Walk up to the putting mat in the living room for nine holes
   laid out with whatever was lying around — mugs, a slipper, books, and the
   cat. Drag back from the ball and let go; a faint line shows where it'll roll. The first hole in one on each hole

@@ -5,6 +5,7 @@ import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity, findVariant, latinLine } from '../game/data/plants';
 import { POT_STYLES } from '../game/data/shop';
 import { displaySlots, findFurniture } from '../game/systems/furniture';
+import { gardenPlanter } from '../game/systems/decor';
 import { ESTABLISH_THRESHOLD, isEstablished } from '../game/systems/collection';
 import { STAGES, STAGE_LABEL, stageFloat, stageIndexOf, minutesToNextStage } from '../game/systems/growth';
 import { cuttingBlockReason, occupantOf, placementBlockReason, cuttingCooldown } from '../game/systems/propagation';
@@ -52,13 +53,15 @@ export class GreenhousePanel {
       if (plant) this.renderPlant(plant);
       else this.renderPotting(t.id);
     } else {
-      const slot = displaySlots(this.game.state).find((s) => s.id === t.id);
-      this.panel.setTitle(SLOT_NAMES[slot?.kind ?? 'stand'] ?? 'Display');
+      // Out in the garden, a garden trellis is a planter just like the one indoors.
+      const garden = gardenPlanter(this.game.state, t.id);
+      const slot = garden ? { kind: 'trellis' } : displaySlots(this.game.state).find((s) => s.id === t.id);
+      this.panel.setTitle(garden ? 'Garden Trellis' : (SLOT_NAMES[slot?.kind ?? 'stand'] ?? 'Display'));
       if (slot?.kind === 'trellis' && !plant) this.panel.body.appendChild(note('Vines and trailers potted here climb the trellis.'));
       if (plant) this.renderPlant(plant);
       else this.renderDisplayChoice(t.id);
     }
-    // Moving the piece (plant and all) lives in arrange mode, the 🪑 button indoors.
+    // Moving the piece (plant and all) lives in arrange mode, the 🪑 button.
   }
 
   private renderPotting(bedId: string) {

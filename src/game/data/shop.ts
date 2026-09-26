@@ -87,7 +87,7 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'gardenLantern', name: 'Garden Lantern', category: 'garden', price: 30, repeatable: true, description: 'Glows warmly after dark.' },
   { id: 'birdbath', name: 'Birdbath', category: 'garden', price: 45, repeatable: true, description: 'A stone basin. Birds and butterflies will visit.' },
   { id: 'gardenBench', name: 'Garden Bench', category: 'garden', price: 60, repeatable: true, description: 'Somewhere to sit and look at what you’ve made.' },
-  { id: 'gardenTrellis', name: 'Garden Trellis', category: 'garden', price: 55, repeatable: true, description: 'A freestanding cedar lattice. Plant a vine or trailer at its foot and it climbs instead of sprawling.' },
+  { id: 'gardenTrellis', name: 'Garden Trellis', category: 'garden', price: 55, repeatable: true, description: 'A freestanding cedar lattice with a pot at its foot: a planter for the garden, like the trellis indoors. Vines and trailers climb it.' },
 
   // Equipment
   { id: 'basketMedium', name: 'Collector’s Satchel', category: 'equipment', price: 80, description: 'Carry up to 10 plants.' },

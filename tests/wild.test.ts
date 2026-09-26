@@ -111,4 +111,18 @@ describe('the landscape', () => {
     expect(computeLushness(state).zoneCover.meadow).toBeGreaterThan(ferns.zoneCover.meadow);
     expect(describeRegion(0.4, 12, 'fern')).toMatch(/fronds/);
   });
+
+  it('leaves the soil around a garden bed alone, while its plants still count as yours', () => {
+    const state = createNewGame();
+    for (let i = 0; i < 6; i++) wild(state, `a${i}`, 55 + (i % 3), 28 + Math.floor(i / 3), STAGE_AT.specimen, 'foxglowAroid', 'standard');
+    const loose = computeLushness(state);
+    const i = 29 * 90 + 56;
+    expect(loose.lush[i]).toBeGreaterThan(0.1);
+    for (const p of Object.values(state.plants)) if (p.location.kind === 'wild') p.location.bedId = 'bed';
+    const bedded = computeLushness(state);
+    expect(bedded.lush[i]).toBe(0);
+    expect(bedded.character[i]).toBe(255);
+    expect(bedded.zoneCover.meadow).toBeGreaterThan(0);
+    expect(bedded.zoneCharacter.meadow).toBe('strange');
+  });
 });

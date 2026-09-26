@@ -211,3 +211,15 @@ describe('the world the player made persists', () => {
     expect(m.fox.behavior).toBe('gone');
   });
 });
+
+describe('the market stall’s place', () => {
+  it('is where the layout puts it in a save from before it could move, and survives a round trip once moved', () => {
+    const old = createNewGame() as unknown as Record<string, unknown>;
+    delete old.stall;
+    expect(migrateSave(old)!.stall).toEqual({ x: 69, y: 42 });
+    const state = createNewGame();
+    state.stall = { x: 75, y: 47 };
+    saveGame(state);
+    expect(loadGame()!.stall).toEqual({ x: 75, y: 47 });
+  });
+});

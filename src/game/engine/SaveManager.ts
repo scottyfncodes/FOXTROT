@@ -13,7 +13,7 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
-const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog', 'putting'] as const;
+const STRUCT_FIELDS = ['stall', 'player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog', 'putting'] as const;
 const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture', 'seededFixtures', 'seenShop', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds'] as const;
 const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock', 'curiosities', 'purchases'] as const;
 
@@ -100,6 +100,7 @@ export function migrateSave(raw: unknown): GameState | null {
     state.seenShop = SHOP_ITEMS.filter((s) => !INTRODUCED_IN_V7.includes(s.id) && (!s.after || owned.includes(s.after) || owned.includes(s.id))).map((s) => s.id);
   }
   state.furniture = state.furniture.filter((f) => isRecord(f) && !!FURNITURE_DEFS[f.kind] && Number.isFinite(f.x) && Number.isFinite(f.y));
+  if (!Number.isInteger(state.stall.x) || !Number.isInteger(state.stall.y)) state.stall = createNewGame().stall;
   state.gardenBeds = state.gardenBeds.filter((b) => isRecord(b) && [b.x, b.y, b.w, b.h].every(Number.isFinite));
   state.paths = state.paths.filter((p) => isRecord(p) && Array.isArray(p.points) && p.points.length >= 4);
   state.foxFinds = state.foxFinds.filter((f) => isRecord(f) && (f.kind === 'curiosity' || !!PLANTS[f.defId ?? '']));

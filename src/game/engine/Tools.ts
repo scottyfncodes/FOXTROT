@@ -1,5 +1,5 @@
 import type { GameState, OwnedPlant } from '../state';
-import type { FurnitureId } from '../data/shop';
+import type { DecorId, FurnitureId } from '../data/shop';
 import { FURNITURE_DEFS } from '../data/furniture';
 import {
   allFurniture,
@@ -30,6 +30,21 @@ import {
   type PlantingCheck,
 } from '../systems/landscape';
 import { plantOutdoors } from '../systems/propagation';
+import { pickUpDecor } from '../systems/decor';
+import {
+  STALL_ID,
+  findYardPiece,
+  moveYardPiece,
+  placeYardDecor,
+  snapYard,
+  worldOpenGround,
+  yardBlockReason,
+  decorBlockReason,
+  yardFootprint,
+  yardPieces,
+  type OpenGround,
+  type YardBlock,
+} from '../systems/yard';
 
 // The player's finger is the gardening tool. Every way of changing the
 // world by hand — choosing exactly where a plant goes, dragging furniture
@@ -39,6 +54,7 @@ import { plantOutdoors } from '../systems/propagation';
 //
 //   play ──▶ plant    drag the preview to a spot ─▶ ✓ plant / ✕ cancel
 //        ──▶ arrange  drag any piece; tap to select, turn, store; add from stock
+//        ──▶ yard     the same, outdoors: garden decor and the market stall
 //        ──▶ bed      drag out a rectangle or oval ─▶ ✓ dig / ✕
 //        ──▶ path     trace a route with a finger ─▶ ✓ carve / ✕
 
@@ -71,6 +87,14 @@ export type ToolMode =
       pending: { kind: FurnitureId; x: number; y: number; rot: number; block: PlaceBlock | null } | null;
       pendingDrag: { offX: number; offY: number } | null;
     }
+  | {
+      kind: 'yard';
+      selectedId: string | null;
+      drag: { id: string; offX: number; offY: number; x: number; y: number; block: YardBlock | null; moved: boolean } | null;
+      /** A piece of decor from stock, not yet set down. */
+      pending: { decorId: DecorId; x: number; y: number; block: YardBlock | null } | null;
+      pendingDrag: { offX: number; offY: number } | null;
+    }
   | { kind: 'bed'; shape: 'rect' | 'oval'; a: { x: number; y: number } | null; b: { x: number; y: number } | null; block: BedBlock | null; drawing: boolean }
   | { kind: 'path'; route: { x: number; y: number }[]; points: number[]; preview: PathPreview | null; drawing: boolean };
 
@@ -80,6 +104,8 @@ export interface ToolHost {
   now(): number;
   /** Where Ellen is standing (world or interior coords, whichever she's in). */
   player(): { x: number; y: number };
+  /** Open outdoor ground a garden piece could stand on; defaults to what the landscape alone says. */
+  openGround?: OpenGround;
 }
 
 export type ToolOutcome =
@@ -101,6 +127,10 @@ export class ToolController {
   onChange: (() => void) | null = null;
 
   constructor(private host: ToolHost) {}
+
+  private get open(): OpenGround {
+    return this.host.openGround ?? worldOpenGround(this.host.world);
+  }
 
   get active(): boolean {
     return this.mode.kind !== 'play';
@@ -162,7 +192,9 @@ export class ToolController {
   /** Picks out one piece, ready to drag, turn or put away. */
   select(id: string) {
     const m = this.mode;
-    if (m.kind !== 'arrange' || !findFurniture(this.host.state, id)) return;
+    if (m.kind === 'yard') {
+      if (!findYardPiece(this.host.state, id)) return;
+    } else if (m.kind !== 'arrange' || !findFurniture(this.host.state, id)) return;
     m.selectedId = id;
     m.pending = null;
     this.changed();
@@ -228,6 +260,7 @@ export class ToolController {
   /** Puts the selected (empty) piece back into stock. */
   storeSelected(): boolean {
     const m = this.mode;
+    if (m.kind === 'yard') return this.storeYardSelected();
     if (m.kind !== 'arrange') return false;
     if (m.pending) {
       m.pending = null;
@@ -236,6 +269,61 @@ export class ToolController {
     }
     if (!m.selectedId) return false;
     const ok = pickUpFurniture(this.host.state, m.selectedId);
+    if (ok) m.selectedId = null;
+    this.changed();
+    return ok;
+  }
+
+  // ------------------------------------------------------------ the yard
+
+  startYard(withStock?: DecorId, at?: { x: number; y: number }) {
+    this.mode = { kind: 'yard', selectedId: null, drag: null, pending: null, pendingDrag: null };
+    if (withStock) this.addDecorFromStock(withStock, at ?? this.host.player());
+    this.changed();
+  }
+
+  /** Takes a piece of garden decor out of stock and holds it, ready to be dragged into place. */
+  addDecorFromStock(decorId: DecorId, at: { x: number; y: number }) {
+    const m = this.mode;
+    if (m.kind !== 'yard' || (this.host.state.decorStock[decorId] ?? 0) <= 0) return;
+    const { x, y } = snapYard(decorId, at.x, at.y);
+    m.pending = { decorId, x, y, block: null };
+    m.selectedId = null;
+    m.pending.block = decorBlockReason(this.host.state, this.open, x, y);
+    this.changed();
+  }
+
+  /** The garden piece under a press. Decor and the stall stand up off the ground, so pressing what's drawn counts. */
+  yardPieceAt(x: number, y: number): string | null {
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const p of yardPieces(this.host.state)) {
+      const fp = yardFootprint(p.kind, p.x, p.y);
+      const lift = p.kind === 'stall' ? 0.45 : 0.25;
+      const cx = fp.x + fp.w / 2;
+      const cy = fp.y + fp.h / 2 - lift;
+      if (Math.abs(x - cx) > fp.w / 2 + GRAB_SLOP || Math.abs(y - cy) > fp.h / 2 + GRAB_SLOP + lift) continue;
+      // Small pieces win over the big stall when both are under the finger.
+      const d = Math.hypot(x - cx, y - cy) + (p.kind === 'stall' ? 0.5 : 0);
+      if (d < bestD) {
+        bestD = d;
+        best = p.id;
+      }
+    }
+    return best;
+  }
+
+  private storeYardSelected(): boolean {
+    const m = this.mode;
+    if (m.kind !== 'yard') return false;
+    if (m.pending) {
+      m.pending = null;
+      this.changed();
+      return true;
+    }
+    // The stall stays: there's nowhere to put a market away.
+    if (!m.selectedId || m.selectedId === STALL_ID) return false;
+    const ok = pickUpDecor(this.host.state, m.selectedId);
     if (ok) m.selectedId = null;
     this.changed();
     return ok;
@@ -322,6 +410,30 @@ export class ToolController {
         this.changed();
         return 'grab';
       }
+      case 'yard': {
+        if (m.pending) {
+          const fp = yardFootprint(m.pending.decorId, m.pending.x, m.pending.y);
+          const near = Math.abs(x - (fp.x + fp.w / 2)) <= fp.w / 2 + GRAB_SLOP + 0.3 && Math.abs(y - (fp.y + fp.h / 2 - 0.25)) <= fp.h / 2 + GRAB_SLOP + 0.5;
+          if (near) {
+            m.pendingDrag = { offX: m.pending.x - x, offY: m.pending.y - y };
+            return 'grab';
+          }
+          return 'pan';
+        }
+        const id = this.yardPieceAt(x, y);
+        if (!id) {
+          if (m.selectedId) {
+            m.selectedId = null;
+            this.changed();
+          }
+          return 'pan';
+        }
+        const piece = findYardPiece(this.host.state, id)!;
+        m.selectedId = id;
+        m.drag = { id, offX: piece.x - x, offY: piece.y - y, x: piece.x, y: piece.y, block: null, moved: false };
+        this.changed();
+        return 'grab';
+      }
       case 'bed':
         m.a = { x, y };
         m.b = { x, y };
@@ -359,6 +471,22 @@ export class ToolController {
           m.drag.y = Math.round((y + m.drag.offY) * 8) / 8;
           m.drag.moved = m.drag.moved || Math.hypot(m.drag.x - piece.x, m.drag.y - piece.y) > 0.1;
           m.drag.block = sitBlockReason(this.host.state, piece.kind, m.drag.x, m.drag.y, { rot: piece.rot ?? 0, ignoreId: piece.id, avoid: [this.host.player()] });
+        } else return;
+        break;
+      case 'yard':
+        if (m.pending && m.pendingDrag) {
+          const at = snapYard(m.pending.decorId, x + m.pendingDrag.offX, y + m.pendingDrag.offY);
+          m.pending.x = at.x;
+          m.pending.y = at.y;
+          m.pending.block = decorBlockReason(this.host.state, this.open, at.x, at.y);
+        } else if (m.drag) {
+          const piece = findYardPiece(this.host.state, m.drag.id);
+          if (!piece) return;
+          const at = snapYard(piece.id, x + m.drag.offX, y + m.drag.offY);
+          m.drag.x = at.x;
+          m.drag.y = at.y;
+          m.drag.moved = m.drag.moved || Math.hypot(at.x - piece.x, at.y - piece.y) > 0.1;
+          m.drag.block = yardBlockReason(this.host.state, this.open, piece.id, at.x, at.y, [this.host.player()]);
         } else return;
         break;
       case 'bed':
@@ -401,6 +529,18 @@ export class ToolController {
           }
         }
         break;
+      case 'yard':
+        if (m.pendingDrag) {
+          m.pendingDrag = null;
+        } else if (m.drag) {
+          const d = m.drag;
+          m.drag = null;
+          if (d.moved && !d.block && moveYardPiece(this.host.state, this.open, d.id, d.x, d.y, [this.host.player()])) {
+            this.changed();
+            return { kind: 'placed', id: d.id };
+          }
+        }
+        break;
       case 'bed':
         m.drawing = false;
         break;
@@ -426,6 +566,7 @@ export class ToolController {
         m.dragging = false;
         break;
       case 'arrange':
+      case 'yard':
         m.drag = null;
         m.pendingDrag = null;
         if (restoreSelected !== undefined) m.selectedId = restoreSelected;
@@ -459,6 +600,7 @@ export class ToolController {
       case 'plant':
         return !m.check.block;
       case 'arrange':
+      case 'yard':
         return !m.pending || !m.pending.block;
       case 'bed':
         return !!m.a && !!m.b && !m.block;
@@ -496,6 +638,18 @@ export class ToolController {
           if (p) out = { kind: 'placed', id: p.id };
           m.pending = null;
           if (p) m.selectedId = p.id;
+          this.changed();
+          return out;
+        }
+        this.mode = { kind: 'play' };
+        break;
+      }
+      case 'yard': {
+        if (m.pending) {
+          const id = placeYardDecor(state, this.open, m.pending.decorId, m.pending.x, m.pending.y);
+          if (id) out = { kind: 'placed', id };
+          m.pending = null;
+          if (id) m.selectedId = id;
           this.changed();
           return out;
         }
