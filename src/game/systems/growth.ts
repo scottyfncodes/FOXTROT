@@ -84,10 +84,30 @@ export function growthMultiplier(state: GameState, plant: OwnedPlant, ctx?: Grow
   return m;
 }
 
-/** Game-minutes until the next stage, or null if it's already a specimen. */
+/**
+ * The most a plant can grow where it is now. A propagation tray is for
+ * rooting cuttings: a plant in one gets to "Young" and stops there until it's
+ * given a proper bed or pot. Everywhere else there's no limit.
+ */
+export const TRAY_MAX_GROWTH = STAGE_AT.established - 1;
+
+export function growthCap(state: GameState, plant: OwnedPlant, ctx?: GrowthContext): number {
+  if (plant.location.kind !== 'nursery') return Infinity;
+  const bedId = plant.location.bedId;
+  const piece = ctx ? ctx.furniture.get(bedId) : allFurniture(state).find((f) => f.id === bedId);
+  return piece?.kind === 'propagationTray' ? TRAY_MAX_GROWTH : Infinity;
+}
+
+/** Whether a plant has grown as big as it can where it is (a young plant in a tray). */
+export function outgrownTray(state: GameState, plant: OwnedPlant): boolean {
+  return plant.growth >= growthCap(state, plant);
+}
+
+/** Game-minutes until the next stage, or null if it's already a specimen (or as big as its tray allows). */
 export function minutesToNextStage(state: GameState, plant: OwnedPlant): number | null {
   const i = stageIndexOf(plant.growth);
   if (i >= STAGES.length - 1) return null;
+  if (STAGE_AT[STAGES[i + 1]] > growthCap(state, plant)) return null;
   const need = STAGE_AT[STAGES[i + 1]] - plant.growth;
   return need / Math.max(0.01, growthMultiplier(state, plant));
 }
@@ -105,7 +125,9 @@ export function tickGrowth(state: GameState, minutes: number): StageUp[] {
   const ctx = growthContext(state);
   for (const plant of Object.values(state.plants)) {
     const before = stageIndexOf(plant.growth);
-    plant.growth += minutes * growthMultiplier(state, plant, ctx);
+    const grown = plant.growth + minutes * growthMultiplier(state, plant, ctx);
+    // Never shrinks: a plant already past a tray's limit (an older save) just stops.
+    plant.growth = Math.max(plant.growth, Math.min(grown, growthCap(state, plant, ctx)));
     const after = stageIndexOf(plant.growth);
     if (after !== before) ups.push({ plantId: plant.id, from: STAGES[before], to: STAGES[after] });
   }

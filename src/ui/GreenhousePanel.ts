@@ -178,7 +178,14 @@ export class GreenhousePanel {
     body.appendChild(track);
     const next = minutesToNextStage(state, plant);
     body.appendChild(
-      note(next === null ? `${STAGE_LABEL[STAGES[idx]]} — fully grown, and still filling out.` : `${STAGE_LABEL[STAGES[idx]]}. ${STAGE_LABEL[STAGES[idx + 1]]} in ${realTime(next)}.`, 'growth-note')
+      note(
+        next !== null
+          ? `${STAGE_LABEL[STAGES[idx]]}. ${STAGE_LABEL[STAGES[idx + 1]]} in ${realTime(next)}.`
+          : idx < STAGES.length - 1
+            ? `${STAGE_LABEL[STAGES[idx]]} — as big as it gets in a propagation tray. Give it a nursery bed or a pot to keep growing.`
+            : `${STAGE_LABEL[STAGES[idx]]} — fully grown, and still filling out.`,
+        'growth-note'
+      )
     );
 
     const est = isEstablished(state, plant.defId);
