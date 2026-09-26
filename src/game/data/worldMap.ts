@@ -33,6 +33,10 @@ export const ZONE_RECTS: { zone: ZoneId; rect: Rect }[] = [
 export const GREENHOUSE_FOOTPRINT: Rect = { x: 60, y: 32, w: 10, h: 8 };
 /** The garden door: the greenhouse opens straight onto the garden. */
 export const GREENHOUSE_DOOR = { x: 65, y: 40 };
+/** The back door, in the north glass: out toward the damp forest. */
+export const GREENHOUSE_BACK_DOOR = { x: 65, y: 31 };
+/** The side door, in the west glass: out toward the creek. */
+export const GREENHOUSE_SIDE_DOOR = { x: 59, y: 35 };
 /**
  * The house the greenhouse is attached to: a third of the building, on its
  * east side. Its front door opens into the living room.

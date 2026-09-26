@@ -9,9 +9,8 @@ import { Renderer } from '../world/Renderer';
 import { generateObstacles, buildBlockingSet, type Obstacle } from '../world/Obstacles';
 import { isBlockedOutdoor, isBlockedIndoor, indoorSolids, type IndoorSolids } from '../world/Collision';
 import { tryMove } from '../world/Movement';
-import { GREENHOUSE_DOOR, HOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, isInBounds, isWater, isInsideHomeFootprint } from '../data/worldMap';
-import { GREENHOUSE_EXIT } from '../data/stations';
-import { FRONT_DOOR, roomAt } from '../data/interior';
+import { HOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, isInBounds, isWater, isInsideHomeFootprint } from '../data/worldMap';
+import { FRONT_DOOR, roomAt, GREENHOUSE_DOORS, DOOR_OUTWARD, type GreenhouseDoor } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture } from '../systems/furniture';
 import { makeIndoorCamera, screenToTiles } from '../world/IndoorCamera';
@@ -201,7 +200,10 @@ export class Game {
         isWater(tx, ty) ||
         isInsideHomeFootprint(tx, ty) ||
         rectContains(MARKET_STALL, tx, ty) ||
-        (tx === GREENHOUSE_DOOR.x && (ty === GREENHOUSE_DOOR.y || ty === GREENHOUSE_DOOR.y + 1)) ||
+        GREENHOUSE_DOORS.some((d) => {
+          const o = DOOR_OUTWARD[d.wall];
+          return (tx === d.outside.x && ty === d.outside.y) || (tx === d.outside.x + o.x && ty === d.outside.y + o.y);
+        }) ||
         (tx === HOUSE_DOOR.x && (ty === HOUSE_DOOR.y || ty === HOUSE_DOOR.y + 1)),
       isSpot: (tx, ty) => DISCOVERY_SPOTS.some((s) => s.x === tx && s.y === ty),
     };
@@ -523,23 +525,34 @@ export class Game {
     const tx = Math.floor(p.x);
     const ty = Math.floor(p.y);
     if (!p.inGreenhouse) {
-      if (tx === GREENHOUSE_DOOR.x && ty === GREENHOUSE_DOOR.y) this.enterGreenhouse();
+      const door = GREENHOUSE_DOORS.find((d) => d.outside.x === tx && d.outside.y === ty);
+      if (door) this.enterGreenhouse(door);
       else if (tx === HOUSE_DOOR.x && ty === HOUSE_DOOR.y) this.enterHouse();
-    } else if (tx === GREENHOUSE_EXIT.x && ty >= GREENHOUSE_EXIT.y) {
-      this.exitGreenhouse();
+    } else if (GREENHOUSE_DOORS.some((d) => this.throughDoor(d, p.x, p.y))) {
+      this.exitGreenhouse(GREENHOUSE_DOORS.find((d) => this.throughDoor(d, p.x, p.y)));
     } else if (tx === FRONT_DOOR.x && ty >= FRONT_DOOR.y) {
       this.exitHouse();
     }
   }
 
-  /** In through the garden door, straight into the greenhouse. */
-  private enterGreenhouse() {
+  /** Standing in a greenhouse doorway, as far out as the wall. */
+  private throughDoor(d: GreenhouseDoor, x: number, y: number): boolean {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    if (d.wall === 'south') return tx === d.inside.x && ty >= d.inside.y;
+    if (d.wall === 'north') return tx === d.inside.x && ty <= d.inside.y;
+    return ty === d.inside.y && tx <= d.inside.x;
+  }
+
+  /** In through one of the greenhouse's doors (the garden door unless told otherwise). */
+  private enterGreenhouse(door: GreenhouseDoor = GREENHOUSE_DOORS[0]) {
     const p = this.state.player;
     if (this.tools.active) this.tools.cancel();
     p.inGreenhouse = true;
-    p.x = GREENHOUSE_EXIT.x + 0.5;
-    p.y = GREENHOUSE_EXIT.y - 1.5;
-    p.facing = 'up';
+    const o = DOOR_OUTWARD[door.wall];
+    p.x = door.inside.x + 0.5 - o.x * 1.5;
+    p.y = door.inside.y + 0.5 - o.y * 1.5;
+    p.facing = door.wall === 'south' ? 'up' : door.wall === 'north' ? 'down' : 'right';
     this.fadeFrom = performance.now();
     this.bringScoutAlong();
     if (this.state.basket.some((b) => b.growth === 0)) {
@@ -559,14 +572,15 @@ export class Game {
     this.bringScoutAlong();
   }
 
-  private exitGreenhouse() {
+  private exitGreenhouse(door: GreenhouseDoor = GREENHOUSE_DOORS[0]) {
     const p = this.state.player;
     if (this.tools.active) this.tools.cancel();
     this.indoorFocus = null;
     p.inGreenhouse = false;
-    p.x = GREENHOUSE_DOOR.x + 0.5;
-    p.y = GREENHOUSE_DOOR.y + 1.5;
-    p.facing = 'down';
+    const o = DOOR_OUTWARD[door.wall];
+    p.x = door.outside.x + 0.5 + o.x * 1.5;
+    p.y = door.outside.y + 0.5 + o.y * 1.5;
+    p.facing = door.wall === 'south' ? 'down' : door.wall === 'north' ? 'up' : 'left';
     this.fadeFrom = performance.now();
     this.bringScoutAlong();
   }
@@ -640,8 +654,10 @@ export class Game {
       const mx = MARKET_STALL.x + MARKET_STALL.w / 2;
       const my = MARKET_STALL.y + 1.1;
       consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Plant Stand & Supply', available: true }, mx, my, 1.6);
-      if (Math.hypot(p.x - (GREENHOUSE_DOOR.x + 0.5), p.y - (GREENHOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
-        best = { kind: 'greenhouseDoor', id: 'door', x: GREENHOUSE_DOOR.x, y: GREENHOUSE_DOOR.y, label: 'Into the Greenhouse', available: true };
+      for (const d of GREENHOUSE_DOORS) {
+        if (Math.hypot(p.x - (d.outside.x + 0.5), p.y - (d.outside.y + 0.5)) < INTERACT_RANGE) {
+          best = { kind: 'greenhouseDoor', id: d.id, x: d.outside.x, y: d.outside.y, label: 'Into the Greenhouse', available: true };
+        }
       }
       if (Math.hypot(p.x - (HOUSE_DOOR.x + 0.5), p.y - (HOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
         best = { kind: 'houseDoor', id: 'house', x: HOUSE_DOOR.x, y: HOUSE_DOOR.y, label: 'Go inside — home', available: true };
@@ -658,11 +674,9 @@ export class Game {
         const cy = slot.kind === 'hanging' ? slot.y + 1.2 : slot.y + 0.5;
         consider({ kind: 'display', id: slot.id, x: slot.x, y: slot.y, label, available: true }, slot.x + 0.5, cy);
       }
-      consider(
-        { kind: 'greenhouseExit', id: 'exit', x: GREENHOUSE_EXIT.x, y: GREENHOUSE_EXIT.y, label: 'Out to the garden', available: true },
-        GREENHOUSE_EXIT.x + 0.5,
-        GREENHOUSE_EXIT.y + 0.5
-      );
+      for (const d of GREENHOUSE_DOORS) {
+        consider({ kind: 'greenhouseExit', id: d.id, x: d.inside.x, y: d.inside.y, label: d.label, available: true }, d.inside.x + 0.5, d.inside.y + 0.5);
+      }
       consider({ kind: 'frontDoor', id: 'front', x: FRONT_DOOR.x, y: FRONT_DOOR.y, label: 'Out the front door', available: true }, FRONT_DOOR.x + 0.5, FRONT_DOOR.y + 0.5);
     }
     this.nearest = best;
@@ -702,11 +716,11 @@ export class Game {
     } else if (n.kind === 'market') {
       this.onOpenMarket?.();
     } else if (n.kind === 'greenhouseDoor') {
-      this.enterGreenhouse();
+      this.enterGreenhouse(GREENHOUSE_DOORS.find((d) => d.id === n.id));
     } else if (n.kind === 'houseDoor') {
       this.enterHouse();
     } else if (n.kind === 'greenhouseExit') {
-      this.exitGreenhouse();
+      this.exitGreenhouse(GREENHOUSE_DOORS.find((d) => d.id === n.id));
     } else if (n.kind === 'frontDoor') {
       this.exitHouse();
     } else if (n.kind === 'foxFind') {

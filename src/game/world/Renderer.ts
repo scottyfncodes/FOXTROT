@@ -2,7 +2,7 @@ import { Camera } from '../engine/Camera';
 import type { GameState, ScoutState, ScottState, CatState, Facing, OwnedPlant, PlacedDecor } from '../state';
 import type { Obstacle } from './Obstacles';
 import type { DiscoverySpot, ZoneId } from '../types';
-import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
+import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
 import { ZONES } from '../data/zones';
 import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
 import { displaySlots, climbsTrellis } from '../systems/furniture';
@@ -36,7 +36,7 @@ import {
   drawFindCover,
 } from './LandscapeArt';
 import { drawInteriorShell, drawFixture, isFlatFixture, type FixtureContext } from './HomeArt';
-import { LIVING_FIXTURES, PARTITION_X } from '../data/interior';
+import { LIVING_FIXTURES, PARTITION_X, GREENHOUSE_DOORS } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { allFurniture, footprint } from '../systems/furniture';
 import { catLift } from '../systems/cat';
@@ -452,10 +452,15 @@ export class Renderer {
     // Warm interior glow
     ctx.fillStyle = night ? 'rgba(255,200,120,0.18)' : 'rgba(255,220,150,0.08)';
     ctx.fillRect(topLeft.x + tile, topLeft.y + tile, w - tile * 2, h - tile * 2);
-    // Door
-    const doorScreen = camera.worldToScreen(GREENHOUSE_DOOR.x * TILE_SIZE, GREENHOUSE_DOOR.y * TILE_SIZE);
+    // Doors: the garden door at the front, a back door and a side door,
+    // each a timber frame straddling the glass wall it opens through.
     ctx.fillStyle = '#4a3623';
-    ctx.fillRect(doorScreen.x, doorScreen.y - tile * 0.3, tile, tile * 0.5);
+    for (const d of GREENHOUSE_DOORS) {
+      const s = camera.worldToScreen(d.outside.x * TILE_SIZE, d.outside.y * TILE_SIZE);
+      if (d.wall === 'south') ctx.fillRect(s.x, s.y - tile * 0.3, tile, tile * 0.5);
+      else if (d.wall === 'north') ctx.fillRect(s.x, s.y + tile * 0.8, tile, tile * 0.5);
+      else ctx.fillRect(s.x + tile * 0.8, s.y, tile * 0.5, tile);
+    }
   }
 
   private drawObstacle(camera: Camera, o: Obstacle, lushHere: number) {
