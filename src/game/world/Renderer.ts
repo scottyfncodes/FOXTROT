@@ -41,7 +41,7 @@ import { FURNITURE_DEFS } from '../data/furniture';
 import { allFurniture, footprint } from '../systems/furniture';
 import { catLift } from '../systems/cat';
 import { foxFade } from '../systems/fox';
-import { isCouchSpot } from '../data/scottSpots';
+import { isCouchNap, isCouchSpot } from '../data/scottSpots';
 import { PATH_WIDTH } from '../systems/landscape';
 
 /** Everything the scene needs beyond the game state: what the player is doing with their hands, and passing effects. */
@@ -2449,10 +2449,12 @@ export class Renderer {
     if (scottHome) {
       // On the couch he's sitting down, so he sits lower — the couch back hides the rest of him.
       const seated = isCouchSpot(state.scott.currentSpotId) && (state.scott.activity === 'watchingTV' || state.scott.activity === 'relaxing');
-      const sy = state.scott.y + (seated ? -0.12 : 0);
+      // Napping on the couch he's stretched out on the seat: drawn up on it, in front of it.
+      const onCouch = isCouchNap(state.scott.currentSpotId) && state.scott.activity === 'napping';
+      const sy = state.scott.y + (seated ? -0.12 : onCouch ? -0.05 : 0);
       drawables.push({
-        y: state.scott.y,
-        draw: () => this.atScale(camera, state.scott.x, sy, CHARACTER_SCALE.scott, () => this.drawScott(camera, seated ? { ...state.scott, y: sy } : state.scott, now)),
+        y: state.scott.y + (onCouch ? 0.6 : 0),
+        draw: () => this.atScale(camera, state.scott.x, sy, CHARACTER_SCALE.scott, () => this.drawScott(camera, seated || onCouch ? { ...state.scott, y: sy } : state.scott, now)),
       });
     }
     // Up on something (the couch, the TV), the cat is drawn raised and in front of it;
