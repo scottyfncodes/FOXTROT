@@ -41,9 +41,9 @@ describe('market Buy tab', () => {
     state.coins = 10_000;
     market.refresh();
     const bedRow = () => Array.from(body.querySelectorAll('.shop-row')).find((r) => r.querySelector('.entry-name')!.textContent!.startsWith('Nursery Bed'))!;
-    expect(bedRow().querySelector('button')!.textContent).toBe('80 coins');
+    expect(bedRow().querySelector('button')!.textContent).toBe('45 coins');
     (bedRow().querySelector('button') as HTMLButtonElement).click();
-    expect(bedRow().querySelector('button')!.textContent).toBe('100 coins');
+    expect(bedRow().querySelector('button')!.textContent).toBe('59 coins');
     const shelf = Array.from(body.querySelectorAll('.shop-row')).find((r) => r.querySelector('.entry-name')!.textContent === 'Wall Shelf')!;
     (shelf.querySelector('button') as HTMLButtonElement).click();
     const shelfAfter = Array.from(body.querySelectorAll('.shop-row')).find((r) => r.querySelector('.entry-name')!.textContent!.startsWith('Wall Shelf'))!;

@@ -80,7 +80,7 @@ describe('nursery beds', () => {
       prices.push(itemPrice(state, 'nurseryBed'));
       expect(buyItem(state, 'nurseryBed')).toBe(true);
     }
-    expect(prices).toEqual([80, 100, 125, 156, 195, 244]);
+    expect(prices).toEqual([45, 59, 76, 99, 129, 167]);
     expect(state.furnitureStock.nurseryBed).toBe(6);
     expect(buyBlockReason(state, 'nurseryBed')).toBeNull();
   });
@@ -88,9 +88,9 @@ describe('nursery beds', () => {
   it('charges the escalated price and refuses when it cannot be afforded', () => {
     const state = createNewGame();
     state.purchases.nurseryBed = 3;
-    state.coins = 150;
+    state.coins = 98;
     expect(buyBlockReason(state, 'nurseryBed')).toBe('coins');
-    state.coins = 156;
+    state.coins = 99;
     expect(buyItem(state, 'nurseryBed')).toBe(true);
     expect(state.coins).toBe(0);
   });
@@ -184,7 +184,7 @@ describe('older saves', () => {
     expect(state.furnitureStock).toEqual({ nurseryBed: 2, plantStand: 1 });
     expect(state.plants.p.location).toEqual({ kind: 'nursery', bedId: 'furniture-t1' });
     expect(nurserySpots(state).some((b) => b.id === 'furniture-t1')).toBe(true);
-    expect(itemPrice(state, 'nurseryBed')).toBe(156);
+    expect(itemPrice(state, 'nurseryBed')).toBe(99);
   });
 
   it('a current save round-trips its purchases', () => {

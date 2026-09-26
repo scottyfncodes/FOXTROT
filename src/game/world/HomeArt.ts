@@ -377,6 +377,18 @@ export function drawFixture(ctx: Ctx, camera: Camera, f: LivingFixture, fc: Fixt
         ctx.arc(a.x + w * bx, a.y + h * (0.4 + bx * 0.3), tile * 0.035, 0, Math.PI * 2);
         ctx.fill();
       }
+      // While there are holes still to ace, a coin sits by the cup: Scott's
+      // standing bet, glinting now and then so the mat reads as worth a go.
+      if (fc.state.putting.aces.length < 9) {
+        const glint = 0.55 + 0.45 * Math.max(0, Math.sin(fc.now * 0.0025));
+        ctx.fillStyle = `rgba(232,196,88,${glint})`;
+        ctx.beginPath();
+        ctx.ellipse(cup.x + tile * 0.2, cup.y + tile * 0.12, tile * 0.055, tile * 0.035, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(140,100,30,${glint})`;
+        ctx.lineWidth = Math.max(1, tile * 0.012);
+        ctx.stroke();
+      }
       break;
     }
     case 'catBed':

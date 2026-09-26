@@ -152,7 +152,12 @@ export function tickFox(state: GameState, ctx: FoxTickContext): FoxTickResult {
     case 'gone': {
       if (ctx.now < fox.nextEventAt) return result;
       state.foxLog.sightings++;
-      const wantsToLead = ctx.rand() < 0.65;
+      // Its first visit always shows you something, so it's understood as
+      // part of the world from the start; and if it hasn't yet run from you
+      // by its third, it does then. Neither is ever announced.
+      const firstVisit = state.foxLog.sightings <= 1;
+      const owesTrail = state.foxLog.trailsStarted === 0 && state.foxLog.sightings >= 3;
+      const wantsToLead = firstVisit || (!owesTrail && ctx.rand() < 0.65);
       const candidate = wantsToLead ? pickCandidate(state, ctx.playerZone, ctx.discoveryPoints, ctx.rand) : null;
       fox.zone = ctx.playerZone;
       fox.visible = true;
@@ -165,7 +170,7 @@ export function tickFox(state: GameState, ctx: FoxTickContext): FoxTickResult {
         fox.targetDiscoveryId = candidate.id;
         break;
       }
-      const dest = ctx.pickTrailDestination && ctx.rand() < TRAIL_CHANCE ? ctx.pickTrailDestination(ctx.rand) : null;
+      const dest = ctx.pickTrailDestination && (owesTrail || ctx.rand() < TRAIL_CHANCE) ? ctx.pickTrailDestination(ctx.rand) : null;
       if (dest) {
         // It appears a little way off, and watches you.
         const a = Math.atan2(dest.y - ctx.playerY, dest.x - ctx.playerX) + (ctx.rand() - 0.5) * 1.2;

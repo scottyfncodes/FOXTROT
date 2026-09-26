@@ -1,5 +1,21 @@
 import { el, clear } from './dom';
 
+// Every open panel, most recent last, so Escape closes the one on top. The
+// key is caught in the capture phase, before the game's own tool shortcuts
+// see it: with a panel up, Escape means "close this", nothing more.
+const openPanels: Panel[] = [];
+
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (e.key !== 'Escape' || openPanels.length === 0) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openPanels[openPanels.length - 1].close();
+  },
+  true
+);
+
 export class Panel {
   backdrop = el('div', 'panel-backdrop');
   panel = el('div', 'panel');
@@ -35,12 +51,22 @@ export class Panel {
 
   open() {
     this.backdrop.classList.add('open');
+    const i = openPanels.indexOf(this);
+    if (i !== -1) openPanels.splice(i, 1);
+    openPanels.push(this);
   }
 
   close() {
     const wasOpen = this.isOpen;
     this.backdrop.classList.remove('open');
+    const i = openPanels.indexOf(this);
+    if (i !== -1) openPanels.splice(i, 1);
     if (wasOpen) this.onClose?.();
+  }
+
+  /** Whether any panel is up (so world shortcuts can stand aside). */
+  static anyOpen(): boolean {
+    return openPanels.length > 0;
   }
 
   get isOpen() {

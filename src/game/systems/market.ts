@@ -45,9 +45,13 @@ export function soldToday(state: GameState, defId: string): number {
   return state.market.day === today(state) ? state.market.sold[defId] ?? 0 : 0;
 }
 
-/** 1 for the first sale of the day, falling with every repeat sale of the same species. */
-export function glutFactor(state: GameState, defId: string): number {
-  return Math.max(GLUT_FLOOR, Math.pow(GLUT_STEP, soldToday(state, defId)));
+/**
+ * 1 for the first sale of the day, falling with every repeat sale of the
+ * same species. `ahead` counts sales not yet made but coming first (the
+ * rows above this one in the basket), so a list can show each plant's real price.
+ */
+export function glutFactor(state: GameState, defId: string, ahead = 0): number {
+  return Math.max(GLUT_FLOOR, Math.pow(GLUT_STEP, soldToday(state, defId) + ahead));
 }
 
 /** Today's sought-after species: people are asking for it at the stall. */
@@ -66,11 +70,24 @@ export function stallBonus(state: GameState): number {
   return b;
 }
 
-export function priceOf(state: GameState, item: Pick<BasketItem, 'defId' | 'variantId' | 'growth'>): number {
+export function priceOf(state: GameState, item: Pick<BasketItem, 'defId' | 'variantId' | 'growth'>, ahead = 0): number {
   const rarity = specimenRarity(item.defId, item.variantId);
   let p = RARITY_PRICE[rarity] * STAGE_PRICE_MULT[stageIndexOf(item.growth)];
   if (demandSpecies(state) === item.defId) p *= DEMAND_BONUS;
-  return Math.max(1, Math.round(p * stallBonus(state) * glutFactor(state, item.defId)));
+  return Math.max(1, Math.round(p * stallBonus(state) * glutFactor(state, item.defId, ahead)));
+}
+
+/**
+ * What each basket item would fetch if sold top to bottom, in basket order:
+ * a second plant of the same species is priced as the second sale.
+ */
+export function basketPrices(state: GameState): number[] {
+  const ahead: Record<string, number> = {};
+  return state.basket.map((item) => {
+    const n = ahead[item.defId] ?? 0;
+    ahead[item.defId] = n + 1;
+    return priceOf(state, item, n);
+  });
 }
 
 /** Some plants aren't for sale at any price: the stall simply won't take them. */

@@ -186,18 +186,19 @@ button {
   margin-right: 6px;
 }
 
-/* Full-width lane, so a toast can use the screen's width rather than
-   shrinking to half of it and stacking tall over the player. */
+/* Notifications sit low, just above the interaction prompt and the mode
+   bar, out of the way of whatever Ellen is looking at. They live under the
+   panel layer: an open panel's header, tabs and buttons are never covered,
+   and news still shows faintly through the backdrop. */
 .toast-stack {
-  /* Its own layer above open panels, so news still gets through while a
-     plant, bed or planter is open. */
   position: fixed;
-  z-index: 30;
-  top: calc(max(env(safe-area-inset-top), 48px) + 60px);
+  z-index: 15;
+  /* Outside .hud, so the safe-area insets are read directly. */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 196px);
   left: calc(env(safe-area-inset-left, 0px) + 16px);
   right: calc(env(safe-area-inset-right, 0px) + 16px);
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 6px;
   align-items: center;
   pointer-events: none;
@@ -211,7 +212,7 @@ button {
   font-size: 13px;
   box-shadow: var(--shadow);
   animation: toast-in 0.25s ease;
-  max-width: 380px;
+  max-width: min(420px, 100%);
   text-align: center;
   line-height: 1.35;
 }

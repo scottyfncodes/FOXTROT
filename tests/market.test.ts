@@ -121,3 +121,20 @@ describe('moving garden pieces', () => {
     expect(state.decorStock.gardenTrellis).toBe(2);
   });
 });
+
+describe('what each basket item will actually fetch', () => {
+  it('prices a second plant of the same species as the second sale of the day', async () => {
+    const { createNewGame } = await import('../src/game/state');
+    const { addToBasket } = await import('../src/game/systems/basket');
+    const { basketPrices, priceOf } = await import('../src/game/systems/market');
+    const state = createNewGame();
+    const item = { defId: 'pothos', variantId: 'golden', seed: 1, growth: 1500, generation: 0, origin: 'wild' as const, collectedAt: 0 };
+    addToBasket(state, item);
+    addToBasket(state, item);
+    addToBasket(state, { ...item, defId: 'spiderPlant', variantId: 'green' });
+    const prices = basketPrices(state);
+    expect(prices[0]).toBe(priceOf(state, item));
+    expect(prices[1]).toBeLessThan(prices[0]);
+    expect(prices[2]).toBe(priceOf(state, { ...item, defId: 'spiderPlant', variantId: 'green' }));
+  });
+});

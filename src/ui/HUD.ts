@@ -28,10 +28,12 @@ export class HUD {
   private coinChip = el('div', 'hud-chip coins');
   private journalBtn = el('button', 'icon-btn', '\u{1F4D3}');
   private basketBtn = el('button', 'icon-btn', '\u{1F9FA}');
-  /** Outdoors: shape the land. Indoors: arrange the house. While a tool is in hand: stop. */
+  /**
+   * One button for working the place with your hands. Outdoors it opens
+   * the garden menu (bed, path, arrange); indoors it arranges the house.
+   * While a tool is in hand it's the way to stop.
+   */
   private toolBtn = el('button', 'icon-btn tool-btn', '\u{1F33F}');
-  /** Outdoors: arrange the garden — decor and the market stall — just as the 🪑 does indoors. */
-  private yardBtn = el('button', 'icon-btn tool-btn', '\u{1FA91}');
   private compostChip = el('div', 'hud-chip compost');
   private landMenu = el('div', 'land-menu');
   private modeBar: ModeBar;
@@ -56,8 +58,7 @@ export class HUD {
     left.style.flexWrap = 'wrap';
     left.append(this.zoneChip, this.timeChip, this.coinChip, this.compostChip);
     const right = el('div', 'hud-buttons');
-    right.append(this.yardBtn, this.toolBtn, this.journalBtn, this.basketBtn);
-    this.yardBtn.setAttribute('aria-label', 'Arrange the garden');
+    right.append(this.toolBtn, this.journalBtn, this.basketBtn);
     top.append(left, right);
     this.journalBtn.setAttribute('aria-label', 'Field journal');
     this.basketBtn.setAttribute('aria-label', 'Basket');
@@ -86,9 +87,8 @@ export class HUD {
         this.game.beginArrange();
       } else this.setLandMenu(!this.landMenuOpen);
     });
-    this.yardBtn.addEventListener('click', () => {
-      this.setLandMenu(false);
-      this.game.beginArrange();
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.landMenuOpen) this.setLandMenu(false);
     });
     this.game.input.bindJoystick(this.joystickZone, this.joystickThumb);
     this.game.input.bindActionButton(this.actionBtn);
@@ -108,7 +108,8 @@ export class HUD {
     this.landMenu.append(
       item('▭', 'Dig a bed', () => this.game.beginBed('rect')),
       item('◯', 'Round bed', () => this.game.beginBed('oval')),
-      item('〰', 'Carve a path', () => this.game.beginPath())
+      item('〰', 'Carve a path', () => this.game.beginPath()),
+      item('\u{1FA91}', 'Arrange the garden', () => this.game.beginArrange())
     );
     this.landMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
   }
@@ -121,7 +122,7 @@ export class HUD {
   private showToast(t: ToastEvent) {
     const node = el('div', `toast ${t.kind} sig-${t.significance}`, t.text);
     node.setAttribute('role', 'status');
-    this.toasts.push(node, t.text, t.significance, performance.now());
+    this.toasts.push(node, t.text, t.significance, performance.now(), t.opts);
     this.pumpToasts();
   }
 
@@ -149,12 +150,10 @@ export class HUD {
     const showCompost = state.compost > 0 || tools || this.landMenuOpen;
     if (this.compostChip.style.display !== (showCompost ? '' : 'none')) this.compostChip.style.display = showCompost ? '' : 'none';
     setText(this.toolBtn, tools ? '✕' : state.player.inGreenhouse ? '\u{1FA91}' : '\u{1F33F}');
-    this.toolBtn.setAttribute('aria-label', tools ? 'Stop' : state.player.inGreenhouse ? 'Arrange the house' : 'Shape the land');
+    this.toolBtn.setAttribute('aria-label', tools ? 'Stop' : state.player.inGreenhouse ? 'Arrange the house' : 'Garden');
     if (state.player.inGreenhouse && this.landMenuOpen) this.setLandMenu(false);
     this.root.classList.toggle('tool-active', tools);
     this.root.classList.toggle('arrange-active', this.game.tools.mode.kind === 'arrange' || this.game.tools.mode.kind === 'yard');
-    const showYard = !tools && !state.player.inGreenhouse;
-    if (this.yardBtn.style.display !== (showYard ? '' : 'none')) this.yardBtn.style.display = showYard ? '' : 'none';
     this.modeBar.update();
     const night = isNight(state.clock.totalMinutes);
     setText(this.timeChip, `${WEATHER_ICON[state.weather.condition]} ${formatClock(state.clock.totalMinutes)}${night ? ' \u{1F319}' : ''}`);
