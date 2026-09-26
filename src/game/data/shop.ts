@@ -53,6 +53,7 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'gardenLantern', name: 'Garden Lantern', category: 'garden', price: 30, repeatable: true, description: 'Glows warmly after dark.' },
   { id: 'birdbath', name: 'Birdbath', category: 'garden', price: 45, repeatable: true, description: 'A stone basin. Birds and butterflies will visit.' },
   { id: 'gardenBench', name: 'Garden Bench', category: 'garden', price: 60, repeatable: true, description: 'Somewhere to sit and look at what you’ve made.' },
+  { id: 'gardenTrellis', name: 'Garden Trellis', category: 'garden', price: 55, repeatable: true, description: 'A freestanding cedar lattice. Plant a vine or trailer at its foot and it climbs instead of sprawling.' },
 
   // Equipment
   { id: 'basketMedium', name: 'Collector’s Satchel', category: 'equipment', price: 80, description: 'Carry up to 10 plants.' },
@@ -92,8 +93,8 @@ export function findPotStyle(id: string): PotStyle {
   return POT_STYLES.find((p) => p.id === id) ?? POT_STYLES[0];
 }
 
-export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenBench';
-export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenBench'];
+export type DecorId = 'steppingStones' | 'picketFence' | 'gardenLantern' | 'birdbath' | 'gardenBench' | 'gardenTrellis';
+export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLantern', 'birdbath', 'gardenBench', 'gardenTrellis'];
 
 /**
  * Everything that can stand (or hang) indoors. The first group is sold at
@@ -129,7 +130,10 @@ export type FurnitureId =
   | 'bookshelf'
   | 'doormat'
   | 'coatRack'
-  | 'floorLamp';
+  | 'floorLamp'
+  // The greenhouse's own set dressing: moved like anything else, never put away.
+  | 'scoutBed'
+  | 'ellenDesk';
 export const FURNITURE_IDS: FurnitureId[] = [
   'plantStand',
   'ironPedestal',
