@@ -2562,7 +2562,7 @@ export class Renderer {
 
   }
 
-  /** A nursery bed (a timber seed trough) or a propagation tray (shallow, with a clear lid), either way round. */
+  /** A nursery bed: a timber seed trough, either way round. */
   private drawNurseryPiece(camera: Camera, piece: PlacedFurniture, plant: OwnedPlant | undefined, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
@@ -2570,16 +2570,15 @@ export class Renderer {
     const a = camera.worldToScreen(fp.x * TILE_SIZE, fp.y * TILE_SIZE);
     const w = fp.w * tile;
     const h = fp.h * tile;
-    const tray = piece.kind === 'propagationTray';
-    const depth = tile * (tray ? 0.1 : 0.2);
+    const depth = tile * 0.2;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fillRect(a.x + tile * 0.03, a.y + h + depth - tile * 0.02, w, tile * 0.08);
     // Front face, then the soil-filled top.
-    ctx.fillStyle = tray ? '#2f4a3a' : '#6b4a2e';
+    ctx.fillStyle = '#6b4a2e';
     ctx.fillRect(a.x, a.y + h - depth * 0.2, w, depth + depth * 0.2);
-    ctx.fillStyle = tray ? '#3d5c48' : '#7a5636';
+    ctx.fillStyle = '#7a5636';
     ctx.fillRect(a.x, a.y - depth * 0.6, w, h + depth * 0.4);
-    ctx.fillStyle = tray ? '#4a3a2a' : '#3d2a1a';
+    ctx.fillStyle = '#3d2a1a';
     ctx.fillRect(a.x + tile * 0.05, a.y - depth * 0.45, w - tile * 0.1, h + depth * 0.1);
     // Seed-tray cells.
     ctx.strokeStyle = 'rgba(30,20,10,0.4)';
@@ -2600,13 +2599,6 @@ export class Renderer {
     const cx = a.x + w / 2;
     const cy = a.y + h / 2;
     if (plant) this.drawPlantSprite(cx, cy - tile * 0.02, tile * 0.85, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'pot', now);
-    if (tray) {
-      // The clear lid, propped open at the back.
-      ctx.fillStyle = 'rgba(210,235,240,0.18)';
-      ctx.fillRect(a.x - tile * 0.02, a.y - depth * 0.6 - tile * 0.28, w + tile * 0.04, tile * 0.22);
-      ctx.strokeStyle = 'rgba(230,245,250,0.5)';
-      ctx.strokeRect(a.x - tile * 0.02, a.y - depth * 0.6 - tile * 0.28, w + tile * 0.04, tile * 0.22);
-    }
   }
 
   private drawHouseRug(camera: Camera, piece: PlacedFurniture) {

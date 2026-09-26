@@ -646,8 +646,7 @@ export class Game {
     } else {
       for (const bed of nurserySpots(this.state)) {
         const plant = occupantOf(this.state, { bedId: bed.id });
-        const kindName = bed.kind === 'propagationTray' ? 'propagation tray' : 'nursery bed';
-        const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : `Empty ${kindName}`;
+        const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : 'Empty nursery bed';
         consider({ kind: 'bed', id: bed.id, x: bed.x, y: bed.y, label, available: true }, bed.x + 0.5, bed.y + 0.5);
       }
       for (const slot of displaySlots(this.state)) {

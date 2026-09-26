@@ -8,6 +8,8 @@ export class Panel {
   closeBtn = el('button', 'panel-close', '×');
   tabsEl = el('div', 'panel-tabs');
   body = el('div', 'panel-body');
+  /** Called whenever the panel closes, however it was closed. */
+  onClose?: () => void;
 
   constructor(title: string, opts: { tabs?: boolean } = {}) {
     this.titleEl.textContent = title;
@@ -36,7 +38,9 @@ export class Panel {
   }
 
   close() {
+    const wasOpen = this.isOpen;
     this.backdrop.classList.remove('open');
+    if (wasOpen) this.onClose?.();
   }
 
   get isOpen() {

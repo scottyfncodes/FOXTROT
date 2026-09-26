@@ -5,6 +5,30 @@
 
 export type ShopCategory = 'greenhouse' | 'pots' | 'garden' | 'equipment' | 'stall';
 
+/**
+ * What a greenhouse item is *for*, so the market can answer two different
+ * questions at a glance: "how do I grow more?" (production) and "how do I
+ * show off what I have?" (display). Every greenhouse item has exactly one.
+ */
+export type ShopPurpose = 'production' | 'display' | 'space' | 'utility';
+
+/**
+ * How an item fits into progression. Foundation items open up something
+ * new, expansions add more of something the player already has, and
+ * decoration is there for the look of the place.
+ */
+export type ShopRole = 'foundation' | 'expansion' | 'decoration';
+
+export const PURPOSE_INFO: Record<ShopPurpose, { icon: string; label: string }> = {
+  production: { icon: '🌱', label: 'Production' },
+  display: { icon: '🪴', label: 'Display' },
+  space: { icon: '🏡', label: 'Space' },
+  utility: { icon: '🔧', label: 'Utility' },
+};
+
+/** The order greenhouse groups appear in: growing capacity first. */
+export const PURPOSE_ORDER: ShopPurpose[] = ['production', 'space', 'display', 'utility'];
+
 export interface ShopItem {
   id: string;
   name: string;
@@ -15,28 +39,38 @@ export interface ShopItem {
   repeatable?: boolean;
   /** Only offered after this item is owned. */
   after?: string;
+  /** Greenhouse items only: what it's for. */
+  purpose?: ShopPurpose;
+  role?: ShopRole;
+  /** A few words on what it does, shown before the flavour text. */
+  blurb?: string;
+  /**
+   * Repeatable items whose price compounds: each one bought costs this
+   * much more than the last (1.25 = a quarter more).
+   */
+  priceGrowth?: number;
 }
 
 export const SHOP_ITEMS: ShopItem[] = [
   // Greenhouse
-  { id: 'hangingHooks', name: 'Hanging Hooks', category: 'greenhouse', price: 90, description: 'Three ceiling hooks for hanging pots. Trailing plants look spectacular up here.' },
-  { id: 'plantShelf', name: 'Wall Shelf', category: 'greenhouse', price: 120, description: 'A reclaimed-wood shelf along the west wall. Room for three more plants.' },
-  { id: 'nurseryBeds', name: 'Extra Nursery Beds', category: 'greenhouse', price: 160, description: 'Two more beds for rooting cuttings and raising young plants.' },
-  { id: 'tieredStand', name: 'Tiered Plant Stand', category: 'greenhouse', price: 240, description: 'A three-step iron stand by the east glass. Three more display spots in the best light.' },
-  { id: 'growLights', name: 'Grow Lights', category: 'greenhouse', price: 360, description: 'Warm lamps over the whole greenhouse. Everything indoors grows half again as fast.' },
+  { id: 'hangingHooks', name: 'Hanging Hook Rail', category: 'greenhouse', price: 90, purpose: 'display', role: 'foundation', blurb: 'Adds 3 hanging spots', description: 'A rail of three ceiling hooks for hanging pots. Trailing plants look spectacular up here.' },
+  { id: 'plantShelf', name: 'Wall Shelf', category: 'greenhouse', price: 120, purpose: 'display', role: 'expansion', blurb: 'Adds 3 display spots', description: 'A reclaimed-wood shelf along the west wall. Room for three more plants.' },
+  { id: 'nurseryBeds', name: 'Two More Nursery Beds', category: 'greenhouse', price: 160, purpose: 'production', role: 'expansion', blurb: 'Adds 2 growing beds', description: 'Two more beds for rooting cuttings and raising young plants.' },
+  { id: 'tieredStand', name: 'Tiered Plant Stand', category: 'greenhouse', price: 240, purpose: 'display', role: 'expansion', blurb: 'Adds 3 display spots', description: 'A three-step iron stand by the east glass. Three more display spots in the best light.' },
+  { id: 'growLights', name: 'Grow Lights', category: 'greenhouse', price: 360, purpose: 'production', role: 'foundation', blurb: 'Everything indoors grows 1.5× faster', description: 'Warm lamps over the whole greenhouse. Everything indoors grows half again as fast.' },
   // Greenhouse furniture: bought by the piece and set down wherever you
   // like indoors, then picked up and moved as the collection grows.
-  { id: 'plantStand', name: 'Plant Stand', category: 'greenhouse', price: 45, repeatable: true, description: 'A round wooden stand for one plant. Put it anywhere in the greenhouse.' },
-  { id: 'ironPedestal', name: 'Iron Pedestal', category: 'greenhouse', price: 80, repeatable: true, description: 'A tall wrought-iron pedestal that lifts one plant up into the light.' },
-  { id: 'ceilingHook', name: 'Ceiling Hook', category: 'greenhouse', price: 40, repeatable: true, description: 'Hang one more pot from the roof, above anything you like.' },
-  { id: 'wallTrellis', name: 'Wall Trellis', category: 'greenhouse', price: 95, repeatable: true, description: 'A tall cedar lattice. Vines and trailers planted at its foot climb it instead of trailing — best along a wall.' },
-  { id: 'propagationTray', name: 'Propagation Tray', category: 'greenhouse', price: 70, repeatable: true, description: 'A shallow tray of damp grit with a clear lid. One more place for a cutting to root — put it anywhere.' },
-  { id: 'pottingTable', name: 'Potting Table', category: 'greenhouse', price: 85, repeatable: true, description: 'A long, scrubbed table. Sets one plant at a comfortable height. Turns to fit along any wall.' },
-  { id: 'floorPlanter', name: 'Floor Planter', category: 'greenhouse', price: 110, repeatable: true, description: 'A deep glazed planter that sits on the floor. Big plants love the extra root room.' },
-  { id: 'growLamp', name: 'Grow Lamp', category: 'greenhouse', price: 150, repeatable: true, description: 'A standing lamp with a warm, pinkish glow. Plants close to it grow a third faster.' },
-  { id: 'wateringCan', name: 'Watering Can', category: 'greenhouse', price: 15, repeatable: true, description: 'A dented brass can. Purely for the look of the place.' },
-  { id: 'houseRug', name: 'Woven Rug', category: 'greenhouse', price: 40, repeatable: true, description: 'A soft jute rug to put down anywhere indoors. Things stand on it happily.' },
-  { id: 'sunRoom', name: 'Clear Out the Sun Room', category: 'greenhouse', price: 700, description: 'Haul away the old crates in the south-east corner and fit it out: four new display spots in full sun.' },
+  { id: 'nurseryBed', name: 'Nursery Bed', category: 'greenhouse', price: 80, priceGrowth: 1.25, repeatable: true, purpose: 'production', role: 'expansion', blurb: 'Adds 1 growing bed', description: 'A timber trough for rooting cuttings and raising young plants. Put it anywhere indoors. Each one costs a little more than the last.' },
+  { id: 'plantStand', name: 'Plant Stand', category: 'greenhouse', price: 45, repeatable: true, purpose: 'display', role: 'expansion', blurb: 'Display spot for 1 plant', description: 'A round wooden stand for one plant. Put it anywhere in the greenhouse.' },
+  { id: 'ironPedestal', name: 'Iron Pedestal', category: 'greenhouse', price: 80, repeatable: true, purpose: 'display', role: 'expansion', blurb: 'Display spot for 1 plant', description: 'A tall wrought-iron pedestal that lifts one plant up into the light.' },
+  { id: 'ceilingHook', name: 'Ceiling Hook', category: 'greenhouse', price: 40, repeatable: true, purpose: 'display', role: 'expansion', blurb: 'Hangs 1 plant', description: 'A single hook: hang one more pot from the roof, above anything you like.' },
+  { id: 'wallTrellis', name: 'Wall Trellis', category: 'greenhouse', price: 95, repeatable: true, purpose: 'display', role: 'expansion', blurb: 'Display spot vines can climb', description: 'A tall cedar lattice. Vines and trailers planted at its foot climb it instead of trailing — best along a wall.' },
+  { id: 'pottingTable', name: 'Potting Table', category: 'greenhouse', price: 85, repeatable: true, purpose: 'display', role: 'expansion', blurb: 'Display spot for 1 plant', description: 'A long, scrubbed table. Sets one plant at a comfortable height. Turns to fit along any wall.' },
+  { id: 'floorPlanter', name: 'Floor Planter', category: 'greenhouse', price: 110, repeatable: true, purpose: 'display', role: 'expansion', blurb: 'Display spot for 1 big plant', description: 'A deep glazed planter that sits on the floor. Big plants love the extra root room.' },
+  { id: 'growLamp', name: 'Grow Lamp', category: 'greenhouse', price: 150, repeatable: true, purpose: 'production', role: 'expansion', blurb: 'Plants nearby grow 1.3× faster', description: 'A standing lamp with a warm, pinkish glow. Plants close to it grow a third faster.' },
+  { id: 'wateringCan', name: 'Watering Can', category: 'greenhouse', price: 15, repeatable: true, purpose: 'display', role: 'decoration', blurb: 'Decoration', description: 'A dented brass can. Purely for the look of the place.' },
+  { id: 'houseRug', name: 'Woven Rug', category: 'greenhouse', price: 40, repeatable: true, purpose: 'display', role: 'decoration', blurb: 'Decoration', description: 'A soft jute rug to put down anywhere indoors. Things stand on it happily.' },
+  { id: 'sunRoom', name: 'Clear Out the Sun Room', category: 'greenhouse', price: 700, purpose: 'space', role: 'foundation', blurb: 'Opens a new corner · 4 display spots', description: 'Haul away the old crates in the south-east corner and fit it out: four new display spots in full sun.' },
 
   // Pots
   { id: 'potGlazed', name: 'Teal Glazed Pots', category: 'pots', price: 25, description: 'Deep sea-green glaze with a drip at the rim.' },
@@ -66,6 +100,9 @@ export const SHOP_ITEMS: ShopItem[] = [
 export function findShopItem(id: string): ShopItem | undefined {
   return SHOP_ITEMS.find((s) => s.id === id);
 }
+
+/** Items added to the market in a later build, so older saves see them as NEW. */
+export const INTRODUCED_IN_V7 = ['nurseryBed'];
 
 export interface PotStyle {
   id: string;
@@ -104,7 +141,6 @@ export type FurnitureId =
   | 'ironPedestal'
   | 'ceilingHook'
   | 'wallTrellis'
-  | 'propagationTray'
   | 'pottingTable'
   | 'floorPlanter'
   | 'growLamp'
@@ -119,7 +155,6 @@ export const FURNITURE_IDS: FurnitureId[] = [
   'ironPedestal',
   'ceilingHook',
   'wallTrellis',
-  'propagationTray',
   'pottingTable',
   'floorPlanter',
   'growLamp',

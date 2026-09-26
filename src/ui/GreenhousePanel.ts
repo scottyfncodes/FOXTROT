@@ -48,7 +48,7 @@ export class GreenhousePanel {
     this.panel.clearBody();
     const plant = t.kind === 'bed' ? occupantOf(this.game.state, { bedId: t.id }) : occupantOf(this.game.state, { slotId: t.id });
     if (t.kind === 'bed') {
-      this.panel.setTitle(findFurniture(this.game.state, t.id)?.kind === 'propagationTray' ? 'Propagation Tray' : 'Nursery Bed');
+      this.panel.setTitle('Nursery Bed');
       if (plant) this.renderPlant(plant);
       else this.renderPotting(t.id);
     } else {

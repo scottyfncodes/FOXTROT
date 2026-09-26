@@ -1206,3 +1206,67 @@ button {
   color: var(--ink-dim);
   letter-spacing: 0.1em;
 }
+
+/* Market: greenhouse items grouped by what they're for. The icon carries
+   the meaning; the edge tint only reinforces it. */
+.shop-subhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-brown-dim);
+  margin: 12px 0 6px;
+}
+
+.purpose-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.shop-blurb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-brown);
+  margin: 2px 0 1px;
+}
+
+.purpose-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  background: rgba(90, 66, 34, 0.1);
+  flex-shrink: 0;
+}
+
+.entry-row.purpose-production { border-left-color: var(--leaf); }
+.entry-row.purpose-production .purpose-badge { background: var(--leaf-soft); }
+.entry-row.purpose-display { border-left-color: var(--stamp); }
+.entry-row.purpose-display .purpose-badge { background: var(--stamp-soft); }
+.entry-row.purpose-space { border-left-color: #b8862a; }
+.entry-row.purpose-space .purpose-badge { background: rgba(184, 134, 42, 0.16); }
+
+.new-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: 2px;
+  color: #fff8e8;
+  background: var(--rust);
+}
+
+/* On a phone the price button stays put while the text wraps beside it. */
+.shop-row .entry-info { overflow-wrap: anywhere; }
+.shop-row > button { flex-shrink: 0; }

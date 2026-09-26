@@ -96,19 +96,50 @@ export function sellItem(state: GameState, uid: string, now: number): number | n
 
 export type BuyBlock = 'owned' | 'locked' | 'coins';
 
+/**
+ * What an item costs right now. Most items have a fixed price; a few
+ * repeatable ones (nursery beds) compound with every one already bought.
+ */
+export function itemPrice(state: Pick<GameState, 'purchases'>, itemId: string): number {
+  const item = findShopItem(itemId);
+  if (!item) return Infinity;
+  if (!item.priceGrowth) return item.price;
+  const bought = state.purchases?.[itemId] ?? 0;
+  return Math.round(item.price * Math.pow(item.priceGrowth, bought));
+}
+
+/** Whether the market offers this item yet: unlocked by its prerequisite, or already owned. */
+export function shopItemVisible(state: Pick<GameState, 'owned'>, itemId: string): boolean {
+  const item = findShopItem(itemId);
+  if (!item) return false;
+  return !item.after || state.owned.includes(item.after) || state.owned.includes(item.id);
+}
+
+/** A shop item the player hasn't looked at yet. */
+export function isShopItemNew(state: Pick<GameState, 'owned' | 'seenShop'>, itemId: string): boolean {
+  return shopItemVisible(state, itemId) && !state.seenShop.includes(itemId);
+}
+
+/** Records that the player has seen these items, so they stop showing NEW. */
+export function markShopSeen(state: Pick<GameState, 'seenShop'>, ids: string[]): void {
+  for (const id of ids) if (!state.seenShop.includes(id)) state.seenShop.push(id);
+}
+
 export function buyBlockReason(state: GameState, itemId: string): BuyBlock | null {
   const item = findShopItem(itemId);
   if (!item) return 'locked';
   if (!item.repeatable && state.owned.includes(itemId)) return 'owned';
   if (item.after && !state.owned.includes(item.after)) return 'locked';
-  if (state.coins < item.price) return 'coins';
+  if (state.coins < itemPrice(state, itemId)) return 'coins';
   return null;
 }
 
 export function buyItem(state: GameState, itemId: string): boolean {
   const item = findShopItem(itemId);
   if (!item || buyBlockReason(state, itemId)) return false;
-  state.coins -= item.price;
+  state.coins -= itemPrice(state, itemId);
+  if (item.priceGrowth) state.purchases[itemId] = (state.purchases[itemId] ?? 0) + 1;
+  markShopSeen(state, [itemId]);
   if (itemId === 'compostSack') {
     state.compost += COMPOST_PER_SACK;
   } else if (item.repeatable && (DECOR_IDS as string[]).includes(itemId)) {

@@ -3,6 +3,7 @@ import { findScottSpot } from '../data/scottSpots';
 import { findCatSpot } from '../data/catSpots';
 import { PLANTS } from '../data/plants';
 import { FURNITURE_DEFS } from '../data/furniture';
+import { SHOP_ITEMS, INTRODUCED_IN_V7 } from '../data/shop';
 import { HOUSE_FOOTPRINT, HOUSE_DOOR } from '../data/worldMap';
 
 // Older builds stored each schema version under its own key; they're read
@@ -12,8 +13,8 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
 const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog'] as const;
-const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture', 'seededFixtures', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds'] as const;
-const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock', 'curiosities'] as const;
+const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture', 'seededFixtures', 'seenShop', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds'] as const;
+const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock', 'curiosities', 'purchases'] as const;
 
 /** Anything standing where the house now is gets moved out onto the lawn in front of it. */
 function inHouse(x: number, y: number): boolean {
@@ -70,6 +71,29 @@ export function migrateSave(raw: unknown): GameState | null {
     if (!isRecord(p) || !PLANTS[p.defId as string] || !isRecord(p.location)) delete state.plants[id];
   }
   state.basket = state.basket.filter((b) => isRecord(b) && !!PLANTS[b.defId]);
+  // Builds before v7 sold propagation trays; nursery beds replaced them.
+  // Trays already bought become beds where they stand (keeping their ids, so
+  // anything rooting in one stays put) and count toward the beds' price.
+  if (fromVersion < 7) {
+    let trays = 0;
+    for (const f of state.furniture as unknown as Loose[]) {
+      if (isRecord(f) && f.kind === 'propagationTray') {
+        f.kind = 'nurseryBed';
+        trays++;
+      }
+    }
+    const stock = state.furnitureStock as Record<string, number>;
+    if (typeof stock.propagationTray === 'number') {
+      trays += stock.propagationTray;
+      stock.nurseryBed = (stock.nurseryBed ?? 0) + stock.propagationTray;
+    }
+    delete stock.propagationTray;
+    if (trays > 0) state.purchases.nurseryBed = (state.purchases.nurseryBed ?? 0) + trays;
+    // Everything this player could already buy has been seen; only what's
+    // new to the market (or unlocks later) gets the NEW tag.
+    const owned = Array.isArray(state.owned) ? state.owned : [];
+    state.seenShop = SHOP_ITEMS.filter((s) => !INTRODUCED_IN_V7.includes(s.id) && (!s.after || owned.includes(s.after) || owned.includes(s.id))).map((s) => s.id);
+  }
   state.furniture = state.furniture.filter((f) => isRecord(f) && !!FURNITURE_DEFS[f.kind] && Number.isFinite(f.x) && Number.isFinite(f.y));
   state.gardenBeds = state.gardenBeds.filter((b) => isRecord(b) && [b.x, b.y, b.w, b.h].every(Number.isFinite));
   state.paths = state.paths.filter((p) => isRecord(p) && Array.isArray(p.points) && p.points.length >= 4);
