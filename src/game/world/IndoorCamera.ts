@@ -17,7 +17,10 @@ export function makeIndoorCamera(outer: Camera, focusX: number, focusY: number):
   // now, and Ellen should read as the anchor of the room, not a figure in it.
   const targetTilesVisible = 8;
   const fitWholeRoom = Math.min(camera.viewW / (INTERIOR_W * TILE_SIZE), camera.viewH / (INTERIOR_H * TILE_SIZE));
-  camera.zoom = Math.max(fitWholeRoom, shortAxis / (targetTilesVisible * TILE_SIZE));
+  // The player's zoom applies here too — but zoomed right out, the whole house
+  // is the limit: never the void beyond its walls.
+  camera.userZoom = outer.userZoom;
+  camera.zoom = Math.max(fitWholeRoom, Math.max(fitWholeRoom, shortAxis / (targetTilesVisible * TILE_SIZE)) * outer.userZoom);
   const clampAxis = (world: number, viewSize: number, worldTiles: number): number => {
     const halfView = viewSize / 2 / camera.zoom;
     const worldSize = worldTiles * TILE_SIZE;

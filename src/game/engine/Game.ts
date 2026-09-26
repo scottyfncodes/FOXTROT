@@ -97,6 +97,30 @@ export interface ToastEvent {
 }
 
 const AUTOSAVE_MS = 8000;
+
+// The zoom is a per-device view preference, not part of the saved game.
+const ZOOM_KEY = 'foxtail-zoom';
+
+function loadZoom(): number {
+  try {
+    const v = Number(localStorage.getItem(ZOOM_KEY));
+    return Number.isFinite(v) && v > 0 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function preventDefault(e: Event) {
+  e.preventDefault();
+}
+
+function saveZoom(z: number) {
+  try {
+    localStorage.setItem(ZOOM_KEY, z.toFixed(3));
+  } catch {
+    // Private browsing or storage off: the zoom just won't be remembered.
+  }
+}
 const MOVE_SPEED = 3.4; // tiles per second
 /** Walking a path you carved is easy going… */
 const PATH_SPEED = 1.2;
@@ -168,7 +192,22 @@ export class Game {
   indoorFocus: { x: number; y: number } | null = null;
   private catInterests: CatInterest[] = [];
   private catInterestAcc = CAT_INTEREST_MS;
-  private press: { id: number; sx: number; sy: number; kind: 'tool' | 'pan' | 'tap'; lastSX: number; lastSY: number; moved: boolean; touch: boolean } | null = null;
+  private press: {
+    id: number;
+    sx: number;
+    sy: number;
+    kind: 'tool' | 'pan' | 'tap';
+    lastSX: number;
+    lastSY: number;
+    moved: boolean;
+    touch: boolean;
+    /** What was selected in arrange mode before this press, to restore if it turns into a pinch. */
+    prevSelected?: string | null;
+  } | null = null;
+  /** Every finger currently on the canvas, for pinching. */
+  private pointers = new Map<number, { x: number; y: number }>();
+  /** A two-finger pinch in progress: the spread and zoom it started from. */
+  private pinch: { startDist: number; startZoom: number } | null = null;
   private lastFrame = performance.now();
   private autosaveAcc = 0;
   private spreadCarry = 0;
@@ -224,6 +263,8 @@ export class Game {
       if (!this.tools.active) this.interactWithNearest();
     });
     window.addEventListener('keydown', this.onToolKey);
+    window.addEventListener('keydown', this.onZoomKey);
+    this.camera.setUserZoom(loadZoom());
     this.bindPointer();
     window.addEventListener('resize', this.handleResize);
     document.addEventListener('visibilitychange', this.saveWhenHidden);
@@ -274,6 +315,7 @@ export class Game {
   stop() {
     cancelAnimationFrame(this.rafId);
     window.removeEventListener('keydown', this.onToolKey);
+    window.removeEventListener('keydown', this.onZoomKey);
     this.input.destroy();
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('visibilitychange', this.saveWhenHidden);
@@ -840,16 +882,24 @@ export class Game {
     if (this.tools.startTransplant(plantId)) this.hint('transplant', 'Drag it to its new spot. Only young plants can be moved — once they’re large, they’ve settled in.');
   }
 
+  /** Once, the first time the player edits something: zooming helps most here. */
+  private zoomHint() {
+    const touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    this.hint('zoom', touch ? 'Pinch with two fingers to zoom in and out — here, and anywhere in the valley.' : 'Scroll (or press + and −) to zoom in and out — here, and anywhere in the valley.', 'normal');
+  }
+
   beginArrange(stock?: FurnitureId, selectId?: string) {
     if (!this.state.player.inGreenhouse) return;
     this.indoorFocus = { x: this.state.player.x, y: this.state.player.y };
     this.tools.startArrange(stock, stock ? this.viewCentre() : undefined);
     if (selectId) this.tools.select(selectId);
+    this.zoomHint();
   }
 
   beginBed(shape: 'rect' | 'oval' = 'rect') {
     if (this.state.player.inGreenhouse) return;
     this.tools.startBed(shape);
+    this.zoomHint();
     this.hint('bed', 'Drag across open ground to mark out a bed. Plants in a bed spread only within it — and a mix of species makes for a livelier bed.');
   }
 
@@ -1066,7 +1116,42 @@ export class Game {
     c.addEventListener('pointermove', this.onPointerMove);
     c.addEventListener('pointerup', this.onPointerUp);
     c.addEventListener('pointercancel', this.onPointerCancel);
+    c.addEventListener('wheel', this.onWheel, { passive: false });
+    // iOS Safari ignores user-scalable=no and would zoom the whole page on a
+    // pinch; the pinch is the game's to handle.
+    document.addEventListener('gesturestart', preventDefault, { passive: false });
+    document.addEventListener('gesturechange', preventDefault, { passive: false });
   }
+
+  // ---- Zoom: pinch, scroll wheel, or + / − ----
+
+  /** Zooms the view (outdoors, indoors and while editing alike) and remembers it. */
+  setZoom(z: number) {
+    const used = this.camera.setUserZoom(z);
+    saveZoom(used);
+  }
+
+  zoomBy(factor: number) {
+    this.setZoom(this.camera.userZoom * factor);
+  }
+
+  private pinchSpread(): number {
+    const [a, b] = [...this.pointers.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  }
+
+  private onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    // Trackpad pinches arrive as ctrl+wheel with small deltas; mouse wheels as larger steps.
+    const k = e.ctrlKey ? 0.01 : 0.0015;
+    this.zoomBy(Math.exp(-e.deltaY * k));
+  };
+
+  private onZoomKey = (e: KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === '+' || e.key === '=') this.zoomBy(1.15);
+    else if (e.key === '-' || e.key === '_') this.zoomBy(1 / 1.15);
+  };
 
   /** On touch, the plant preview floats a little above the fingertip so it isn't hidden under it. */
   private toolPoint(e: PointerEvent, touch: boolean) {
@@ -1076,14 +1161,32 @@ export class Game {
   }
 
   private onPointerDown = (e: PointerEvent) => {
-    if (this.press) return;
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pointers.size >= 2) {
+      // A second finger: it's a pinch, not a tap or a drag. Whatever the
+      // first finger started is let go (a dragged piece springs back).
+      if (!this.pinch) {
+        if (this.press?.kind === 'tool' || this.press?.kind === 'pan') this.tools.cancelPress(this.press.prevSelected);
+        this.press = null;
+        this.pinch = { startDist: Math.max(1, this.pinchSpread()), startZoom: this.camera.userZoom };
+      }
+      try {
+        this.canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Synthetic events in tests can't be captured; harmless.
+      }
+      return;
+    }
+    if (this.press || this.pinch) return;
     this.audio.init();
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
     const base = { id: e.pointerId, sx: e.clientX, sy: e.clientY, lastSX: e.clientX, lastSY: e.clientY, moved: false, touch };
     if (this.tools.active) {
+      const m = this.tools.mode;
+      const prevSelected = m.kind === 'arrange' ? m.selectedId : undefined;
       const w = this.toolPoint(e, touch);
       const r = this.tools.pointerDown(w.x, w.y);
-      this.press = { ...base, kind: r === 'pan' ? 'pan' : 'tool' };
+      this.press = { ...base, kind: r === 'pan' ? 'pan' : 'tool', prevSelected };
     } else {
       this.press = { ...base, kind: 'tap' };
     }
@@ -1095,6 +1198,11 @@ export class Game {
   };
 
   private onPointerMove = (e: PointerEvent) => {
+    if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pinch) {
+      if (this.pointers.size >= 2) this.setZoom(this.pinch.startZoom * (this.pinchSpread() / this.pinch.startDist));
+      return;
+    }
     const pr = this.press;
     if (!pr || pr.id !== e.pointerId) return;
     if (Math.hypot(e.clientX - pr.sx, e.clientY - pr.sy) > 8) pr.moved = true;
@@ -1114,6 +1222,12 @@ export class Game {
   };
 
   private onPointerUp = (e: PointerEvent) => {
+    this.pointers.delete(e.pointerId);
+    if (this.pinch) {
+      // The pinch ends when the fingers lift; the last one lifting does nothing else.
+      if (this.pointers.size === 0) this.pinch = null;
+      return;
+    }
     const pr = this.press;
     if (!pr || pr.id !== e.pointerId) return;
     this.press = null;
@@ -1129,10 +1243,16 @@ export class Game {
   };
 
   private onPointerCancel = (e: PointerEvent) => {
+    this.pointers.delete(e.pointerId);
+    if (this.pinch) {
+      if (this.pointers.size === 0) this.pinch = null;
+      return;
+    }
     if (this.press?.id !== e.pointerId) return;
     const kind = this.press.kind;
     this.press = null;
-    if (kind === 'tool') this.tools.pointerUp(NaN, NaN);
+    // Cancelled by the system (a call, a gesture): don't commit a half-finished drag.
+    if (kind === 'tool') this.tools.cancelPress();
   };
 
   private onToolKey = (e: KeyboardEvent) => {
