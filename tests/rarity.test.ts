@@ -17,7 +17,7 @@ const ID = 'cannabisSativa';
 
 describe('the rarity ladder', () => {
   it('still climbs common → uncommon → rare → very rare → extremely rare, with one tier above', () => {
-    expect(RARITY_ORDER).toEqual(['common', 'uncommon', 'rare', 'veryRare', 'extremelyRare', 'mythic']);
+    expect(RARITY_ORDER).toEqual(['common', 'uncommon', 'rare', 'veryRare', 'extremelyRare', 'unheardOf', 'mythic']);
     // Rarer things are still rarer in the wild patches, all the way up.
     const counts: Record<string, number> = {};
     const state = createNewGame();
@@ -32,6 +32,7 @@ describe('the rarity ladder', () => {
     expect(counts.uncommon).toBeGreaterThan(counts.rare);
     expect(counts.rare).toBeGreaterThan(counts.veryRare ?? 0);
     expect(counts.mythic ?? 0).toBe(0);
+    expect(counts.unheardOf ?? 0).toBe(0);
   });
 
   it('marks rarer finds in the world, quietly and the same way all the way to the top', () => {

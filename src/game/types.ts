@@ -14,10 +14,11 @@ export type ZoneId =
 export type OutdoorZoneId = Exclude<ZoneId, 'greenhouse'>;
 
 /**
- * 'mythic' sits above everything else and is reserved for a single species
- * that the game never announces.
+ * 'unheardOf' is the form of a species that nature never made: never found
+ * wild, only ever thrown as a sport. 'mythic' sits above everything else
+ * and is reserved for a single species that the game never announces.
  */
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'veryRare' | 'extremelyRare' | 'mythic';
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'veryRare' | 'extremelyRare' | 'unheardOf' | 'mythic';
 
 /**
  * How a plant is drawn. Each form is a distinct silhouette so a landscape
@@ -93,6 +94,8 @@ export interface VariantDef {
   name: string;
   rarity: Rarity;
   description: string;
+  /** Never grows wild and is never at the end of a trail: it can only come up as a sport. */
+  sportOnly?: boolean;
   /** Partial overrides of the species look. */
   look: Partial<PlantLook>;
 }

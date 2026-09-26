@@ -12,7 +12,7 @@ export const CUTTING_COOLDOWN = 240;
 const BASE_SPORT_CHANCE = 0.06;
 
 /** How likely a sport (mutation) is to land on each variant rarity. */
-const SPORT_WEIGHT: Record<Rarity, number> = { common: 30, uncommon: 30, rare: 20, veryRare: 12, extremelyRare: 5, mythic: 0 };
+const SPORT_WEIGHT: Record<Rarity, number> = { common: 30, uncommon: 30, rare: 20, veryRare: 12, extremelyRare: 5, unheardOf: 1.5, mythic: 0 };
 
 export function cuttingCooldown(state: GameState): number {
   return state.owned.includes('rootingKit') ? CUTTING_COOLDOWN / 2 : CUTTING_COOLDOWN;
@@ -24,12 +24,14 @@ export function sportChance(state: GameState): number {
 
 /**
  * A "sport": the plant throws a shoot unlike its parent. Picks another of
- * the species' variants, weighted so rarer forms are rarer outcomes.
+ * the species' variants, weighted so rarer forms are rarer outcomes. The
+ * form nature never made is only on the table when `beyond` is true: a
+ * cutting from a big, settled plant, or a seedling in a lively bed.
  */
-export function rollSport(defId: string, fromVariantId: string, rand: () => number): string | null {
+export function rollSport(defId: string, fromVariantId: string, rand: () => number, beyond = false): string | null {
   const def = PLANTS[defId];
   if (!def) return null;
-  const others = def.variants.filter((v) => v.id !== fromVariantId);
+  const others = def.variants.filter((v) => v.id !== fromVariantId && (beyond || !v.sportOnly));
   if (others.length === 0) return null;
   return weightedPick(others, (v) => SPORT_WEIGHT[v.rarity], rand)?.id ?? null;
 }
@@ -58,7 +60,7 @@ export function takeCutting(state: GameState, plantId: string, now: number, rand
   // Bigger, older plants are more likely to throw something unusual.
   const chance = sportChance(state) * (0.6 + stageIndexOf(plant.growth) * 0.25);
   if (rand() < chance) {
-    const v = rollSport(plant.defId, plant.variantId, rand);
+    const v = rollSport(plant.defId, plant.variantId, rand, stageIndexOf(plant.growth) >= 3);
     if (v) {
       variantId = v;
       sport = true;

@@ -57,7 +57,7 @@ describe('prices and formulas are unchanged', () => {
   });
 
   it('keeps the plant-selling formula constants', () => {
-    expect(RARITY_PRICE).toEqual({ common: 18, uncommon: 40, rare: 100, veryRare: 260, extremelyRare: 700, mythic: 0 });
+    expect(RARITY_PRICE).toEqual({ common: 18, uncommon: 40, rare: 100, veryRare: 260, extremelyRare: 700, unheardOf: 1600, mythic: 0 });
     expect(STAGE_PRICE_MULT).toEqual([0.3, 0.6, 1.1, 2.0, 3.2]);
     expect(DEMAND_BONUS).toBe(1.5);
     expect(GLUT_STEP).toBe(0.85);

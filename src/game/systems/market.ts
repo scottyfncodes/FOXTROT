@@ -18,6 +18,7 @@ export const RARITY_PRICE: Record<Rarity, number> = {
   rare: 100,
   veryRare: 260,
   extremelyRare: 700,
+  unheardOf: 1600,
   mythic: 0,
 };
 

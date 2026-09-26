@@ -157,7 +157,7 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
         variantId = PLANTS[defId].variants[0].id;
         sport = true;
       } else if (rand() < SEEDLING_SPORT_CHANCE * (diverse ? DIVERSE_SPORT_BOOST : 1)) {
-        const v = rollSport(parent.defId, parent.variantId, rand);
+        const v = rollSport(parent.defId, parent.variantId, rand, diverse);
         if (v) {
           variantId = v;
           sport = true;

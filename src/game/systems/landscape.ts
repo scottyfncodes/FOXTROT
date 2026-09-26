@@ -430,7 +430,7 @@ export function compostPlant(state: GameState, plantId: string, now: number, ran
   const def = PLANTS[p.defId];
   let variantId = p.variantId;
   const r = rand();
-  if (r < 0.12) variantId = rollSport(p.defId, p.variantId, rand) ?? p.variantId;
+  if (r < 0.12) variantId = rollSport(p.defId, p.variantId, rand, stageIndexOf(p.growth) >= 3) ?? p.variantId;
   else if (r < 0.5) variantId = def.variants[0].id;
   if (basketFull(state)) {
     result.noRoom = true;
