@@ -187,8 +187,9 @@ button {
 }
 
 .toast-stack {
-  position: absolute;
-  top: calc(var(--safe-top) + 60px);
+  position: fixed;
+  z-index: 30;
+  top: calc(max(env(safe-area-inset-top), 48px) + 60px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
