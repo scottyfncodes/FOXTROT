@@ -76,8 +76,8 @@ export function findFixture(kind: LivingFixtureKind): LivingFixture {
   return LIVING_FIXTURES.find((f) => f.kind === kind)!;
 }
 
-/** The cup at the far end of the putting mat. */
-export const PUTTING_CUP = { x: 22.6, y: 8.6 };
+/** The cup at the far end of the putting mat, relative to the mat's top-left corner. */
+export const PUTTING_CUP_OFFSET = { x: 3.4, y: 0.3 };
 
 /** Openings into the rest of the house — drawn as warm, dim doorways, never entered. */
 export const IMPLIED_DOORWAYS = [

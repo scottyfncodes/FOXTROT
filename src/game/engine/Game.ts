@@ -13,7 +13,8 @@ import { GREENHOUSE_DOOR, HOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, isInBo
 import { GREENHOUSE_EXIT } from '../data/stations';
 import { FRONT_DOOR, roomAt } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
-import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture } from '../systems/furniture';
+import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture, fixtureOffset, footprint } from '../systems/furniture';
+import { ACE_REWARD, COURSE_PAR, recordAce, recordRound, toPar } from '../systems/putting';
 import { makeIndoorCamera, screenToTiles } from '../world/IndoorCamera';
 import { Camera as CameraClass } from './Camera';
 import { ToolController, type ToolOutcome } from './Tools';
@@ -74,7 +75,8 @@ export type InteractableKind =
   | 'frontDoor'
   | 'foxFind'
   | 'bed'
-  | 'display';
+  | 'display'
+  | 'puttingMat';
 
 export interface Interactable {
   kind: InteractableKind;
@@ -150,6 +152,7 @@ export class Game {
   onStateTouched: (() => void) | null = null;
   onOpenGreenhouse: ((target: { kind: 'bed' | 'display'; id: string }) => void) | null = null;
   onOpenMarket: (() => void) | null = null;
+  onOpenPutting: (() => void) | null = null;
   onOpenPlantCard: ((plantId: string) => void) | null = null;
   onOpenGroundCard: ((target: { kind: 'bed' | 'path'; id: string }) => void) | null = null;
   onFrame: (() => void) | null = null;
@@ -465,13 +468,13 @@ export class Game {
       nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUnseen(),
       rand: Math.random,
     });
-    tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random });
+    tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, offset: this.fixtureOffset });
     this.catInterestAcc += dtMs;
     if (this.catInterestAcc >= CAT_INTEREST_MS) {
       this.catInterestAcc = 0;
       this.catInterests = this.computeCatInterests();
     }
-    tickCat(this.state.cat, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, interests: this.catInterests });
+    tickCat(this.state.cat, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, interests: this.catInterests, offset: this.fixtureOffset });
     const nowMs = performance.now();
     this.flourishes = this.flourishes.filter((f) => nowMs - f.start < 2600);
 
@@ -660,6 +663,13 @@ export class Game {
         const cy = slot.kind === 'hanging' ? slot.y + 1.2 : slot.y + 0.5;
         consider({ kind: 'display', id: slot.id, x: slot.x, y: slot.y, label, available: true }, slot.x + 0.5, cy);
       }
+      const mat = findFurniture(this.state, 'lr-putting');
+      if (mat) {
+        const fp = footprint(mat.kind, mat.x, mat.y, mat.rot ?? 0);
+        const best = this.state.putting.best;
+        const label = best === null ? 'Play a round of putt-putt' : `Play putt-putt · best ${best} (${toPar(best, COURSE_PAR)})`;
+        consider({ kind: 'puttingMat', id: mat.id, x: fp.x, y: fp.y, label, available: true }, fp.x + fp.w / 2, fp.y + fp.h / 2, 1.2);
+      }
       consider(
         { kind: 'greenhouseExit', id: 'exit', x: GREENHOUSE_EXIT.x, y: GREENHOUSE_EXIT.y, label: 'Out to the garden', available: true },
         GREENHOUSE_EXIT.x + 0.5,
@@ -715,6 +725,8 @@ export class Game {
       this.collectFind(n.id);
     } else if (n.kind === 'bed' || n.kind === 'display') {
       this.onOpenGreenhouse?.({ kind: n.kind, id: n.id });
+    } else if (n.kind === 'puttingMat') {
+      this.onOpenPutting?.();
     }
     this.onStateTouched?.();
   }
@@ -980,6 +992,9 @@ export class Game {
     return best;
   }
 
+  /** How far a living-room piece has been moved, for the cat's and Scott's spots on it. */
+  private fixtureOffset = (id: string) => fixtureOffset(this.state, id);
+
   /** Plants and trays around the house, for the cat to take an interest in. */
   private computeCatInterests(): CatInterest[] {
     const out: CatInterest[] = [];
@@ -1141,6 +1156,25 @@ export class Game {
     if (path) return this.onOpenGroundCard?.({ kind: 'path', id: path.id });
     const bed = bedAt(this.state, w.x, w.y);
     if (bed) return this.onOpenGroundCard?.({ kind: 'bed', id: bed.id });
+  }
+
+  /** A hole in one on the living-room mat: the first on each hole is worth a few coins. */
+  puttingAce(holeId: string): number {
+    if (!recordAce(this.state.putting, holeId)) return 0;
+    this.state.coins += ACE_REWARD;
+    this.audio.playDiscoveryChime();
+    this.onStateTouched?.();
+    saveGame(this.state);
+    return ACE_REWARD;
+  }
+
+  /** A full round of putt-putt finished; true if it's a new best. */
+  finishPuttingRound(total: number): boolean {
+    const best = recordRound(this.state.putting, total);
+    if (best && this.state.putting.rounds > 1) this.audio.playToolChime();
+    this.onStateTouched?.();
+    saveGame(this.state);
+    return best;
   }
 
   sell(uid: string) {

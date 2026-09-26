@@ -1243,3 +1243,48 @@ button {
   color: var(--ink-dim);
   letter-spacing: 0.1em;
 }
+
+/* ---------- Putt-putt ---------- */
+
+.putt-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.putt-hole {
+  font-weight: 600;
+  color: var(--leaf-strong);
+}
+
+.putt-score {
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.putt-canvas {
+  display: block;
+  margin: 0 auto;
+  border-radius: 10px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.putt-status {
+  min-height: 2.6em;
+  margin: 8px 0 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+  text-align: center;
+}
+
+.putt-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}

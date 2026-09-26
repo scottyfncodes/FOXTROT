@@ -218,6 +218,15 @@ export interface CatState {
   lookX?: number | null;
 }
 
+export interface PuttingRecord {
+  /** Rounds played to the end. */
+  rounds: number;
+  /** Fewest strokes for the full course, or null before the first finished round. */
+  best: number | null;
+  /** Holes aced at least once, by hole id. */
+  aces: string[];
+}
+
 export interface GameState {
   version: number;
   createdAt: number;
@@ -249,6 +258,8 @@ export interface GameState {
   clearedObstacles: string[];
   foxFinds: FoxFind[];
   foxLog: FoxLog;
+  /** Putt-putt on the living-room mat. */
+  putting: PuttingRecord;
   /** Mushrooms, insects and other oddities found in the wild, by id. */
   curiosities: Record<string, { foundAt: number; count: number }>;
   tools: { lantern: number };
@@ -293,6 +304,7 @@ export function createNewGame(): GameState {
     clearedObstacles: [],
     foxFinds: [],
     foxLog: { sightings: 0, trailsStarted: 0, trailsFollowed: 0, trailsLost: 0, finds: 0, lastTrailAt: null },
+    putting: { rounds: 0, best: null, aces: [] },
     curiosities: {},
     tools: { lantern: 0 },
     basket: [],

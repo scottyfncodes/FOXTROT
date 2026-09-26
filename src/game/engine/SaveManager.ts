@@ -1,6 +1,7 @@
 import { createNewGame, SAVE_KEY, SAVE_VERSION, type GameState } from '../state';
 import { findScottSpot } from '../data/scottSpots';
-import { findCatSpot } from '../data/catSpots';
+import { findCatSpot, spotPosition } from '../data/catSpots';
+import { fixtureOffset } from '../systems/furniture';
 import { PLANTS } from '../data/plants';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { HOUSE_FOOTPRINT, HOUSE_DOOR } from '../data/worldMap';
@@ -11,7 +12,7 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
-const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog'] as const;
+const STRUCT_FIELDS = ['player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog', 'putting'] as const;
 const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture', 'seededFixtures', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds'] as const;
 const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock', 'curiosities'] as const;
 
@@ -50,6 +51,10 @@ export function migrateSave(raw: unknown): GameState | null {
   for (const key of ARRAY_FIELDS) {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   }
+  const putting = merged.putting as Loose;
+  if (!Array.isArray(putting.aces)) putting.aces = [];
+  if (typeof putting.rounds !== 'number') putting.rounds = 0;
+  if (typeof putting.best !== 'number') putting.best = null;
   for (const key of RECORD_FIELDS) {
     if (!isRecord(merged[key])) merged[key] = defaults[key];
   }
@@ -107,15 +112,18 @@ export function migrateSave(raw: unknown): GameState | null {
   // Spot coordinates are data, not save state: re-seat a settled NPC on
   // its spot's current position in case the layout moved since the save.
   const scottSpot = state.scott.currentSpotId ? findScottSpot(state.scott.currentSpotId) : undefined;
+  const offset = (id: string) => fixtureOffset(state, id);
   if (scottSpot && state.scott.activity !== 'traveling') {
-    state.scott.x = scottSpot.x;
-    state.scott.y = scottSpot.y;
+    const at = spotPosition(scottSpot, offset);
+    state.scott.x = at.x;
+    state.scott.y = at.y;
     state.scott.zone = scottSpot.zone;
   }
   const catSpot = state.cat.currentSpotId ? findCatSpot(state.cat.currentSpotId) : undefined;
   if (catSpot && state.cat.activity !== 'wandering') {
-    state.cat.x = catSpot.x;
-    state.cat.y = catSpot.y;
+    const at = spotPosition(catSpot, offset);
+    state.cat.x = at.x;
+    state.cat.y = at.y;
   }
   return state;
 }

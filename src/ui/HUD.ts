@@ -164,6 +164,7 @@ export class HUD {
       greenhouseDoor: 'IN',
       greenhouseExit: 'OUT',
       frontDoor: 'OUT',
+      puttingMat: 'PUTT',
     };
     setText(this.actionBtn, verbs[n.kind] ?? 'GO');
   }

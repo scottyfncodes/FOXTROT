@@ -1,6 +1,7 @@
 import type { ScottActivity, ScottState } from '../state';
 import { SCOTT_SPOTS, findScottSpot, type ScottSpotKind } from '../data/scottSpots';
 import { interiorWaypoint } from '../data/interior';
+import { spotPosition, type AnchorOffset } from '../data/catSpots';
 
 // Ellen's husband, ambient and independent of the player: he potters
 // between fixed spots on his own clock, tinkering, napping, snacking,
@@ -35,10 +36,18 @@ export interface ScottTickContext {
   dtSeconds: number;
   now: number; // game-minutes
   rand: () => number;
+  /** How far the living-room furniture has been moved, so the couch and the mat take him with them. */
+  offset?: AnchorOffset;
 }
 
 export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
   if (scott.activity !== 'traveling') {
+    const here = scott.currentSpotId ? findScottSpot(scott.currentSpotId) : undefined;
+    if (here?.anchor) {
+      const at = spotPosition(here, ctx.offset);
+      scott.x = at.x;
+      scott.y = at.y;
+    }
     if (ctx.now < scott.nextChangeAt) return;
     const options = SCOTT_SPOTS.filter((s) => s.id !== scott.currentSpotId);
     const next = options[Math.floor(ctx.rand() * options.length)] ?? SCOTT_SPOTS[0];
@@ -49,9 +58,10 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
     // boundary instantly rather than pretending to walk through a wall.
     const crossingThreshold = (scott.zone === 'greenhouse') !== (next.zone === 'greenhouse');
     if (crossingThreshold) {
+      const at = spotPosition(next, ctx.offset);
       scott.zone = next.zone;
-      scott.x = next.x;
-      scott.y = next.y;
+      scott.x = at.x;
+      scott.y = at.y;
     }
     return;
   }
@@ -66,10 +76,11 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
     return;
   }
 
-  const d = Math.hypot(spot.x - scott.x, spot.y - scott.y);
+  const at = spotPosition(spot, ctx.offset);
+  const d = Math.hypot(at.x - scott.x, at.y - scott.y);
   if (d > ARRIVE_DIST) {
     // Indoors, the living room and greenhouse are joined by one doorway.
-    const wp = scott.zone === 'greenhouse' ? interiorWaypoint(scott.x, scott.y, spot.x, spot.y) : spot;
+    const wp = scott.zone === 'greenhouse' ? interiorWaypoint(scott.x, scott.y, at.x, at.y) : at;
     const dx = wp.x - scott.x;
     const dy = wp.y - scott.y;
     const wd = Math.hypot(dx, dy) || 1;

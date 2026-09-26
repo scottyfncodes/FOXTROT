@@ -112,8 +112,9 @@ export class ModeBar {
       const occupied = occupantOf(state, { slotId: sel.id }) ?? occupantOf(state, { bedId: sel.id });
       status.textContent = occupied ? `${def.name} · with its ${specimenName(occupied.defId, occupied.variantId)} — drag to move them together` : `${def.name} · drag to move`;
       if (def.rotatable) row.append(bigButton('↻', 'shape', () => this.game.tools.rotateSelected()));
-      const store = bigButton('Put away', 'secondary', () => this.game.tools.storeSelected(), !!occupied);
-      row.append(store, done);
+      // The living room's own furniture moves but stays: there's nowhere to put a couch away.
+      if (!def.fixed) row.append(bigButton('Put away', 'secondary', () => this.game.tools.storeSelected(), !!occupied));
+      row.append(done);
       this.root.append(status, row);
       return;
     }

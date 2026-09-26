@@ -35,8 +35,8 @@ import {
   drawNearGlint,
   drawFindCover,
 } from './LandscapeArt';
-import { drawInteriorShell, drawFixture, isFlatFixture, type FixtureContext } from './HomeArt';
-import { LIVING_FIXTURES, PARTITION_X } from '../data/interior';
+import { drawInteriorShell, drawFixture, type FixtureContext } from './HomeArt';
+import { PARTITION_X, type LivingFixture } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { allFurniture, footprint } from '../systems/furniture';
 import { catLift } from '../systems/cat';
@@ -145,6 +145,12 @@ const NEIGHBORS: [number, number][] = [
   [0, 1],
   [0, -1],
 ];
+
+/** A living-room piece as the rect its art is drawn in. */
+function fixtureRect(f: PlacedFurniture): LivingFixture {
+  const fp = footprint(f.kind, f.x, f.y, f.rot ?? 0);
+  return { id: f.id, kind: f.kind as LivingFixture['kind'], x: fp.x, y: fp.y, w: fp.w, h: fp.h, solid: FURNITURE_DEFS[f.kind].layer === 'floor' };
+}
 
 /** Time constant for weather drifting in and out, in ms. */
 const WEATHER_FADE_MS = 3500;
@@ -2392,16 +2398,20 @@ export class Renderer {
       scottWatching: scottHome && state.scott.activity === 'watchingTV',
       scottRelaxing: scottHome && state.scott.activity === 'relaxing',
     };
-    for (const f of LIVING_FIXTURES) if (isFlatFixture(f)) drawFixture(ctx, camera, f, fc);
-
     const tools = extras.tools;
     const arranging = tools.kind === 'arrange' ? tools : null;
     // While a piece is being dragged it's drawn where the finger has it.
     const pieces: PlacedFurniture[] = allFurniture(state).map((f) => (arranging?.drag && arranging.drag.id === f.id ? { ...f, x: arranging.drag.x, y: arranging.drag.y } : f));
     if (arranging?.pending) pieces.push({ id: '__pending', kind: arranging.pending.kind, x: arranging.pending.x, y: arranging.pending.y, rot: arranging.pending.rot });
 
-    // Rugs lie under everything.
-    for (const f of pieces) if (FURNITURE_DEFS[f.kind]?.layer === 'flat') this.drawHouseRug(camera, f);
+    // Rugs lie under everything; the cat's bed, the mat and the doormat lie on top of rugs.
+    const flats = pieces.filter((f) => FURNITURE_DEFS[f.kind]?.layer === 'flat');
+    for (const f of flats) {
+      if (FURNITURE_DEFS[f.kind].reserves) continue;
+      if (FURNITURE_DEFS[f.kind].fixed) drawFixture(ctx, camera, fixtureRect(f), fc);
+      else this.drawHouseRug(camera, f);
+    }
+    for (const f of flats) if (FURNITURE_DEFS[f.kind].reserves) drawFixture(ctx, camera, fixtureRect(f), fc);
 
     this.drawGreenhouseProps(camera, now);
     if (!state.owned.includes('sunRoom')) {
@@ -2427,11 +2437,9 @@ export class Renderer {
         drawables.push({ y: fp.y + fp.h, draw: () => this.drawGrowLamp(camera, f, now) });
       } else if (f.kind === 'wateringCan') {
         drawables.push({ y: fp.y + fp.h, draw: () => this.drawWateringCan(camera, f) });
+      } else if (def.fixed) {
+        drawables.push({ y: fp.y + fp.h, draw: () => drawFixture(ctx, camera, fixtureRect(f), fc) });
       }
-    }
-    for (const f of LIVING_FIXTURES) {
-      if (isFlatFixture(f)) continue;
-      drawables.push({ y: f.y + f.h, draw: () => drawFixture(ctx, camera, f, fc) });
     }
 
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
