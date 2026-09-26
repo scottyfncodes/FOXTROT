@@ -22,6 +22,7 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'hangingHooks', name: 'Hanging Hooks', category: 'greenhouse', price: 90, description: 'Three ceiling hooks for hanging pots. Trailing plants look spectacular up here.' },
   { id: 'plantShelf', name: 'Wall Shelf', category: 'greenhouse', price: 120, description: 'A reclaimed-wood shelf along the west wall. Room for three more plants.' },
   { id: 'nurseryBeds', name: 'Extra Nursery Beds', category: 'greenhouse', price: 160, description: 'Two more beds for rooting cuttings and raising young plants.' },
+  { id: 'moreNurseryBeds', name: 'Two More Nursery Beds', category: 'greenhouse', price: 280, after: 'nurseryBeds', description: 'Another pair of beds below the others. More cuttings rooting at once.' },
   { id: 'tieredStand', name: 'Tiered Plant Stand', category: 'greenhouse', price: 240, description: 'A three-step iron stand by the east glass. Three more display spots in the best light.' },
   { id: 'growLights', name: 'Grow Lights', category: 'greenhouse', price: 360, description: 'Warm lamps over the whole greenhouse. Everything indoors grows half again as fast.' },
   // Greenhouse furniture: bought by the piece and set down wherever you
