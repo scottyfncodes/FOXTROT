@@ -2462,15 +2462,15 @@ export class Renderer {
       else drawFixture(ctx, camera, fixtureRect(f), fc);
     }
 
-    if (!state.owned.includes('sunRoom')) {
-      for (const c of STORAGE_CRATES) this.drawCrate(camera, c.x, c.y);
-    }
-
     const plantIn = (kind: 'nursery' | 'display', id: string) =>
       Object.values(state.plants).find((p) => (kind === 'nursery' ? p.location.kind === 'nursery' && p.location.bedId === id : p.location.kind === 'display' && p.location.slotId === id));
 
     const drawables: { y: number; draw: () => void }[] = [];
     const hanging: { piece: PlacedFurniture; slot: DisplaySlot }[] = [];
+    // The sun room's stacked junk stands up, so it sorts with everyone else.
+    if (!state.owned.includes('sunRoom')) {
+      for (const c of STORAGE_CRATES) drawables.push({ y: c.y + 0.9, draw: () => this.drawCrate(camera, c.x, c.y) });
+    }
     for (const f of pieces) {
       const def = FURNITURE_DEFS[f.kind];
       if (!def || def.layer === 'flat') continue;
@@ -2964,21 +2964,123 @@ export class Renderer {
     if (rarityRank(specimenRarity(plant.defId, plant.variantId)) >= 3) this.drawSparkle(s.x, potY - tile * 0.5, tile, now, '#ffe9a8', 2);
   }
 
+  /**
+   * Junk stacked in the sun room until it's cleared out: a big slatted crate
+   * with more piled on top — another crate, a tower of old pots, a slumped
+   * sack — different in each corner, so it reads as storage, not furniture.
+   */
   private drawCrate(camera: Camera, x: number, y: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
-    const s = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
-    ctx.fillStyle = '#7c5c3a';
-    ctx.fillRect(s.x + tile * 0.06, s.y + tile * 0.1, tile * 0.88, tile * 0.8);
-    ctx.strokeStyle = '#4e3822';
-    ctx.lineWidth = Math.max(1, tile * 0.03);
-    ctx.strokeRect(s.x + tile * 0.06, s.y + tile * 0.1, tile * 0.88, tile * 0.8);
+    const o = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
+    const X = (u: number) => o.x + u * tile;
+    const Y = (v: number) => o.y + v * tile;
+    const line = Math.max(1, tile * 0.025);
+
+    /** A slatted crate in three-quarter view: its top face, then the front face below it. */
+    const crate = (x0: number, x1: number, top: number, face: number, depth: number, wood: string) => {
+      ctx.fillStyle = lerpColor(wood, '#e8d6b4', 0.22);
+      ctx.fillRect(X(x0), Y(top), (x1 - x0) * tile, depth * tile);
+      ctx.fillStyle = wood;
+      ctx.fillRect(X(x0), Y(top + depth), (x1 - x0) * tile, face * tile);
+      ctx.strokeStyle = 'rgba(40,26,14,0.55)';
+      ctx.lineWidth = line;
+      ctx.strokeRect(X(x0), Y(top), (x1 - x0) * tile, (depth + face) * tile);
+      ctx.beginPath();
+      // Slats on the front, boards on the lid.
+      for (let k = 1; k < 3; k++) {
+        const yy = Y(top + depth + (face * k) / 3);
+        ctx.moveTo(X(x0), yy);
+        ctx.lineTo(X(x1), yy);
+      }
+      ctx.moveTo(X(x0), Y(top + depth));
+      ctx.lineTo(X(x1), Y(top + depth));
+      ctx.moveTo(X((x0 + x1) / 2), Y(top));
+      ctx.lineTo(X((x0 + x1) / 2), Y(top + depth));
+      ctx.stroke();
+      // Corner battens.
+      ctx.fillStyle = 'rgba(40,26,14,0.35)';
+      ctx.fillRect(X(x0), Y(top + depth), tile * 0.05, face * tile);
+      ctx.fillRect(X(x1) - tile * 0.05, Y(top + depth), tile * 0.05, face * tile);
+    };
+
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath();
-    ctx.moveTo(s.x + tile * 0.06, s.y + tile * 0.1);
-    ctx.lineTo(s.x + tile * 0.94, s.y + tile * 0.9);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(220,210,190,0.18)';
-    ctx.fillRect(s.x + tile * 0.1, s.y + tile * 0.12, tile * 0.3, tile * 0.08);
+    ctx.ellipse(X(0.5), Y(0.9), tile * 0.48, tile * 0.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // The big crate everything else is piled on.
+    crate(0.06, 0.94, 0.3, 0.6, 0.18, '#7c5c3a');
+
+    switch (Math.abs(Math.round(x * 7 + y * 3)) % 4) {
+      case 0:
+        // A smaller crate on top, pushed to one side.
+        crate(0.12, 0.66, -0.12, 0.3, 0.14, '#8b6a44');
+        break;
+      case 1: {
+        // A tower of old terracotta pots, and a trowel.
+        for (let k = 0; k < 4; k++) {
+          const cy = 0.26 - k * 0.1;
+          ctx.fillStyle = k % 2 ? '#b8653e' : '#a85a36';
+          ctx.beginPath();
+          ctx.moveTo(X(0.3), Y(cy));
+          ctx.lineTo(X(0.7), Y(cy));
+          ctx.lineTo(X(0.64), Y(cy + 0.12));
+          ctx.lineTo(X(0.36), Y(cy + 0.12));
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#cf7a4f';
+          ctx.fillRect(X(0.28), Y(cy - 0.02), tile * 0.44, tile * 0.04);
+        }
+        ctx.strokeStyle = '#6b6e70';
+        ctx.lineWidth = Math.max(1, tile * 0.04);
+        ctx.beginPath();
+        ctx.moveTo(X(0.72), Y(0.38));
+        ctx.lineTo(X(0.88), Y(0.3));
+        ctx.stroke();
+        break;
+      }
+      case 2: {
+        // A slumped sack of old potting mix, and a coil of twine.
+        ctx.fillStyle = '#b89a66';
+        ctx.beginPath();
+        ctx.moveTo(X(0.14), Y(0.36));
+        ctx.quadraticCurveTo(X(0.12), Y(-0.02), X(0.36), Y(-0.06));
+        ctx.quadraticCurveTo(X(0.52), Y(-0.02), X(0.6), Y(0.1));
+        ctx.quadraticCurveTo(X(0.68), Y(0.3), X(0.62), Y(0.36));
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(60,44,20,0.45)';
+        ctx.lineWidth = line;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(X(0.3), Y(-0.02));
+        ctx.lineTo(X(0.42), Y(-0.1));
+        ctx.stroke();
+        ctx.strokeStyle = '#c9b48a';
+        ctx.lineWidth = Math.max(1, tile * 0.03);
+        for (const r of [0.09, 0.06, 0.03]) {
+          ctx.beginPath();
+          ctx.ellipse(X(0.78), Y(0.3), r * tile, r * tile * 0.6, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        break;
+      }
+      default:
+        // Two more crates, the top one askew, and a rolled-up old rug leaning on the pile.
+        crate(0.1, 0.62, -0.08, 0.26, 0.14, '#8b6a44');
+        ctx.save();
+        ctx.translate(X(0.62), Y(-0.2));
+        ctx.rotate(0.12);
+        ctx.translate(-X(0.62), -Y(-0.2));
+        crate(0.42, 0.84, -0.34, 0.22, 0.12, '#6f5234');
+        ctx.restore();
+        ctx.fillStyle = '#9a4a3a';
+        ctx.fillRect(X(0.8), Y(-0.1), tile * 0.1, tile * 0.95);
+        ctx.fillStyle = '#d9b27c';
+        ctx.fillRect(X(0.8), Y(0.12), tile * 0.1, tile * 0.04);
+        ctx.fillRect(X(0.8), Y(0.5), tile * 0.1, tile * 0.04);
+        break;
+    }
   }
 
   private drawGrowLights(camera: Camera, now: number) {
