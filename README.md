@@ -78,7 +78,8 @@ npm run icons       # re-render the app icons from public/icons/foxtail.svg
 ```
 
 Controls: WASD/arrow keys to move, `E` (or the on-screen button on touch
-devices) to interact. Tap a plant, bed or path in the world to look at it.
+devices) to interact. Pinch with two fingers (or scroll, or press + / −) to
+zoom in and out, outdoors, indoors and while arranging. Tap a plant, bed or path in the world to look at it.
 The basket (🧺) is where you plant things out and place garden decor. While
 placing, drag with a finger (or mouse), then ✓ / ✕ (Enter / Esc; R turns
 furniture). Progress autosaves to `localStorage`.

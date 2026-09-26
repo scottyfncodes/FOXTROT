@@ -1692,6 +1692,8 @@ export interface PlantSprite {
 
 export class PlantSpriteCache {
   private map = new Map<string, PlantSprite>();
+  /** The last sprite built for each plant at any zoom: stands in, scaled, while a new size is built. */
+  private anySize = new Map<string, { sprite: PlantSprite; unit: number }>();
   private pixels = 0;
   private budget = 26_000_000;
   private builtThisFrame = 0;
@@ -1717,7 +1719,16 @@ export class PlantSpriteCache {
       this.map.set(key, hit);
       return hit;
     }
-    if (this.builtThisFrame >= this.maxBuildsPerFrame) return null;
+    const sizeless = `${defId}|${variantId}|${sfB}|${seedB}|${mode}|${scale}`;
+    if (this.builtThisFrame >= this.maxBuildsPerFrame) {
+      // Out of build budget this frame (mid-pinch, say): draw the nearest size
+      // we have, scaled, rather than let the plant blink out.
+      const other = this.anySize.get(sizeless);
+      if (!other) return null;
+      const f = unitB / other.unit;
+      const o = other.sprite;
+      return { canvas: o.canvas, ox: o.ox * f, oy: o.oy * f, w: o.w * f, h: o.h * f };
+    }
     this.builtThisFrame++;
 
     const look = lookFor(defId, variantId);
@@ -1737,12 +1748,18 @@ export class PlantSpriteCache {
     paintPlant(ctx, defId, variantId, sfB, seedB + 1, unitB, mode);
     const sprite: PlantSprite = { canvas, ox, oy, w, h };
     this.map.set(key, sprite);
+    this.anySize.set(sizeless, { sprite, unit: unitB });
     this.pixels += canvas.width * canvas.height;
     while (this.pixels > this.budget && this.map.size > 1) {
       const oldest = this.map.keys().next().value as string;
       const old = this.map.get(oldest)!;
       this.pixels -= old.canvas.width * old.canvas.height;
       this.map.delete(oldest);
+      // Let the stand-in go too, if it was this one (key minus its size field).
+      const parts = oldest.split('|');
+      parts.splice(4, 1);
+      const sizeless = parts.join('|');
+      if (this.anySize.get(sizeless)?.sprite === old) this.anySize.delete(sizeless);
     }
     return sprite;
   }

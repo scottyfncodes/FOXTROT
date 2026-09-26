@@ -413,6 +413,43 @@ export class ToolController {
     return { kind: 'none' };
   }
 
+  /**
+   * Abandons a press without doing anything (a second finger turned it into
+   * a pinch, or the system cancelled the touch): a dragged piece stays where
+   * it was, a half-drawn bed or path is discarded, and the selection goes back
+   * to what it was before the press.
+   */
+  cancelPress(restoreSelected?: string | null) {
+    const m = this.mode;
+    switch (m.kind) {
+      case 'plant':
+        m.dragging = false;
+        break;
+      case 'arrange':
+        m.drag = null;
+        m.pendingDrag = null;
+        if (restoreSelected !== undefined) m.selectedId = restoreSelected;
+        break;
+      case 'bed':
+        if (m.drawing) {
+          m.drawing = false;
+          m.a = null;
+          m.b = null;
+          m.block = null;
+        }
+        break;
+      case 'path':
+        if (m.drawing) {
+          m.drawing = false;
+          m.route = [];
+          m.points = [];
+          m.preview = null;
+        }
+        break;
+    }
+    this.changed();
+  }
+
   // ------------------------------------------------------------ confirm
 
   /** Whether ✓ would do something right now. */
