@@ -888,6 +888,25 @@ button {
   margin-top: 2px;
 }
 
+/* A bed's liveliness: pips like rarity's, and a word. */
+.liveliness {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 6px;
+  font-size: 13px;
+}
+
+.liveliness .rarity-pips {
+  color: #5f8f3a;
+  letter-spacing: 1px;
+}
+
+.liveliness-word {
+  font-weight: 700;
+  color: #4a6a2e;
+}
+
 .wanted {
   display: flex;
   align-items: center;

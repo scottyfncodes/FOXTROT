@@ -61,7 +61,11 @@ grow in patches all over it.
 - **Shape the land.** Drag a plant to exactly where it should grow; move it
   while it's young. Compost plants in the wrong place (for compost, and
   maybe a cutting — maybe not quite the same). Dig garden beds (the 🌿 garden button)
-  whose plants spread only within them, and carve paths through the
+  whose plants spread only within them — a bed's card says how lively it
+  is and what kind of plant would bring more life; lively beds throw sports
+  more often, let odd seeds in with their visitors, have butterflies by day
+  and glow-worms by night, and the liveliest turn up curiosities of their
+  own — and carve paths through the
   growth that you can walk quickly along while their verges creep back in.
   Where your plants have grown thick, the ground is drawn as a carpet of
   their own foliage; large plants, specimens and sports still stand out of it.

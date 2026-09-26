@@ -20,6 +20,7 @@ import { stageFloat, stageIndexOf } from '../systems/growth';
 import { commissionPortrait, openCommission } from '../systems/commissions';
 import type { LushField } from '../systems/wild';
 import { CHARACTERS } from '../systems/wild';
+import { bedLiveliness } from '../systems/beds';
 import { PlantSpriteCache, type PlantMode } from './PlantArt';
 import type { ToolMode } from '../engine/Tools';
 import type { WorldFlourish } from '../engine/Game';
@@ -1094,6 +1095,40 @@ export class Renderer {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
     let drawn = 0;
+    // A lively bed has butterflies over it by day, more the livelier it is,
+    // and at night the humming ones have glow-worms low in the leaves.
+    const dark = 1 - daylightFactor(state.clock.totalMinutes);
+    for (const bed of state.gardenBeds) {
+      if (bed.x + bed.w < bounds.minX || bed.x > bounds.maxX || bed.y + bed.h < bounds.minY || bed.y > bounds.maxY) continue;
+      const tier = bedLiveliness(state, bed.id).tier;
+      if (tier < 2) continue;
+      const n = tier - 1;
+      for (let i = 0; i < n; i++) {
+        const seed = Math.floor(bed.x * 7 + bed.y * 13) + i * 17;
+        const ph = now * 0.0009 + seed;
+        const bx = bed.x + bed.w / 2 + Math.sin(ph * 0.8 + i) * bed.w * 0.4;
+        const by = bed.y + bed.h / 2 + Math.cos(ph * 1.1 + i * 2) * bed.h * 0.35 - 0.4;
+        const sc = camera.worldToScreen(bx * TILE_SIZE, by * TILE_SIZE);
+        if (dark > 0.6) {
+          if (tier < 4) continue;
+          const glow = 0.5 + 0.5 * Math.sin(now * 0.004 + seed);
+          ctx.fillStyle = `rgba(190,255,150,${0.35 + glow * 0.55})`;
+          ctx.beginPath();
+          ctx.arc(sc.x, sc.y + tile * 0.35, tile * 0.03, 0, Math.PI * 2);
+          ctx.fill();
+          continue;
+        }
+        const flap = Math.abs(Math.sin(now * 0.022 + seed)) * tile * 0.06 + tile * 0.01;
+        ctx.fillStyle = i % 2 ? 'rgba(250,244,236,0.9)' : `hsla(${(seed * 37) % 360},65%,70%,0.9)`;
+        ctx.beginPath();
+        ctx.ellipse(sc.x - flap * 0.6, sc.y, flap, tile * 0.045, 0.3, 0, Math.PI * 2);
+        ctx.ellipse(sc.x + flap * 0.6, sc.y, flap, tile * 0.045, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2a2018';
+        ctx.fillRect(sc.x - 0.75, sc.y - tile * 0.03, 1.5, tile * 0.06);
+        drawn++;
+      }
+    }
     for (const p of Object.values(state.plants)) {
       if (drawn >= 12) break;
       if (p.location.kind !== 'wild') continue;

@@ -8,6 +8,7 @@ import { rollSport, crossOf } from './propagation';
 import { hasFound } from './collection';
 import { SpatialGrid } from './spatial';
 import { bedContains, onPath } from './landscape';
+import { bedLiveliness, LIVELY_TIER } from './beds';
 
 // Plants the player puts outdoors aren't decorations: once they're large
 // they start seeding, creeping and throwing out runners into the ground
@@ -22,7 +23,10 @@ export const WILD_ZONE_CAP = 140;
 export const WILD_SPECIES_ZONE_CAP = 55;
 export const WILD_TOTAL_CAP = 560;
 const SEEDLING_SPORT_CHANCE = 0.035;
-/** A bed this varied draws birds and insects, and odd seeds come in with them. */
+/**
+ * A bed lively enough (see systems/beds.ts: a mix of species and kinds)
+ * draws birds and insects, and odd seeds come in with them.
+ */
 export const DIVERSE_BED_SPECIES = 5;
 /** Sports come up more often among a mix of species. */
 const DIVERSE_SPORT_BOOST = 1.6;
@@ -95,14 +99,9 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
 
   const grid = new SpatialGrid<OwnedPlant>(2);
   for (const p of wild) if (p.location.kind === 'wild') grid.insert(p.location.x, p.location.y, p);
-  // Species per bed, for diversity: a varied bed is a livelier ecosystem.
-  const bedSpecies = new Map<string, Set<string>>();
-  for (const p of wild) {
-    if (p.location.kind !== 'wild' || !p.location.bedId) continue;
-    let set = bedSpecies.get(p.location.bedId);
-    if (!set) bedSpecies.set(p.location.bedId, (set = new Set()));
-    set.add(p.defId);
-  }
+  // How lively each bed is, worked out once: a varied bed is a livelier ecosystem.
+  const bedTier = new Map<string, number>();
+  for (const bed of state.gardenBeds) bedTier.set(bed.id, bedLiveliness(state, bed.id).tier);
 
   for (const parent of wild) {
     if (parent.location.kind !== 'wild') continue;
@@ -119,7 +118,8 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
     // seeds into a bed. Beds are the player's, and they stay that way.
     const bedId = parent.location.bedId;
     const bed = bedId ? state.gardenBeds.find((b) => b.id === bedId) : undefined;
-    const diverse = !!bed && (bedSpecies.get(bed.id)?.size ?? 0) >= DIVERSE_BED_SPECIES;
+    const tier = bed ? bedTier.get(bed.id) ?? 0 : 0;
+    const diverse = !!bed && tier >= LIVELY_TIER;
     const reach = (def.form === 'trailing' || def.form === 'beads' ? 1.35 : 1) * (bed ? 0.8 : 1);
     for (let attempt = 0; attempt < (bed ? 6 : 4); attempt++) {
       const a = rand() * Math.PI * 2;
@@ -150,7 +150,7 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
         defId = cross.child;
         variantId = PLANTS[cross.child].variants[0].id;
         sport = true;
-      } else if (diverse && rand() < VOLUNTEER_CHANCE && PLANTS[VOLUNTEER_SPECIES]) {
+      } else if (diverse && rand() < VOLUNTEER_CHANCE * (tier >= 4 ? 2 : 1) && PLANTS[VOLUNTEER_SPECIES]) {
         // Something nobody planted: a seed carried in by whatever visits a
         // bed this full of life.
         defId = VOLUNTEER_POOL[Math.floor(rand() * VOLUNTEER_POOL.length) % VOLUNTEER_POOL.length];
@@ -180,7 +180,6 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
       state.plants[child.id] = child;
       wild.push(child);
       grid.insert(x, y, child);
-      if (bed) bedSpecies.get(bed.id)?.add(defId);
       perZone[zone] = (perZone[zone] ?? 0) + 1;
       perSpecies[`${zone}:${parent.defId}`] = (perSpecies[`${zone}:${parent.defId}`] ?? 0) + 1;
       events.push({ parentId: parent.id, childId: child.id, sport });
