@@ -26,6 +26,9 @@ import {
   wildGrid,
   currentRadius,
   type LandscapeWorld,
+  ROCK_REMOVAL_COST,
+  rockRemovalBlock,
+  removeRock,
 } from '../systems/landscape';
 import { createFoxFinds, collectFoxFind, expireFoxFinds } from '../systems/foxFinds';
 import { findCuriosity } from '../data/curiosities';
@@ -75,7 +78,8 @@ export type InteractableKind =
   | 'frontDoor'
   | 'foxFind'
   | 'bed'
-  | 'display';
+  | 'display'
+  | 'rock';
 
 export interface Interactable {
   kind: InteractableKind;
@@ -651,6 +655,17 @@ export class Game {
         const label = f.kind === 'curiosity' ? 'Something here… look closer' : 'Something unusual is growing here';
         consider({ kind: 'foxFind', id: f.id, x: f.x, y: f.y, label, available: true }, f.x, f.y, 1.2);
       }
+      // Rocks can be hauled away, for a fee. Only the tiles right around her are checked.
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const tx = Math.floor(p.x) + dx;
+          const ty = Math.floor(p.y) + dy;
+          if (this.world.obstacleAt(tx, ty) !== 'rock') continue;
+          const afford = this.state.coins >= ROCK_REMOVAL_COST;
+          const label = afford ? `Have this rock hauled away · ${ROCK_REMOVAL_COST} coins` : `A rock · ${ROCK_REMOVAL_COST} coins to have it hauled away`;
+          consider({ kind: 'rock', id: `${tx},${ty}`, x: tx, y: ty, label, available: afford }, tx + 0.5, ty + 0.5);
+        }
+      }
       const mx = MARKET_STALL.x + MARKET_STALL.w / 2;
       const my = MARKET_STALL.y + 1.1;
       consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Plant Stand & Supply', available: true }, mx, my, 1.6);
@@ -725,6 +740,8 @@ export class Game {
       this.exitHouse();
     } else if (n.kind === 'foxFind') {
       this.collectFind(n.id);
+    } else if (n.kind === 'rock') {
+      this.haulRock(n.id);
     } else if (n.kind === 'bed' || n.kind === 'display') {
       this.onOpenGreenhouse?.({ kind: n.kind, id: n.id });
     }
@@ -753,6 +770,18 @@ export class Game {
     } else {
       this.pushToast(`Took a cutting of ${name}.`, 'info');
     }
+    this.onStateTouched?.();
+  }
+
+  /** Pays to have a rock dug out and carted off. */
+  haulRock(key: string) {
+    const [tx, ty] = key.split(',').map(Number);
+    const block = rockRemovalBlock(this.state, this.world, tx, ty);
+    if (block === 'coins') return this.pushToast(`Hauling a rock away costs ${ROCK_REMOVAL_COST} coins.`, 'info');
+    if (!removeRock(this.state, this.world, tx, ty)) return;
+    this.refreshCleared();
+    this.audio.playToolChime();
+    this.pushToast(`Rock hauled away for ${ROCK_REMOVAL_COST} coins. Open ground now.`, 'coins');
     this.onStateTouched?.();
   }
 

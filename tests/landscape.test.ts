@@ -295,3 +295,40 @@ describe('carved paths', () => {
     expect(state.paths).toHaveLength(1);
   });
 });
+
+import { removeRock, rockRemovalBlock, ROCK_REMOVAL_COST } from '../src/game/systems/landscape';
+import { buildBlockingSet as blockingFrom, generateObstacles as allObstacles } from '../src/game/world/Obstacles';
+
+describe('hauling rocks away', () => {
+  const obstacles = allObstacles();
+  const rock = obstacles.find((o) => o.kind === 'rock')!;
+  const tree = obstacles.find((o) => o.kind === 'tree')!;
+  const worldFor = (cleared: string[]) => ({
+    obstacleAt: (tx: number, ty: number) => {
+      const o = obstacles.find((b) => b.x === tx && b.y === ty);
+      return o && !cleared.includes(`${tx},${ty}`) ? o.kind : null;
+    },
+    isBuiltOrWater: () => false,
+    isSpot: () => false,
+  });
+
+  it('costs coins and leaves open ground behind', () => {
+    const state = createNewGame();
+    state.coins = ROCK_REMOVAL_COST - 1;
+    expect(rockRemovalBlock(state, worldFor(state.clearedObstacles), rock.x, rock.y)).toBe('coins');
+    expect(removeRock(state, worldFor(state.clearedObstacles), rock.x, rock.y)).toBe(false);
+    state.coins = ROCK_REMOVAL_COST + 5;
+    expect(removeRock(state, worldFor(state.clearedObstacles), rock.x, rock.y)).toBe(true);
+    expect(state.coins).toBe(5);
+    expect(blockingFrom(obstacles, state.clearedObstacles).has(`${rock.x},${rock.y}`)).toBe(false);
+    // Already gone: nothing more to pay for.
+    expect(rockRemovalBlock(state, worldFor(state.clearedObstacles), rock.x, rock.y)).toBe('no-rock');
+  });
+
+  it('only works on rocks', () => {
+    const state = createNewGame();
+    state.coins = 1000;
+    expect(removeRock(state, worldFor([]), tree.x, tree.y)).toBe(false);
+    expect(state.coins).toBe(1000);
+  });
+});
