@@ -17,7 +17,8 @@ import { occupantOf } from './propagation';
 // the same, and the first time the player picks one up it becomes an
 // ordinary placed piece with the same id — so whatever is growing in it
 // comes along. The living room's furniture works the same way, except it
-// can only be moved, never put away: the cat is not giving up her bed.
+// can only be moved, never put away: the cat is not giving up her bed, and
+// Scout isn't giving up his.
 
 export const FURNITURE_SLOT_KIND: Partial<Record<FurnitureId, DisplayKind>> = Object.fromEntries(
   Object.values(FURNITURE_DEFS)
@@ -45,6 +46,8 @@ export function builtInFurniture(state: Pick<GameState, 'owned' | 'seededFixture
   for (const b of NURSERY_BEDS) if (has(b.requires) && !seeded.includes(b.id)) out.push({ id: b.id, kind: 'nurseryBed', x: b.x, y: b.y });
   for (const s of DISPLAY_SLOTS) if (has(s.requires) && !seeded.includes(s.id)) out.push({ id: s.id, kind: BUILT_IN_KIND[s.kind], x: s.x, y: s.y });
   for (const f of LIVING_FIXTURES) if (!seeded.includes(f.id)) out.push(fixtureHome(f));
+  // Scout's bed and Ellen's desk, where the greenhouse layout puts them.
+  for (const f of GREENHOUSE_FURNITURE) if (!seeded.includes(f.id)) out.push({ id: f.id, kind: f.id, x: f.x, y: f.y });
   return out;
 }
 
@@ -114,9 +117,9 @@ export function nurserySpots(state: GameState): PlacedFurniture[] {
   return allFurniture(state).filter((f) => FURNITURE_DEFS[f.kind]?.role === 'nursery');
 }
 
-/** Things that aren't furniture but still take up floor: fixed greenhouse set dressing and the sun room's crates. */
+/** Things that aren't furniture but still take up floor: the sun room's crates, until it's cleared. */
 export function staticSolids(state: Pick<GameState, 'owned'>): InteriorRect[] {
-  const rects: InteriorRect[] = GREENHOUSE_FURNITURE.map((f) => ({ x: f.x + 0.15, y: f.y + 0.2, w: 0.7, h: 0.6 }));
+  const rects: InteriorRect[] = [];
   if (!state.owned.includes('sunRoom')) for (const c of STORAGE_CRATES) rects.push({ x: c.x + 0.06, y: c.y + 0.1, w: 0.88, h: 0.8 });
   return rects;
 }

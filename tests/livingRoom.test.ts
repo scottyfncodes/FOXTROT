@@ -121,3 +121,33 @@ describe('living-room furniture', () => {
     expect(migrated.putting).toEqual({ rounds: 0, best: null, aces: [] });
   });
 });
+
+describe("the greenhouse's own furniture", () => {
+  it("moves Scout's bed and Ellen's desk like anything else, but never puts them away", () => {
+    const state = createNewGame();
+    for (const id of ['scoutBed', 'ellenDesk']) {
+      const piece = findFurniture(state, id)!;
+      expect(piece, id).toBeDefined();
+      expect(moveFurniture(state, id, piece.x - 2, piece.y - 1.5)).toBe(true);
+      expect(findFurniture(state, id)!.x).toBeCloseTo(piece.x - 2, 6);
+      expect(pickUpFurniture(state, id)).toBe(false);
+    }
+  });
+
+  it("keeps Scout's bed clear of other furniture", () => {
+    const state = createNewGame();
+    state.furnitureStock = { plantStand: 1 };
+    const bed = findFurniture(state, 'scoutBed')!;
+    expect(placeFurniture(state, 'plantStand', bed.x, bed.y)).toBeNull();
+  });
+
+  it('leaves the old spot walkable once the desk has moved', () => {
+    const state = createNewGame();
+    const desk = findFurniture(state, 'ellenDesk')!;
+    const fp = footprint(desk.kind, desk.x, desk.y);
+    const inside = { x: fp.x + fp.w / 2, y: fp.y + fp.h / 2 };
+    expect(isBlockedIndoor(inside.x, inside.y, indoorSolids(state))).toBe(true);
+    expect(moveFurniture(state, 'ellenDesk', desk.x - 3, desk.y - 2)).toBe(true);
+    expect(isBlockedIndoor(inside.x, inside.y, indoorSolids(state))).toBe(false);
+  });
+});

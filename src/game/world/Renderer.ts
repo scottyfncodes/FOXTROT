@@ -4,8 +4,9 @@ import type { Obstacle } from './Obstacles';
 import type { DiscoverySpot, ZoneId } from '../types';
 import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
 import { ZONES } from '../data/zones';
-import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, GREENHOUSE_FURNITURE, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
+import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
 import { displaySlots, climbsTrellis } from '../systems/furniture';
+import { trellisAt } from '../systems/decor';
 import { PLANTS, lookFor, specimenRarity, rarityRank } from '../data/plants';
 import { TOOL_PICKUPS } from '../data/toolPickups';
 import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
@@ -217,7 +218,8 @@ export class Renderer {
     }
     for (const d of state.decor) {
       if (!inView(d.x, d.y)) continue;
-      drawables.push({ y: d.y, draw: () => this.drawDecor(camera, d, state, now) });
+      // A trellis stands just behind whatever is climbing it.
+      drawables.push({ y: d.decorId === 'gardenTrellis' ? d.y - 0.1 : d.y, draw: () => this.drawDecor(camera, d, state, now) });
     }
     for (const tp of TOOL_PICKUPS) {
       if (state.tools[tp.tool] || !inView(tp.x, tp.y)) continue;
@@ -645,7 +647,19 @@ export class Renderer {
     const dy = wy - state.player.y;
     const hides = dy > 0 && dy < 0.6 + sf * 0.3 && Math.abs(dx) < 0.5 + sf * 0.25;
     if (hides) ctx.globalAlpha = 0.45;
-    this.drawPlantSprite(s.x, s.y + tile * 0.05, tile, p.defId, p.variantId, sf, p.seed, 'ground', now, state.weather.condition === 'rain');
+    if (climbsTrellis(PLANTS[p.defId]?.form ?? '') && trellisAt(state, wx, wy)) {
+      // At the foot of a garden trellis a vine climbs it: its hanging form
+      // mirrored upward about the ground, clipped so nothing spills below.
+      const base = s.y + tile * 0.05;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(s.x - tile * 1.2, base - tile * 1.9, tile * 2.4, tile * 1.9);
+      ctx.clip();
+      ctx.translate(0, 2 * base);
+      ctx.scale(1, -1);
+      this.drawPlantSprite(s.x, base, tile * 0.85, p.defId, p.variantId, sf, p.seed, 'hanging', now);
+      ctx.restore();
+    } else this.drawPlantSprite(s.x, s.y + tile * 0.05, tile, p.defId, p.variantId, sf, p.seed, 'ground', now, state.weather.condition === 'rain');
     ctx.globalAlpha = 1;
     if (p.unnoticed) this.drawSparkle(s.x, s.y - tile * 0.35, tile, now, '#fff4c2', 3);
   }
@@ -905,6 +919,37 @@ export class Renderer {
         ctx.beginPath();
         ctx.ellipse(s.x, s.y - tile * 0.33, tile * 0.2, tile * 0.06, 0, 0, Math.PI * 2);
         ctx.fill();
+        break;
+      }
+      case 'gardenTrellis': {
+        // A freestanding cedar lattice, two posts driven into the ground.
+        const left = s.x - tile * 0.4;
+        const right = s.x + tile * 0.4;
+        const top = s.y - tile * 1.35;
+        const floor = s.y;
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(left, floor - tile * 0.03, right - left, tile * 0.08);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, right - left, floor - top - tile * 0.1);
+        ctx.clip();
+        ctx.strokeStyle = '#a7784a';
+        ctx.lineWidth = Math.max(1, tile * 0.03);
+        const step = tile * 0.2;
+        ctx.beginPath();
+        for (let k = -8; k <= 10; k++) {
+          const x0 = left + k * step;
+          ctx.moveTo(x0, floor);
+          ctx.lineTo(x0 + (floor - top), top);
+          ctx.moveTo(x0, top);
+          ctx.lineTo(x0 + (floor - top), floor);
+        }
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = '#7e5634';
+        ctx.fillRect(left - tile * 0.03, top - tile * 0.03, tile * 0.06, floor - top + tile * 0.03);
+        ctx.fillRect(right - tile * 0.03, top - tile * 0.03, tile * 0.06, floor - top + tile * 0.03);
+        ctx.fillRect(left - tile * 0.03, top - tile * 0.05, right - left + tile * 0.06, tile * 0.06);
         break;
       }
       case 'gardenBench': {
@@ -2411,9 +2456,12 @@ export class Renderer {
       if (FURNITURE_DEFS[f.kind].fixed) drawFixture(ctx, camera, fixtureRect(f), fc);
       else this.drawHouseRug(camera, f);
     }
-    for (const f of flats) if (FURNITURE_DEFS[f.kind].reserves) drawFixture(ctx, camera, fixtureRect(f), fc);
+    for (const f of flats) {
+      if (!FURNITURE_DEFS[f.kind].reserves) continue;
+      if (f.kind === 'scoutBed') this.drawScoutBed(camera, f);
+      else drawFixture(ctx, camera, fixtureRect(f), fc);
+    }
 
-    this.drawGreenhouseProps(camera, now);
     if (!state.owned.includes('sunRoom')) {
       for (const c of STORAGE_CRATES) this.drawCrate(camera, c.x, c.y);
     }
@@ -2437,6 +2485,8 @@ export class Renderer {
         drawables.push({ y: fp.y + fp.h, draw: () => this.drawGrowLamp(camera, f, now) });
       } else if (f.kind === 'wateringCan') {
         drawables.push({ y: fp.y + fp.h, draw: () => this.drawWateringCan(camera, f) });
+      } else if (f.kind === 'ellenDesk') {
+        drawables.push({ y: fp.y + fp.h, draw: () => this.drawEllenDesk(camera, f) });
       } else if (def.fixed) {
         drawables.push({ y: fp.y + fp.h, draw: () => drawFixture(ctx, camera, fixtureRect(f), fc) });
       }
@@ -2523,23 +2573,12 @@ export class Renderer {
     void state;
   }
 
-  /**
-   * Set dressing that makes the greenhouse read as somewhere Ellen actually
-   * lives and works: Scout's own resting spot, her notebook and crochet
-   * basket, and a row of hanging pots suspended from the glass roof (drawn
-   * with an upward screen offset so they read as overhead, not underfoot).
-   */
-  private drawGreenhouseProps(camera: Camera, now: number) {
+  /** Scout's own round bed: set dressing that makes the greenhouse somewhere they live. Movable like the rest. */
+  private drawScoutBed(camera: Camera, piece: PlacedFurniture) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
-    const at = (x: number, y: number) => camera.worldToScreen((x + 0.5) * TILE_SIZE, (y + 0.5) * TILE_SIZE);
-
-    const scoutBedSpot = GREENHOUSE_FURNITURE.find((f) => f.id === 'scoutBed')!;
-    const ellenDeskSpot = GREENHOUSE_FURNITURE.find((f) => f.id === 'ellenDesk')!;
-
-    // Scout's bed.
     {
-      const s = at(scoutBedSpot.x, scoutBedSpot.y);
+      const s = camera.worldToScreen((piece.x + 0.5) * TILE_SIZE, (piece.y + 0.5) * TILE_SIZE);
       ctx.fillStyle = 'rgba(0,0,0,0.22)';
       ctx.beginPath();
       ctx.ellipse(s.x, s.y + tile * 0.24, tile * 0.34, tile * 0.12, 0, 0, Math.PI * 2);
@@ -2554,9 +2593,14 @@ export class Renderer {
       ctx.fill();
     }
 
-    // Ellen's notebook + crochet basket.
+  }
+
+  /** Ellen's low desk, with her notebook and crochet basket. */
+  private drawEllenDesk(camera: Camera, piece: PlacedFurniture) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
     {
-      const s = at(ellenDeskSpot.x, ellenDeskSpot.y);
+      const s = camera.worldToScreen((piece.x + 0.5) * TILE_SIZE, (piece.y + 0.5) * TILE_SIZE);
       ctx.fillStyle = '#5a4530';
       ctx.fillRect(s.x - tile * 0.3, s.y - tile * 0.16, tile * 0.6, tile * 0.32);
       // notebook

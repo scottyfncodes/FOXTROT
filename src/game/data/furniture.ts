@@ -55,6 +55,9 @@ export const FURNITURE_DEFS: Record<FurnitureId, FurnitureDef> = {
   doormat: { id: 'doormat', name: 'Doormat', role: 'decor', w: 1.5, h: 0.5, layer: 'flat', fixed: true, reserves: true },
   coatRack: { id: 'coatRack', name: 'Coat Rack', role: 'decor', w: 0.5, h: 0.5, layer: 'floor', fixed: true },
   floorLamp: { id: 'floorLamp', name: 'Floor Lamp', role: 'decor', w: 0.35, h: 0.35, layer: 'floor', fixed: true },
+  // The greenhouse's own.
+  scoutBed: { id: 'scoutBed', name: 'Scout’s Bed', role: 'decor', w: 0.7, h: 0.5, layer: 'flat', fixed: true, reserves: true },
+  ellenDesk: { id: 'ellenDesk', name: 'Ellen’s Desk', role: 'decor', w: 0.7, h: 0.6, layer: 'floor', fixed: true },
 };
 
 /** How far a grow lamp's light reaches, in tiles, and how much it speeds things up. */
