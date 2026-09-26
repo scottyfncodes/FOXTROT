@@ -76,13 +76,15 @@ export class JournalPanel {
     const sorted = PLANT_LIST.filter((p) => !p.unlisted).sort((a, b) => rarityRank(a.rarity) - rarityRank(b.rarity));
     for (const def of sorted) {
       const rec = state.collection[def.id];
-      const card = el('div', `collection-card${rec ? ' found clickable' : ''}`);
-      if (rec) {
-        // Show off the rarest variant found.
-        const best = [...rec.variants].sort((a, b) => rarityRank(findVariant(def.id, b)!.rarity) - rarityRank(findVariant(def.id, a)!.rarity))[0] ?? def.variants[0].id;
+      // Only what's been successfully grown counts as discovered.
+      const grown = rec?.grownVariants ?? [];
+      const card = el('div', `collection-card${grown.length ? ' found clickable' : ''}`);
+      if (rec && grown.length) {
+        // Show off the rarest variant grown.
+        const best = [...grown].sort((a, b) => rarityRank(findVariant(def.id, b)!.rarity) - rarityRank(findVariant(def.id, a)!.rarity))[0] ?? def.variants[0].id;
         card.append(portrait(def.id, best, 3, 4, 76), el('div', 'card-name', def.name));
         const dots = el('div', 'variant-dots');
-        for (const v of def.variants) dots.appendChild(el('span', rec.variants.includes(v.id) ? 'vdot on' : 'vdot'));
+        for (const v of def.variants) dots.appendChild(el('span', grown.includes(v.id) ? 'vdot on' : 'vdot'));
         card.appendChild(dots);
         if (isEstablished(state, def.id)) card.appendChild(el('div', 'card-flag', 'Established'));
         card.addEventListener('click', () => {
@@ -90,7 +92,8 @@ export class JournalPanel {
           this.render();
         });
       } else {
-        card.append(portrait(def.id, def.variants[0].id, 2.6, 4, 76, true), el('div', 'card-name unknown', '???'), el('div', 'card-hint', def.hint));
+        // Found but not yet grown: still a silhouette, with a nudge to grow it.
+        card.append(portrait(def.id, def.variants[0].id, 2.6, 4, 76, true), el('div', 'card-name unknown', '???'), el('div', 'card-hint', rec ? 'Found — grow it to record it.' : def.hint));
       }
       grid.appendChild(card);
     }
@@ -101,7 +104,8 @@ export class JournalPanel {
     const state = this.game.state;
     const def = PLANTS[defId];
     const rec = state.collection[defId];
-    if (!def || !rec || def.unlisted) return this.renderCollection();
+    const grown = rec?.grownVariants ?? [];
+    if (!def || !rec || !grown.length || def.unlisted) return this.renderCollection();
     const body = this.panel.body;
     const back = el('button', 'back-link', '← Collection');
     back.addEventListener('click', () => {
@@ -117,7 +121,7 @@ export class JournalPanel {
     info.appendChild(rarityBadge(def.rarity));
     const habitat = el('div', 'entry-sub', `Grows wild in ${def.habitat.map((z) => ZONES[z].name.replace(/^The /, 'the ')).join(' and ')}`);
     info.appendChild(habitat);
-    head.append(portrait(def.id, rec.variants[0] ?? def.variants[0].id, 3.4, 4, 120), info);
+    head.append(portrait(def.id, grown[0], 3.4, 4, 120), info);
     body.appendChild(head);
     body.appendChild(note(def.description));
 
@@ -126,17 +130,17 @@ export class JournalPanel {
       el('div', `establish${est ? ' done' : ''}`, est ? 'Established — you can display it and plant it out.' : `${rec.grown} of ${ESTABLISH_THRESHOLD} grown — establish it to display it or plant it out.`)
     );
 
-    // Variant checklist: found ones are shown, the rest are "???".
+    // Variant checklist: grown ones are shown, the rest are "???" (a found one says so).
     body.appendChild(el('h4', 'section-head', 'Variants'));
     const vlist = el('div', 'variant-list');
     for (const v of def.variants) {
-      const found = rec.variants.includes(v.id);
-      const row = el('div', `variant-row${found ? '' : ' missing'}`);
-      if (found) {
+      const ok = grown.includes(v.id);
+      const row = el('div', `variant-row${ok ? '' : ' missing'}`);
+      if (ok) {
         row.append(portrait(def.id, v.id, 2.8, 7, 44), el('span', 'variant-name', `✓ ${v.name}`), rarityBadge(v.rarity));
         row.title = v.description;
       } else {
-        row.append(portrait(def.id, v.id, 2.8, 7, 44, true), el('span', 'variant-name', '???'));
+        row.append(portrait(def.id, v.id, 2.8, 7, 44, true), el('span', 'variant-name', rec.variants.includes(v.id) ? '??? · found — grow it to record it' : '???'));
       }
       vlist.appendChild(row);
     }

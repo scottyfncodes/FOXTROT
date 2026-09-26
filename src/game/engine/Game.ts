@@ -52,7 +52,7 @@ import { tickCat } from '../systems/cat';
 import { spotContent, collectSpot } from '../systems/spots';
 import { advanceWorld, canPlantAt, computeLushness, type LushField } from '../systems/wild';
 import { STAGE_LABEL, stageIndexOf } from '../systems/growth';
-import { hasFound, recordFound, isEstablished } from '../systems/collection';
+import { hasFound, recordFound, isEstablished, recordGrown } from '../systems/collection';
 import {
   takeCutting,
   cuttingBlockReason,
@@ -248,6 +248,8 @@ export class Game {
     this.blockingSet = buildBlockingSet(this.obstacles, this.cleared);
     this.indoorSolid = indoorSolids(this.state);
     this.lush = computeLushness(this.state);
+    // Saves from before the journal waited for things to be grown: whatever is already rooted counts.
+    recordGrown(this.state, this.state.clock.totalMinutes);
     this.world = {
       obstacleAt: (tx, ty) => {
         const key = `${tx},${ty}`;
@@ -389,6 +391,10 @@ export class Game {
     this.spreadCarry = result.carry;
     const now = this.state.clock.totalMinutes;
     if (result.ups.length || result.spreads.length) this.lushDirty = true;
+    // A find only goes in the journal once it's been grown: a plant of it rooted in your care.
+    for (const g of recordGrown(this.state, now)) {
+      if (!offline) this.pushToast(`${specimenName(g.defId, g.variantId)} took — it’s in your field journal now.`, 'discovery');
+    }
 
     const grew = new Set<string>();
     for (const up of result.ups) {

@@ -74,7 +74,10 @@ export interface BasketItem {
 
 export interface SpeciesRecord {
   foundAt: number;
+  /** Variants found (a cutting taken, a sport noticed…). */
   variants: string[];
+  /** Variants successfully grown — a plant of it rooted in your care. Only these count as discovered in the journal. */
+  grownVariants?: string[];
   grown: number;
   propagated: number;
   sold: number;

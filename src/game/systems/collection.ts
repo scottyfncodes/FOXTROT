@@ -1,5 +1,6 @@
 import type { GameState, SpeciesRecord } from '../state';
 import { PLANTS } from '../data/plants';
+import { isRooted } from './growth';
 
 /** Growing this many of a species makes it "established": you know it well enough to display it or plant it out. */
 export const ESTABLISH_THRESHOLD = 2;
@@ -31,6 +32,31 @@ export function hasFound(state: GameState, defId: string, variantId?: string): b
   const rec = state.collection[defId];
   if (!rec) return false;
   return variantId === undefined || rec.variants.includes(variantId);
+}
+
+/** Whether this species (or variant) has been successfully grown: what the journal counts as discovered. */
+export function hasGrown(state: GameState, defId: string, variantId?: string): boolean {
+  const grown = state.collection[defId]?.grownVariants ?? [];
+  return variantId === undefined ? grown.length > 0 : grown.includes(variantId);
+}
+
+/**
+ * Records every variant that now has a rooted plant in the player's care
+ * (nursery, display or out in the valley). Unnoticed sports don't count
+ * until they've been noticed. Returns the variants newly recorded.
+ */
+export function recordGrown(state: GameState, now: number): { defId: string; variantId: string }[] {
+  const out: { defId: string; variantId: string }[] = [];
+  for (const p of Object.values(state.plants)) {
+    if (!isRooted(p.growth) || p.unnoticed || !PLANTS[p.defId]) continue;
+    const rec = ensureRecord(state, p.defId, now);
+    const grown = (rec.grownVariants ??= []);
+    if (grown.includes(p.variantId)) continue;
+    grown.push(p.variantId);
+    if (!rec.variants.includes(p.variantId)) rec.variants.push(p.variantId);
+    out.push({ defId: p.defId, variantId: p.variantId });
+  }
+  return out;
 }
 
 export function isEstablished(state: GameState, defId: string): boolean {
@@ -69,10 +95,10 @@ export function collectionTotals(state: GameState) {
   const listed = Object.values(PLANTS).filter((d) => !d.unlisted);
   for (const def of listed) {
     totalVariants += def.variants.length;
-    const rec = state.collection[def.id];
-    if (!rec) continue;
+    const grown = state.collection[def.id]?.grownVariants ?? [];
+    if (!grown.length) continue;
     species++;
-    variants += rec.variants.length;
+    variants += grown.length;
   }
   return { species, totalSpecies: listed.length, variants, totalVariants };
 }

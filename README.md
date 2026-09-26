@@ -31,7 +31,8 @@ grow in patches all over it.
   hanging hooks, grow lights, a sun-room expansion, garden decor and stall
   upgrades.
 - **Collect.** The field journal tracks every species and variant, with
-  unfound ones shown as silhouettes and "???" until you see them.
+  the rest shown as silhouettes and "???". Finding one isn't enough: it's
+  recorded once you've grown it — once a plant of it roots in your care.
 - **Come home.** The greenhouse is attached to a house. The front door opens
   into a living room — couch, TV, the cat's bed, a putting mat, doorways to
   the rest of the house — and a doorway leads through into the greenhouse,
