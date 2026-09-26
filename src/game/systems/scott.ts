@@ -9,6 +9,8 @@ import { interiorWaypoint } from '../data/interior';
 // lives here.
 
 const TRAVEL_SPEED = 2.0; // tiles/sec, unhurried
+/** How much faster he goes when he's running back to work. */
+export const HURRY_FACTOR = 2.2;
 const ARRIVE_DIST = 0.3;
 
 const DURATIONS: Record<ScottSpotKind, [number, number]> = {
@@ -73,7 +75,7 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
     const dx = wp.x - scott.x;
     const dy = wp.y - scott.y;
     const wd = Math.hypot(dx, dy) || 1;
-    const step = Math.min(TRAVEL_SPEED * ctx.dtSeconds, wd);
+    const step = Math.min(TRAVEL_SPEED * (scott.hurrying ? HURRY_FACTOR : 1) * ctx.dtSeconds, wd);
     scott.x += (dx / wd) * step;
     scott.y += (dy / wd) * step;
     if (Math.abs(dx) > 0.03 || Math.abs(dy) > 0.03) {
@@ -84,6 +86,7 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
 
   scott.zone = spot.zone;
   scott.currentSpotId = spot.id;
+  delete scott.hurrying;
   scott.activity = ACTIVITY_FOR_KIND[spot.kind];
   const [minD, maxD] = DURATIONS[spot.kind];
   scott.nextChangeAt = ctx.now + minD + ctx.rand() * (maxD - minD);
@@ -100,8 +103,10 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
 export const CHASE_RANGE = 1.6;
 /** Real seconds of chasing before he stops and turns round. */
 export const CHASE_SECONDS = 4;
-/** How long the dip and kiss last, in real seconds. */
-export const KISS_SECONDS = 3.6;
+/** The whole moment, in real seconds: the dip and kiss, then a smile before he's off. */
+export const KISS_SECONDS = 6.4;
+/** Where in the moment (0 → 1) the dip is over and they're standing, smiling at each other. */
+export const DIP_END = 0.56;
 /** Real seconds after a kiss before another chase can count. */
 export const KISS_COOLDOWN = 30;
 
@@ -141,6 +146,7 @@ export function tickChase(ch: ChaseState, scott: ScottState, ctx: ChaseContext):
     if (ch.kiss.t >= 1) {
       ch.kiss = null;
       ch.cooldown = KISS_COOLDOWN;
+      backToWork(scott);
     }
     return false;
   }
@@ -160,10 +166,28 @@ export function tickChase(ch: ChaseState, scott: ScottState, ctx: ChaseContext):
   return true;
 }
 
+/** Off he runs to his workbench on this side of the door, a little quicker than usual. */
+export function backToWork(scott: ScottState): void {
+  const indoors = scott.zone === 'greenhouse';
+  const bench = SCOTT_SPOTS.find((s) => s.kind === 'tinker' && (s.zone === 'greenhouse') === indoors);
+  if (!bench) return;
+  scott.targetSpotId = bench.id;
+  scott.currentSpotId = null;
+  scott.activity = 'traveling';
+  scott.hurrying = true;
+}
+
 /** How far into the dip they are, 0 (standing) → 1 (fully dipped), easing in and out. */
 export function dipAmount(t: number): number {
   const ease = (u: number) => u * u * (3 - 2 * u);
-  if (t < 0.25) return ease(t / 0.25);
-  if (t > 0.8) return ease(Math.max(0, (1 - t) / 0.2));
+  if (t >= DIP_END) return 0;
+  const u = t / DIP_END;
+  if (u < 0.25) return ease(u / 0.25);
+  if (u > 0.8) return ease(Math.max(0, (1 - u) / 0.2));
   return 1;
+}
+
+/** Up from the dip, the two of them just smiling at each other. */
+export function smiling(t: number): boolean {
+  return t >= DIP_END;
 }

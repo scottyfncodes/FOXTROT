@@ -142,7 +142,7 @@ describe('Scott and Ellen side by side', () => {
   });
 });
 
-import { tickChase, newChase, dipAmount, CHASE_SECONDS, KISS_SECONDS, KISS_COOLDOWN } from '../src/game/systems/scott';
+import { tickChase, newChase, dipAmount, smiling, DIP_END, CHASE_SECONDS, KISS_SECONDS, KISS_COOLDOWN, HURRY_FACTOR } from '../src/game/systems/scott';
 
 describe('Ellen chasing Scott', () => {
   const setup = () => {
@@ -194,9 +194,33 @@ describe('Ellen chasing Scott', () => {
     expect(chase(ch, scott, CHASE_SECONDS * 2)).toBe(false);
   });
 
+  it('smiles a while after the kiss, then runs back to work', () => {
+    const { scott, ch } = setup();
+    chase(ch, scott, CHASE_SECONDS + 0.2);
+    // Up from the dip, still together, just smiling.
+    chase(ch, scott, KISS_SECONDS * (DIP_END + 0.1));
+    expect(ch.kiss).not.toBeNull();
+    expect(smiling(ch.kiss!.t)).toBe(true);
+    expect(dipAmount(ch.kiss!.t)).toBe(0);
+    chase(ch, scott, KISS_SECONDS);
+    expect(ch.kiss).toBeNull();
+    expect(scott.activity).toBe('traveling');
+    expect(findScottSpot(scott.targetSpotId)?.kind).toBe('tinker');
+    expect(findScottSpot(scott.targetSpotId)?.zone).not.toBe('greenhouse');
+    expect(scott.hurrying).toBe(true);
+    // Quicker than his usual amble, and back to normal once he's there.
+    const from = { x: scott.x, y: scott.y };
+    tickScott(scott, { dtSeconds: 0.1, now: 0, rand: () => 0 });
+    expect(Math.hypot(scott.x - from.x, scott.y - from.y)).toBeCloseTo(0.2 * HURRY_FACTOR, 5);
+    for (let i = 0; i < 2000 && scott.activity === 'traveling'; i++) tickScott(scott, { dtSeconds: 0.1, now: 0, rand: () => 0 });
+    expect(scott.activity).toBe('tinkering');
+    expect(scott.hurrying).toBeUndefined();
+  });
+
   it('eases into the dip, holds it, and eases out', () => {
     expect(dipAmount(0)).toBe(0);
-    expect(dipAmount(0.5)).toBe(1);
+    expect(dipAmount(DIP_END / 2)).toBe(1);
+    expect(dipAmount(DIP_END)).toBe(0);
     expect(dipAmount(1)).toBe(0);
     expect(dipAmount(0.1)).toBeGreaterThan(0);
     expect(dipAmount(0.1)).toBeLessThan(1);

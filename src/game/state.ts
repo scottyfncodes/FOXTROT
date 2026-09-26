@@ -198,6 +198,8 @@ export interface ScottState {
   currentSpotId: string | null;
   targetSpotId: string;
   nextChangeAt: number;
+  /** Jogging back to work after being caught (and kissed). */
+  hurrying?: boolean;
 }
 
 export type CatActivity = 'wandering' | 'sitting' | 'grooming' | 'sleeping' | 'investigating' | 'hiding';
