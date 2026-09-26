@@ -1,4 +1,4 @@
-// Core shared types for Foxtrot's data-driven systems.
+// Core shared types for Foxtail's data-driven systems.
 // Adding new content (species, variants, shop items, spots) means adding
 // data, not touching these types or the systems that consume them.
 

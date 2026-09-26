@@ -146,11 +146,18 @@ const NEIGHBORS: [number, number][] = [
   [0, -1],
 ];
 
+/** Time constant for weather drifting in and out, in ms. */
+const WEATHER_FADE_MS = 3500;
+
 export class Renderer {
   private lastEllenX = 0;
   private lastEllenY = 0;
   private sprites = new PlantSpriteCache();
   private dpr = 1;
+  /** Eased 0..1 strength of cloud cover and rain, so weather drifts in and out. */
+  private cloudMix = -1;
+  private rainMix = -1;
+  private lastWeatherAt = 0;
 
   constructor(private ctx: CanvasRenderingContext2D) {}
 
@@ -2331,19 +2338,33 @@ export class Renderer {
       ctx.fillStyle = `rgba(8,16,28,${darkness * 0.55})`;
       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     }
-    if (state.weather.condition === 'overcast') {
-      ctx.fillStyle = 'rgba(120,130,120,0.12)';
+    const rainTarget = state.weather.condition === 'rain' ? 1 : 0;
+    const cloudTarget = state.weather.condition === 'overcast' ? 1 : 0;
+    if (this.rainMix < 0) {
+      // First frame: show the weather as it is, no fade-in on load.
+      this.rainMix = rainTarget;
+      this.cloudMix = cloudTarget;
+    } else {
+      const k = 1 - Math.exp(-Math.max(0, Math.min(250, now - this.lastWeatherAt)) / WEATHER_FADE_MS);
+      this.rainMix += (rainTarget - this.rainMix) * k;
+      this.cloudMix += (cloudTarget - this.cloudMix) * k;
+    }
+    this.lastWeatherAt = now;
+    if (this.cloudMix > 0.01) {
+      ctx.fillStyle = `rgba(120,130,120,${0.12 * this.cloudMix})`;
       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     }
-    if (state.weather.condition === 'rain') {
-      ctx.fillStyle = 'rgba(150,170,190,0.15)';
+    if (this.rainMix > 0.01) {
+      const r = this.rainMix;
+      ctx.fillStyle = `rgba(150,170,190,${0.15 * r})`;
       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      ctx.strokeStyle = 'rgba(200,220,235,0.35)';
+      ctx.strokeStyle = `rgba(200,220,235,${0.35 * r})`;
       ctx.lineWidth = 1;
       const w = camera.viewW;
       const h = camera.viewH;
       ctx.beginPath();
-      for (let i = 0; i < 90; i++) {
+      const drops = Math.round(90 * r);
+      for (let i = 0; i < drops; i++) {
         const seedX = (i * 977) % w;
         const seedY = ((i * 613 + Math.floor(now * 0.6)) % (h + 40)) - 20;
         ctx.moveTo(seedX, seedY);

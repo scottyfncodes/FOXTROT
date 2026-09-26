@@ -128,7 +128,7 @@ export function loadGame(): GameState | null {
       const state = migrateSave(JSON.parse(raw));
       if (state) return state;
     } catch (err) {
-      console.warn(`Foxtrot: couldn't read save "${key}".`, err);
+      console.warn(`Foxtail: couldn't read save "${key}".`, err);
     }
   }
   return null;
@@ -138,7 +138,7 @@ export function saveGame(state: GameState): void {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
   } catch (err) {
-    console.warn('Foxtrot: failed to save game.', err);
+    console.warn('Foxtail: failed to save game.', err);
   }
 }
 

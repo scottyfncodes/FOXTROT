@@ -39,7 +39,7 @@ game.onStateTouched = () => {
 game.onFrame = () => hud.update();
 
 if (import.meta.env.DEV) {
-  (window as unknown as { __foxtrot: unknown }).__foxtrot = { game };
+  (window as unknown as { __foxtail: unknown }).__foxtail = { game };
 }
 
 new StartOverlay(

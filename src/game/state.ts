@@ -5,6 +5,7 @@ import { PLAYER_START } from './data/worldMap';
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
 // fills new fields from createNewGame(). The storage key stays fixed.
 export const SAVE_VERSION = 6;
+// The storage key keeps the game's working title so existing saves carry over.
 export const SAVE_KEY = 'foxtrot-save-v4';
 
 export type Facing = 'up' | 'down' | 'left' | 'right';
@@ -278,7 +279,7 @@ export function createNewGame(): GameState {
     createdAt: now,
     player: { x: PLAYER_START.x, y: PLAYER_START.y, facing: 'down', inGreenhouse: false },
     clock: { totalMinutes: 8 * 60, lastRealTimestamp: now },
-    weather: { condition: 'clear', nextChangeAt: 8 * 60 + 180 },
+    weather: { condition: 'clear', nextChangeAt: 8 * 60 + 360 },
     coins: 20,
     owned: [],
     decorStock: {},

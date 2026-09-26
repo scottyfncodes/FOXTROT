@@ -1,10 +1,17 @@
 import type { GameState, WeatherCondition } from '../state';
 
-// Pacing: 2 game-minutes pass per real second, so a full day/night cycle
-// (1440 game-minutes) takes 12 real minutes — enough for weather and
-// day/night to visibly shift within a single play session, and enough that
-// coming back later always shows a changed world.
+// Pacing: on average 2 game-minutes pass per real second, so a full day/night
+// cycle (1440 game-minutes) takes about 12 real minutes — enough for the world
+// to visibly shift within a session, and enough that coming back later always
+// shows a changed world.
+//
+// The clock doesn't run evenly, though. Sunny daytime is the garden at its
+// best, so the day lingers and the dark hours pass quickly: time eases from
+// DAY_RATE up to NIGHT_RATE through dusk and back down through dawn. The two
+// rates are balanced so the average (and so growth per real hour) is unchanged.
 export const GAME_MINUTES_PER_REAL_SECOND = 2;
+export const DAY_RATE = 1.4;
+export const NIGHT_RATE = 4.5;
 export const MINUTES_PER_DAY = 1440;
 // Cap how much time we simulate for a single "welcome back" catch-up so an
 // abandoned tab doesn't spin the world through weeks of growth at once.
@@ -36,20 +43,66 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
-const WEATHER_WEIGHTS: [WeatherCondition, number][] = [
-  ['clear', 0.55],
-  ['overcast', 0.25],
-  ['rain', 0.2],
-];
+/** Game-minutes per real second at this moment: slow by day, quick by night. */
+export function clockRate(totalMinutes: number): number {
+  return DAY_RATE + (NIGHT_RATE - DAY_RATE) * (1 - daylightFactor(totalMinutes));
+}
 
-function rollWeather(rand: () => number): WeatherCondition {
-  const total = WEATHER_WEIGHTS.reduce((s, [, w]) => s + w, 0);
+/**
+ * Game-minutes that pass in `realSeconds` starting from `totalMinutes`,
+ * integrated in short steps so the rate follows dusk and dawn.
+ */
+export function gameMinutesFor(totalMinutes: number, realSeconds: number): number {
+  let t = totalMinutes;
+  let left = realSeconds;
+  while (left > 0) {
+    const step = Math.min(left, 1);
+    t += clockRate(t) * step;
+    left -= step;
+  }
+  return t - totalMinutes;
+}
+
+// Clear skies are the resting state and every departure resolves back to
+// them: rain and cloud are punctuation, not a rotation. Where the weather goes
+// next depends on where it is now, and each spell has its own length.
+export const WEATHER_NEXT: Record<WeatherCondition, [WeatherCondition, number][]> = {
+  clear: [
+    ['clear', 0.55],
+    ['overcast', 0.3],
+    ['rain', 0.15],
+  ],
+  overcast: [
+    ['clear', 0.7],
+    ['rain', 0.3],
+  ],
+  rain: [
+    ['clear', 0.8],
+    ['overcast', 0.2],
+  ],
+};
+
+/** How long a spell of each weather lasts, in game-minutes [min, max]. */
+export const WEATHER_DURATION: Record<WeatherCondition, [number, number]> = {
+  clear: [300, 540],
+  overcast: [90, 180],
+  rain: [120, 240],
+};
+
+export function rollWeather(from: WeatherCondition, rand: () => number): WeatherCondition {
+  const options = WEATHER_NEXT[from] ?? WEATHER_NEXT.clear;
+  const total = options.reduce((s, [, w]) => s + w, 0);
   let r = rand() * total;
-  for (const [cond, w] of WEATHER_WEIGHTS) {
+  for (const [cond, w] of options) {
     if (r < w) return cond;
     r -= w;
   }
   return 'clear';
+}
+
+export function weatherDuration(cond: WeatherCondition, rand: () => number): number {
+  const [min, max] = WEATHER_DURATION[cond] ?? WEATHER_DURATION.clear;
+  return min + rand() * (max - min);
 }
 
 export interface ClockAdvanceResult {
@@ -66,10 +119,10 @@ export interface ClockAdvanceResult {
 export function advanceClock(state: GameState, nowMs: number, rand: () => number = Math.random): ClockAdvanceResult {
   const realDeltaMs = Math.max(0, nowMs - state.clock.lastRealTimestamp);
   const wasOffline = realDeltaMs > 60_000;
-  let elapsedMinutes = (realDeltaMs / 1000) * GAME_MINUTES_PER_REAL_SECOND;
-  if (wasOffline) {
-    elapsedMinutes = Math.min(elapsedMinutes, OFFLINE_CAP_MINUTES);
-  }
+  // Away for a while: the day/night shape doesn't matter, only how much time passed.
+  const elapsedMinutes = wasOffline
+    ? Math.min((realDeltaMs / 1000) * GAME_MINUTES_PER_REAL_SECOND, OFFLINE_CAP_MINUTES)
+    : gameMinutesFor(state.clock.totalMinutes, realDeltaMs / 1000);
   state.clock.totalMinutes += elapsedMinutes;
   state.clock.lastRealTimestamp = nowMs;
 
@@ -77,15 +130,14 @@ export function advanceClock(state: GameState, nowMs: number, rand: () => number
   let guard = 0;
   while (state.clock.totalMinutes >= state.weather.nextChangeAt && guard < 64) {
     guard += 1;
-    const next = rollWeather(rand);
+    const next = rollWeather(state.weather.condition, rand);
+    if (next !== state.weather.condition) weatherChanged = true;
     state.weather.condition = next;
-    const duration = 90 + rand() * 180;
-    state.weather.nextChangeAt = state.weather.nextChangeAt + duration;
-    weatherChanged = true;
+    state.weather.nextChangeAt = state.weather.nextChangeAt + weatherDuration(next, rand);
   }
   // If we jumped far ahead (offline), make sure nextChangeAt is back in the future.
   if (state.weather.nextChangeAt < state.clock.totalMinutes) {
-    state.weather.nextChangeAt = state.clock.totalMinutes + 60 + rand() * 120;
+    state.weather.nextChangeAt = state.clock.totalMinutes + weatherDuration(state.weather.condition, rand);
   }
 
   return { elapsedMinutes, wasOffline, weatherChanged };
