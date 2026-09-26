@@ -4,6 +4,7 @@ import { el, clear } from './dom';
 import { button } from './common';
 import { CAT_APPEARANCE, SCOTT_APPEARANCE } from '../game/data/character';
 import {
+  ACE_REWARD,
   BALL_R,
   COURSE,
   COURSE_L,
@@ -119,7 +120,11 @@ export class PuttingPanel {
     if (this.phase === 'done') {
       this.status.textContent = this.scorecard();
     } else if (this.phase === 'aim') {
-      this.status.textContent = this.strokes[this.hole] === 0 ? 'Drag back from the ball and let go to putt. Further back, harder putt.' : 'Line it up again.';
+      const acesLeft = this.game.state.putting.aces.length < COURSE.length;
+      this.status.textContent =
+        this.strokes[this.hole] === 0
+          ? `Drag back from the ball and let go to putt. Further back, harder putt.${acesLeft && this.game.state.putting.rounds === 0 ? ` The first hole in one on each hole is worth ${ACE_REWARD} coins.` : ''}`
+          : 'Line it up again.';
     } else {
       this.status.textContent = best === null ? '' : `Best round: ${best} (${toPar(best, COURSE_PAR)})`;
     }

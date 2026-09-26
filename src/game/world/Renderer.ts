@@ -6,7 +6,7 @@ import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, zoneAt, isWater, type Rect } f
 import { ZONES } from '../data/zones';
 import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
 import { displaySlots, climbsTrellis } from '../systems/furniture';
-import { occupantOf } from '../systems/propagation';
+import { occupantOf, isRarerThanStandard } from '../systems/propagation';
 import { STALL_ID, stallRect, yardFootprint, type YardPiece } from '../systems/yard';
 import { PLANTS, lookFor, specimenRarity, rarityRank } from '../data/plants';
 import { TOOL_PICKUPS } from '../data/toolPickups';
@@ -16,7 +16,7 @@ import { ELLEN_APPEARANCE, SCOUT_APPEARANCE, SCOTT_APPEARANCE, CAT_APPEARANCE, C
 import { daylightFactor, isNight } from '../engine/Clock';
 import { spotContent } from '../systems/spots';
 import { hasFound } from '../systems/collection';
-import { stageFloat } from '../systems/growth';
+import { stageFloat, stageIndexOf } from '../systems/growth';
 import { demandSpecies } from '../systems/market';
 import type { LushField } from '../systems/wild';
 import { CHARACTERS } from '../systems/wild';
@@ -69,6 +69,33 @@ const LUSH_GROUND: Record<string, RGB> = {
   arid: [118, 128, 80],
   color: [70, 86, 58],
   strange: [58, 56, 76],
+};
+
+/**
+ * Ground this overgrown (0…1, as drawn) is a carpet: the small plants in
+ * it are drawn as one sweep of foliage rather than a hundred sprites.
+ * Large plants, specimens, sports and anything rarer than the standard
+ * form still stand out of it as themselves.
+ */
+export const CARPET_FROM = 0.55;
+export const CARPET_DENSE = 0.75;
+
+/** Whether a wild plant is drawn as part of the carpet rather than on its own. */
+export function drawnAsCarpet(p: Pick<OwnedPlant, 'defId' | 'variantId' | 'growth' | 'unnoticed'>, lushHere: number): boolean {
+  if (lushHere < CARPET_DENSE) return false;
+  if (p.unnoticed || stageIndexOf(p.growth) >= 3) return false;
+  return !isRarerThanStandard(p.defId, p.variantId);
+}
+
+/** How the leaves of each landscape character lie in a carpet. */
+const CARPET_LEAF: Record<string, { w: number; h: number; count: number; frond?: boolean; petal?: string }> = {
+  fern: { w: 0.2, h: 0.055, count: 7, frond: true },
+  jungle: { w: 0.13, h: 0.095, count: 5 },
+  vine: { w: 0.105, h: 0.085, count: 8 },
+  flower: { w: 0.11, h: 0.07, count: 5, petal: 'rgba(250,244,236,0.9)' },
+  arid: { w: 0.065, h: 0.045, count: 9 },
+  color: { w: 0.12, h: 0.085, count: 5, petal: 'rgba(236,140,190,0.85)' },
+  strange: { w: 0.12, h: 0.085, count: 5, petal: 'rgba(200,170,255,0.8)' },
 };
 
 function hash2(x: number, y: number): number {
@@ -165,6 +192,79 @@ export class Renderer {
   private lastEllenY = 0;
   private sprites = new PlantSpriteCache();
   private dpr = 1;
+  /** Carpet tiles by look, so a dense region costs one drawImage a tile. */
+  private carpets = new Map<string, HTMLCanvasElement>();
+
+  /** A tile's worth of foliage in the colour of what's growing there. Four patterns per look, so it never tiles visibly. */
+  private carpetTile(ch: string, hue: number, sat: number, light: number, pale: number, dense: boolean, variant: number, tile: number): HTMLCanvasElement | null {
+    const h = Math.round(hue / 8) * 8;
+    const sa = Math.round(sat / 15) * 15;
+    const li = Math.round(light / 8) * 8;
+    const pq = Math.round(pale * 4);
+    const px = Math.round(tile);
+    const key = `${ch}|${h}|${sa}|${li}|${pq}|${dense ? 1 : 0}|${variant}|${px}|${this.dpr}`;
+    const hit = this.carpets.get(key);
+    if (hit) return hit;
+    if (this.carpets.size > 600) this.carpets.clear();
+    const pad = Math.ceil(px * 0.3);
+    const size = px + pad * 2;
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(size * this.dpr);
+    c.height = Math.ceil(size * this.dpr);
+    const g = c.getContext('2d');
+    if (!g) return null;
+    g.scale(this.dpr, this.dpr);
+    const leaf = CARPET_LEAF[ch] ?? CARPET_LEAF.jungle;
+    const n = dense ? leaf.count + 3 : leaf.count - 2;
+    const seed = variant * 31 + ch.length;
+    for (let k = 0; k < n; k++) {
+      const x = pad + hash2(seed + k * 3.7, k * 1.3) * px;
+      const y = pad + hash2(k * 2.9, seed - k * 1.7) * px;
+      const rot = hash2(seed * 1.1 + k, k * 5.1) * Math.PI;
+      const sc = 0.8 + 0.5 * hash2(k * 7.3, seed);
+      const dl = (hash2(k, seed + 2) - 0.5) * 16;
+      const dh = (hash2(k + 9, seed) - 0.5) * 12;
+      const w = px * leaf.w * sc;
+      const hh = px * leaf.h * sc;
+      g.save();
+      g.translate(x, y);
+      g.rotate(rot);
+      g.fillStyle = `hsl(${h + dh} ${Math.min(100, sa + 5)}% ${Math.max(12, li + dl - 6)}%)`;
+      g.beginPath();
+      if (leaf.frond) {
+        // A frond: a tapered blade with a lighter midrib.
+        g.moveTo(-w, 0);
+        g.quadraticCurveTo(0, -hh * 1.6, w, 0);
+        g.quadraticCurveTo(0, hh * 1.6, -w, 0);
+      } else g.ellipse(0, 0, w, hh, 0, 0, Math.PI * 2);
+      g.fill();
+      // Lit side, so leaves read as leaves and not confetti.
+      g.fillStyle = `hsl(${h + dh} ${Math.min(100, sa + 5)}% ${Math.min(80, li + dl + 8)}%)`;
+      g.beginPath();
+      if (leaf.frond) {
+        g.moveTo(-w, 0);
+        g.quadraticCurveTo(0, -hh * 1.6, w, 0);
+        g.lineTo(-w, 0);
+      } else g.ellipse(0, -hh * 0.25, w * 0.85, hh * 0.55, 0, 0, Math.PI * 2);
+      g.fill();
+      // Variegated plantings keep their cream in the carpet.
+      if (pale > 0.05 && hash2(k * 4.1, seed * 2.3) < pale) {
+        g.fillStyle = 'rgba(248,240,214,0.85)';
+        g.beginPath();
+        g.ellipse(w * 0.25, hh * 0.1, w * 0.45, hh * 0.45, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+      if (leaf.petal && k % 3 === 0) {
+        g.fillStyle = leaf.petal;
+        g.beginPath();
+        g.arc(x + w * 0.6, y - hh * 0.8, px * 0.025, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    this.carpets.set(key, c);
+    return c;
+  }
   /** Eased 0..1 strength of cloud cover and rain, so weather drifts in and out. */
   private cloudMix = -1;
   private rainMix = -1;
@@ -214,6 +314,8 @@ export class Renderer {
     for (const p of Object.values(state.plants)) {
       if (p.location.kind !== 'wild' || !inView(p.location.x, p.location.y, 3) || p.id === movingId) continue;
       const loc = p.location;
+      const lushHere = lush ? Math.min(1, lush.lush[Math.floor(loc.y) * GRID_W + Math.floor(loc.x)] / 0.9) : 0;
+      if (drawnAsCarpet(p, lushHere)) continue;
       drawables.push({ y: loc.y, draw: () => this.drawWildPlant(camera, state, p, loc.x, loc.y, now) });
     }
     for (const spot of DISCOVERY_SPOTS) {
@@ -362,6 +464,7 @@ export class Renderer {
     const coverDark = new Path2D();
     const coverLight = new Path2D();
     const petals: Record<string, Path2D> = {};
+    const carpetTiles: { sx: number; sy: number; li: number; ch: string; dense: boolean; variant: number; alpha: number }[] = [];
     const petalColors: Record<string, string> = {
       flower: 'rgba(250,244,236,0.85)',
       color: 'rgba(236,140,190,0.8)',
@@ -391,7 +494,13 @@ export class Renderer {
         }
         const li = ty * GRID_W + tx;
         const lushHere = lush ? Math.min(1, lush.lush[li] / 0.9) : 0;
-        if (lushHere > 0.01) {
+        if (lushHere >= CARPET_FROM && lush) {
+          const ch = CHARACTERS[lush.character[li]] ?? 'jungle';
+          const target = LUSH_GROUND[ch];
+          const shade = 0.85 + 0.3 * smoothNoise(tx + 40, ty + 40, 3);
+          color = mixRgb(color, [target[0] * shade, target[1] * shade, target[2] * shade], 0.9);
+          carpetTiles.push({ sx, sy, li, ch, dense: lushHere >= CARPET_DENSE, variant: Math.floor(hash2(tx * 7.1, ty * 3.3) * 4), alpha: Math.min(1, (lushHere - CARPET_FROM + 0.12) / 0.3) });
+        } else if (lushHere > 0.01) {
           const ch = CHARACTERS[lush!.character[li]] ?? 'jungle';
           const target = LUSH_GROUND[ch];
           const shade = 0.85 + 0.3 * smoothNoise(tx + 40, ty + 40, 3);
@@ -455,6 +564,18 @@ export class Renderer {
     for (const [ch, path] of Object.entries(petals)) {
       ctx.fillStyle = petalColors[ch];
       ctx.fill(path);
+    }
+    // The carpet goes on last, over the litter, in the colour of what grows there.
+    if (lush && carpetTiles.length) {
+      const pad = Math.ceil(Math.round(tile) * 0.3);
+      for (const t of carpetTiles) {
+        const c = this.carpetTile(t.ch, lush.leaf[t.li * 3], lush.leaf[t.li * 3 + 1], lush.leaf[t.li * 3 + 2], lush.pale[t.li], t.dense, t.variant, tile);
+        if (!c) continue;
+        // The carpet thins out toward the edge of the overgrowth rather than stopping at a tile line.
+        ctx.globalAlpha = t.alpha;
+        ctx.drawImage(c, t.sx - pad, t.sy - pad, Math.round(tile) + pad * 2, Math.round(tile) + pad * 2);
+      }
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -2868,7 +2989,30 @@ export class Renderer {
     }
     const cx = a.x + w / 2;
     const cy = a.y + h / 2;
-    if (plant) this.drawPlantSprite(cx, cy - tile * 0.02, tile * 0.85, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'pot', now);
+    if (plant) {
+      const sf = stageFloat(plant.growth);
+      this.drawPlantSprite(cx, cy - tile * 0.02, tile * 0.85, plant.defId, plant.variantId, sf, plant.seed, 'pot', now);
+      // Along the front of the trough, a thin line fills as the plant comes
+      // on toward its next stage, so from across the room a bed reads as
+      // "getting there" without a number on it. It goes once the plant is grown.
+      if (sf < 4) {
+        const frac = sf - Math.floor(sf);
+        const bx = a.x + tile * 0.09;
+        const bw = w - tile * 0.18;
+        const by = a.y + h + depth * 0.42;
+        const bh = Math.max(2, tile * 0.05);
+        ctx.fillStyle = 'rgba(20,12,6,0.45)';
+        ctx.beginPath();
+        ctx.roundRect(bx, by, bw, bh, bh / 2);
+        ctx.fill();
+        if (frac > 0.02) {
+          ctx.fillStyle = 'rgba(178,214,120,0.9)';
+          ctx.beginPath();
+          ctx.roundRect(bx, by, bw * frac, bh, bh / 2);
+          ctx.fill();
+        }
+      }
+    }
   }
 
   private drawHouseRug(camera: Camera, piece: PlacedFurniture) {

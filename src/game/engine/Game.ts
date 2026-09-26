@@ -13,7 +13,7 @@ import { HOUSE_DOOR, GRID_W, GRID_H, TILE_SIZE, zoneAt, rectContains, isInBounds
 import { FRONT_DOOR, roomAt, GREENHOUSE_DOORS, DOOR_OUTWARD, type GreenhouseDoor } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture, fixtureOffset, footprint } from '../systems/furniture';
-import { ACE_REWARD, COURSE_PAR, bestRound, recordAce, recordRound, toPar } from '../systems/putting';
+import { ACE_REWARD, COURSE, COURSE_PAR, bestRound, recordAce, recordRound, toPar } from '../systems/putting';
 import { endPlay, startPlay, tickPlay, type PlayState } from '../systems/play';
 import { makeIndoorCamera, screenToTiles } from '../world/IndoorCamera';
 import { Camera as CameraClass } from './Camera';
@@ -36,7 +36,7 @@ import { createFoxFinds, collectFoxFind, expireFoxFinds } from '../systems/foxFi
 import { findCuriosity } from '../data/curiosities';
 import { discoveryFlourish, discoveryAside, type Flourish } from '../systems/rarity';
 import type { CatInterest } from '../systems/cat';
-import { KIND_SIGNIFICANCE, type Significance, type ToastKind } from '../systems/toasts';
+import { KIND_SIGNIFICANCE, type Significance, type ToastKind, type ToastOptions } from '../systems/toasts';
 import { isNight } from './Clock';
 import type { Rarity } from '../types';
 import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
@@ -103,6 +103,47 @@ export interface ToastEvent {
   kind: ToastKind;
   /** How much it matters: decides how long it stays and what may interrupt it. */
   significance: Significance;
+  /** Whether it's still worth showing, and what to note once it has been. */
+  opts?: ToastOptions;
+}
+
+/**
+ * How important each kind of thing to interact with is. When two are both
+ * within reach, the more important one wins, however close the other is:
+ * a door is never lost behind a seedling, nor the stall behind the plants
+ * that have grown up around it. Distance only decides between equals.
+ */
+export const INTERACT_PRIORITY: Record<InteractableKind, number> = {
+  setDown: 0,
+  greenhouseDoor: 0,
+  greenhouseExit: 0,
+  houseDoor: 0,
+  frontDoor: 0,
+  market: 1,
+  bed: 2,
+  display: 2,
+  puttingMat: 2,
+  foxFind: 3,
+  lantern: 3,
+  spot: 4,
+  decor: 5,
+  rock: 5,
+  wildPlant: 6,
+};
+
+/** Picks what a press of the button should act on: the highest priority within reach, nearest among equals. */
+export function pickInteractable<T extends { kind: InteractableKind; dist: number }>(candidates: T[]): T | null {
+  let best: T | null = null;
+  for (const c of candidates) {
+    if (!best) {
+      best = c;
+      continue;
+    }
+    const pc = INTERACT_PRIORITY[c.kind];
+    const pb = INTERACT_PRIORITY[best.kind];
+    if (pc < pb || (pc === pb && c.dist < best.dist)) best = c;
+  }
+  return best;
 }
 
 const AUTOSAVE_MS = 8000;
@@ -319,7 +360,7 @@ export class Game {
     this.started = true;
     this.lastFrame = performance.now();
     if (this.isNew) {
-      this.hint('start', 'Wild houseplants grow in patches all over the valley. Walk up to one and take a cutting.');
+      this.hint('start', 'Wild plants grow in patches all over the valley. Walk up and take a cutting.', 'important', () => this.outdoors() && Object.keys(this.state.collection).length === 0);
     }
     const loop = (now: number) => {
       const dtMs = Math.min(100, now - this.lastFrame);
@@ -344,17 +385,44 @@ export class Game {
     window.removeEventListener('pagehide', this.saveNow);
   }
 
-  private pushToast(text: string, kind: ToastKind = 'info', significance: Significance = KIND_SIGNIFICANCE[kind]) {
-    this.onToast?.({ id: makeUid('toast'), text, kind, significance });
+  private pushToast(text: string, kind: ToastKind = 'info', significance: Significance = KIND_SIGNIFICANCE[kind], opts?: ToastOptions) {
+    this.onToast?.({ id: makeUid('toast'), text, kind, significance, opts });
   }
 
-  /** One-time guidance, shown the first time it's relevant and never again. */
-  hint(id: string, text: string, significance: Significance = 'important'): boolean {
+  /** Hints queued but not yet on screen, so asking twice doesn't queue twice. */
+  private pendingHints = new Set<string>();
+
+  /**
+   * One-time guidance: a single line, shown the first time it's relevant
+   * and never again. It only counts as shown once it has actually
+   * appeared; if `stillRelevant` turns false while it waits its turn (the
+   * cutting got potted, the tool was put away), it's quietly dropped and
+   * may come round again when it next applies. Returns true if it was
+   * raised now, false if it has already been seen.
+   */
+  hint(id: string, text: string, significance: Significance = 'important', stillRelevant?: () => boolean): boolean {
     if (this.state.hints.includes(id)) return false;
-    this.state.hints.push(id);
-    this.pushToast(text, 'hint', significance);
+    if (this.pendingHints.has(id)) return true;
+    this.pendingHints.add(id);
+    this.pushToast(text, 'hint', significance, {
+      valid: () => !stillRelevant || stillRelevant(),
+      onShown: () => {
+        this.pendingHints.delete(id);
+        if (!this.state.hints.includes(id)) this.state.hints.push(id);
+      },
+      onDropped: () => this.pendingHints.delete(id),
+    });
     return true;
   }
+
+  // ---- What the hints are about: the situations they belong to ----
+
+  private outdoors = () => !this.state.player.inGreenhouse;
+  private carryingCutting = () => this.state.basket.some((b) => b.growth === 0);
+  private inTool = (kind: string) => this.tools.mode.kind === kind;
+  private nurseryFull = () => nurserySpots(this.state).every((bed) => !!occupantOf(this.state, { bedId: bed.id }));
+  /** Real seconds spent pushing through thick growth, for the path nudge. */
+  private thicketSeconds = 0;
 
   /** Open outdoor ground: no tree/rock, not the house, stall or a wild patch. */
   isOpenGround = (tx: number, ty: number): boolean => {
@@ -404,22 +472,20 @@ export class Game {
       const established = creditGrown(this.state, plant.id, now);
       const def = PLANTS[plant.defId];
       if (established) {
-        const first = this.hint(
-          'established',
-          `${def.name} is established! Lift one into your basket, then give it a pot in the greenhouse gallery — or plant it out in the wild, where it will grow and spread on its own.`,
-          'major'
-        );
-        if (!first) this.pushToast(`${def.name} is now established — you know it well enough to display it or plant it out.`, 'discovery', 'major');
+        const first = this.hint('established', `${def.name} is established: lift one to display it, or plant it out.`, 'major');
+        if (!first) this.pushToast(`${def.name} is established now: display it, or plant it out.`, 'discovery', 'major');
       }
       if (offline) continue;
       const name = specimenName(plant.defId, plant.variantId);
       if (plant.location.kind === 'nursery' || plant.location.kind === 'display') {
         if (up.to === 'young') {
           this.pushToast(`Your ${name} cutting has rooted.`, 'growth');
-          this.hint('rooted', 'Rooted plants can give cuttings of their own. Grow two of a species to establish it.');
+          this.hint('rooted', 'Rooted plants give cuttings. Grow two of a kind to establish it.', 'important', () => !isEstablished(this.state, plant.defId));
         } else this.pushToast(`Your ${name} is now ${STAGE_LABEL[up.to].toLowerCase()}.`, 'growth');
       } else if (up.to === 'large' && !plant.bornWild) {
         this.pushToast(`Your ${name} in ${zoneLabel(plant.location.zone)} has grown large — it may start to spread.`, 'growth');
+        // Now that spreading is about to begin, a bed is worth knowing about.
+        if (this.state.gardenBeds.length === 0) this.hint('beds', 'Large plants spread. A garden bed (🌿) keeps them where you put them.', 'important', () => this.outdoors() && this.state.gardenBeds.length === 0);
       } else if (up.to === 'specimen' && !plant.bornWild) {
         this.pushToast(`Your ${name} in ${zoneLabel(plant.location.zone)} is a magnificent specimen now.`, 'growth', 'important');
       }
@@ -430,7 +496,7 @@ export class Game {
       if (result.spreads.length > 0) {
         const child = this.state.plants[result.spreads[0].childId];
         if (child?.location.kind === 'wild') {
-          this.hint('spread', `A ${PLANTS[child.defId].name} seedling has come up by itself in ${zoneLabel(child.location.zone)}. Your plants are spreading.`, 'major');
+          this.hint('spread', `A ${PLANTS[child.defId].name} seedling came up by itself in ${zoneLabel(child.location.zone)}.`, 'major');
         }
       }
       for (const s of sports) {
@@ -445,7 +511,7 @@ export class Game {
       if (grew.size > 0) parts.push(grew.size === 1 ? 'one of your plants grew' : `${grew.size} of your plants grew`);
       if (result.spreads.length > 0) parts.push(`${result.spreads.length} new seedling${result.spreads.length === 1 ? '' : 's'} came up in ${listZones(zones)}`);
       const body = parts.length ? `: ${parts.join(', and ')}` : '';
-      this.pushToast(`Welcome back — ${spanText(elapsed)} passed${body}.`, 'info', 'normal');
+      this.pushToast(`Welcome back — ${spanText(elapsed)} passed${body}.`, 'info', 'important');
       if (sports.length > 0) this.pushToast(`And something you’ve never seen before is growing among them. Go and look.`, 'discovery');
     }
   }
@@ -486,6 +552,7 @@ export class Game {
     this.handleDoorTransitions();
     this.updateNearestInteractable();
     if (expireFoxFinds(this.state, this.state.clock.totalMinutes) > 0) this.onStateTouched?.();
+    this.noticeGoing(move.x !== 0 || move.y !== 0, dtSeconds);
 
     if (!this.state.player.inGreenhouse) {
       this.noticeNearbySports();
@@ -575,6 +642,23 @@ export class Game {
   }
 
   /**
+   * The valley itself suggests the tools for it: after enough wading
+   * through thick growth, a path; at the first dusk, that there's more to
+   * find after dark. Both are single lines, only while they apply.
+   */
+  private noticeGoing(moving: boolean, dtSeconds: number) {
+    const p = this.state.player;
+    if (p.inGreenhouse) return;
+    if (moving && this.state.paths.length === 0 && this.groundSpeed() < 0.75) {
+      this.thicketSeconds += dtSeconds;
+      if (this.thicketSeconds > 4) this.hint('paths', 'Thick going. Carve a path (🌿) and the way stays clear.', 'important', () => this.outdoors() && this.state.paths.length === 0);
+    }
+    if (isNight(this.state.clock.totalMinutes) && !this.state.tools.lantern) {
+      this.hint('dusk', 'Dark now. Some things only show themselves after dark.', 'normal', () => this.outdoors() && isNight(this.state.clock.totalMinutes));
+    }
+  }
+
+  /**
    * Walking up to a sport that came up by itself among your plants is a
    * discovery in its own right: "what is that thing?"
    */
@@ -600,6 +684,17 @@ export class Game {
     const p = this.state.player;
     let best: { x: number; y: number } | null = null;
     let bestDist = 2.6;
+    // After dark, Scout has a nose for the old lantern from further off.
+    if (isNight(this.state.clock.totalMinutes)) {
+      for (const tp of TOOL_PICKUPS) {
+        if (this.state.tools[tp.tool]) continue;
+        const d = Math.hypot(p.x - (tp.x + 0.5), p.y - (tp.y + 0.5));
+        if (d < 9 && d < bestDist + 9) {
+          bestDist = Math.max(bestDist, d);
+          best = { x: tp.x + 0.5, y: tp.y + 0.5 };
+        }
+      }
+    }
     for (const spot of DISCOVERY_SPOTS) {
       const d = Math.hypot(p.x - (spot.x + 0.5), p.y - (spot.y + 0.5));
       if (d >= bestDist) continue;
@@ -648,8 +743,9 @@ export class Game {
     p.facing = door.wall === 'south' ? 'up' : door.wall === 'north' ? 'down' : 'right';
     this.fadeFrom = performance.now();
     this.bringScoutAlong();
-    if (this.state.basket.some((b) => b.growth === 0)) {
-      this.hint('pot', 'Pot your cutting in one of the nursery beds on the left. It will root and grow on its own.');
+    if (this.carryingCutting()) {
+      if (this.nurseryFull()) this.hint('moreBeds', 'Every bed is full. The Plant Stand & Supply sells more.', 'important', () => this.carryingCutting() && this.nurseryFull());
+      else this.hint('pot', 'Pot your cutting in a nursery bed, on the left. It roots on its own.', 'important', () => !this.outdoors() && this.carryingCutting() && !this.nurseryFull());
     }
   }
 
@@ -705,16 +801,13 @@ export class Game {
 
   private updateNearestInteractable() {
     const p = this.state.player;
-    let best: Interactable | null = null;
-    let bestDist = INTERACT_RANGE;
     const now = this.state.clock.totalMinutes;
+    // Everything within reach; the most important wins, nearest among equals.
+    const candidates: { kind: InteractableKind; dist: number; item: Interactable }[] = [];
 
     const consider = (i: Interactable, cx: number, cy: number, range = INTERACT_RANGE) => {
       const d = Math.hypot(p.x - cx, p.y - cy);
-      if (d < Math.min(bestDist, range)) {
-        bestDist = d;
-        best = i;
-      }
+      if (d < range) candidates.push({ kind: i.kind, dist: d, item: i });
     };
 
     if (!p.inGreenhouse && this.carryingDecorId) {
@@ -785,13 +878,9 @@ export class Game {
       const my = stall.y + 1.1;
       consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Plant Stand & Supply', available: true }, mx, my, 1.6);
       for (const d of GREENHOUSE_DOORS) {
-        if (Math.hypot(p.x - (d.outside.x + 0.5), p.y - (d.outside.y + 0.5)) < INTERACT_RANGE) {
-          best = { kind: 'greenhouseDoor', id: d.id, x: d.outside.x, y: d.outside.y, label: 'Into the Greenhouse', available: true };
-        }
+        consider({ kind: 'greenhouseDoor', id: d.id, x: d.outside.x, y: d.outside.y, label: 'Into the Greenhouse', available: true }, d.outside.x + 0.5, d.outside.y + 0.5);
       }
-      if (Math.hypot(p.x - (HOUSE_DOOR.x + 0.5), p.y - (HOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
-        best = { kind: 'houseDoor', id: 'house', x: HOUSE_DOOR.x, y: HOUSE_DOOR.y, label: 'Go inside — home', available: true };
-      }
+      consider({ kind: 'houseDoor', id: 'house', x: HOUSE_DOOR.x, y: HOUSE_DOOR.y, label: 'Go inside — home', available: true }, HOUSE_DOOR.x + 0.5, HOUSE_DOOR.y + 0.5);
     } else {
       for (const bed of nurserySpots(this.state)) {
         const plant = occupantOf(this.state, { bedId: bed.id });
@@ -808,7 +897,9 @@ export class Game {
       if (mat) {
         const fp = footprint(mat.kind, mat.x, mat.y, mat.rot ?? 0);
         const best = bestRound(this.state.putting);
-        const label = best === null ? 'Play a round of putt-putt' : `Play putt-putt · best ${best} (${toPar(best, COURSE_PAR)})`;
+        // Until every hole has been aced once, the mat says what an ace is worth.
+        const acesLeft = this.state.putting.aces.length < COURSE.length;
+        const label = best === null ? `Play putt-putt · a hole in one is worth ${ACE_REWARD} coins` : `Play putt-putt · best ${best} (${toPar(best, COURSE_PAR)})${acesLeft ? ` · an ace pays ${ACE_REWARD}` : ''}`;
         consider({ kind: 'puttingMat', id: mat.id, x: fp.x, y: fp.y, label, available: true }, fp.x + fp.w / 2, fp.y + fp.h / 2, 1.2);
       }
       for (const d of GREENHOUSE_DOORS) {
@@ -816,7 +907,7 @@ export class Game {
       }
       consider({ kind: 'frontDoor', id: 'front', x: FRONT_DOOR.x, y: FRONT_DOOR.y, label: 'Out the front door', available: true }, FRONT_DOOR.x + 0.5, FRONT_DOOR.y + 0.5);
     }
-    this.nearest = best;
+    this.nearest = pickInteractable(candidates)?.item ?? null;
   }
 
   interactWithNearest() {
@@ -838,8 +929,8 @@ export class Game {
         else if (result.newVariant) this.announce(`New variant: ${fullName(defId, variantId)}.${rare}`, rarity);
         else this.pushToast(`Took a cutting of ${name}.`, 'info');
         this.flourish(spot.x + 0.5, spot.y + 0.5, rarity, !!(result.newSpecies || result.newVariant));
-        this.hint('firstCutting', 'Bring your cutting home to the greenhouse and pot it in a nursery bed.');
-        if (this.state.basket.length >= 3) this.hint('market', 'The Plant Stand & Supply down the path buys plants — and sells pots, shelves and more. Rare plants fetch a lot.');
+        this.hint('firstCutting', 'Take it home and pot it in a nursery bed in the greenhouse.', 'important', () => this.carryingCutting());
+        if (this.state.basket.length >= 3) this.hint('market', 'The Plant Stand & Supply by the house buys plants and sells kit.', 'important', () => this.state.basket.length > 0);
         this.lushDirty = true;
       } else if (result.reason === 'basket-full') {
         this.pushToast('Your basket is full.', 'info');
@@ -964,6 +1055,7 @@ export class Game {
     const plant = potInNursery(this.state, uid, bedId, this.state.clock.totalMinutes);
     if (!plant) return;
     this.pushToast(`Potted ${specimenName(plant.defId, plant.variantId)} in the nursery.`, 'growth');
+    if (this.carryingCutting() && this.nurseryFull()) this.hint('moreBeds', 'Every bed is full. The Plant Stand & Supply sells more.', 'important', () => this.carryingCutting() && this.nurseryFull());
     this.onStateTouched?.();
   }
 
@@ -1012,7 +1104,7 @@ export class Game {
       `Planted ${specimenName(plant.defId, plant.variantId)} in ${zoneLabel(where.zone)}.${native ? ' It’s at home here and will grow fast.' : ''}`,
       'growth'
     );
-    this.hint('plantedOut', 'It’s part of the landscape now. It will grow on its own — and once it’s large, it will start to spread.');
+    this.hint('plantedOut', 'It grows on its own now, and spreads once it’s large.', 'important', this.outdoors);
     this.onStateTouched?.();
   }
 
@@ -1023,17 +1115,17 @@ export class Game {
     const off: Record<string, [number, number]> = { up: [0, -1.1], down: [0, 1.0], left: [-1.1, 0.2], right: [1.1, 0.2] };
     const [dx, dy] = off[p.facing];
     this.tools.startPlanting(uid, p.x + dx, p.y + dy);
-    this.hint('placing', 'Drag the plant to exactly where you want it, then tap ✓. Plants get much bigger — give them room.');
+    this.hint('placing', 'Drag it to where it should grow, then ✓. They get big: give them room.', 'important', () => this.inTool('plant'));
   }
 
   beginTransplant(plantId: string) {
-    if (this.tools.startTransplant(plantId)) this.hint('transplant', 'Drag it to its new spot. Only young plants can be moved — once they’re large, they’ve settled in.');
+    if (this.tools.startTransplant(plantId)) this.hint('transplant', 'Drag it to its new spot. Only young plants move.', 'important', () => this.inTool('plant'));
   }
 
   /** Once, the first time the player edits something: zooming helps most here. */
   private zoomHint() {
     const touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    this.hint('zoom', touch ? 'Pinch with two fingers to zoom in and out — here, and anywhere in the valley.' : 'Scroll (or press + and −) to zoom in and out — here, and anywhere in the valley.', 'normal');
+    this.hint('zoom', touch ? 'Pinch to zoom in and out, here or anywhere.' : 'Scroll, or press + and −, to zoom in and out.', 'normal', () => this.tools.active);
   }
 
   /** The 🪑 button: arrange the house indoors, or the garden outdoors. */
@@ -1053,7 +1145,7 @@ export class Game {
     this.outdoorFocus = { x: this.state.player.x, y: this.state.player.y };
     this.tools.startYard(stock, stock ? { x: this.state.player.x, y: this.state.player.y + 0.8 } : undefined);
     this.zoomHint();
-    this.hint('yard', 'Drag any garden piece — or the Plant Stand & Supply itself — to move it. Drag the ground to look around.');
+    this.hint('yard', 'Drag any garden piece, or the stall itself, to move it.', 'important', () => this.inTool('yard'));
   }
 
   addDecorFromStock(id: DecorId) {
@@ -1064,13 +1156,13 @@ export class Game {
     if (this.state.player.inGreenhouse) return;
     this.tools.startBed(shape);
     this.zoomHint();
-    this.hint('bed', 'Drag across open ground to mark out a bed. Plants in a bed spread only within it — and a mix of species makes for a livelier bed.');
+    this.hint('bed', 'Drag across open ground to mark out a bed.', 'important', () => this.inTool('bed'));
   }
 
   beginPath() {
     if (this.state.player.inGreenhouse) return;
     this.tools.startPath();
-    this.hint('path', 'Trace a route with your finger. Scrub is cleared along it, and anything of yours in the way goes to compost.');
+    this.hint('path', 'Trace a route. Anything of yours in the way goes to compost.', 'important', () => this.inTool('path'));
   }
 
   addFromStock(kind: FurnitureId) {
@@ -1103,7 +1195,7 @@ export class Game {
       const native = PLANTS[plant.defId].habitat.includes(zone);
       const inBed = plant.location.bedId ? ' in your garden bed' : '';
       this.pushToast(`Planted ${specimenName(plant.defId, plant.variantId)}${inBed} in ${zoneLabel(zone)}.${native ? ' It’s at home here and will grow fast.' : ''}`, 'growth');
-      this.hint('plantedOut', 'It’s part of the landscape now. It will grow on its own — and once it’s large, it will start to spread.');
+      this.hint('plantedOut', 'It grows on its own now, and spreads once it’s large.', 'important', this.outdoors);
     } else if (res.kind === 'transplanted') {
       this.lushDirty = true;
       const p = this.state.plants[res.plantId];
@@ -1140,7 +1232,7 @@ export class Game {
       this.flourish(where.x, where.y, r, res.cutting.newVariant);
     } else if (res.noRoom) msg += ' There was a cutting worth saving, but your basket was full.';
     this.pushToast(msg, 'info');
-    this.hint('compost', `Compost digs garden beds. The market sells it too, ${COMPOST_PER_SACK} scoops a sack.`);
+    this.hint('compost', `Compost digs garden beds. The stall sells it by the sack.`, 'important', this.outdoors);
     this.onStateTouched?.();
   }
 

@@ -4,7 +4,7 @@ import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity, rarityRank } from '../game/data/plants';
 import { SHOP_ITEMS, PURPOSE_INFO, PURPOSE_ORDER, type ShopCategory, type ShopItem } from '../game/data/shop';
 import { STAGE_LABEL, stageFloat, stageOf } from '../game/systems/growth';
-import { priceOf, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday, canSell, itemPrice, shopItemVisible, isShopItemNew, markShopSeen } from '../game/systems/market';
+import { basketPrices, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday, canSell, itemPrice, shopItemVisible, isShopItemNew, markShopSeen } from '../game/systems/market';
 import { button, note, portrait, rarityBadge } from './common';
 
 type Tab = 'sell' | 'shop';
@@ -77,7 +77,11 @@ export class MarketPanel {
       return;
     }
     const list = el('div', 'entry-list');
-    for (const item of state.basket) {
+    const prices = basketPrices(state);
+    const seen: Record<string, number> = {};
+    state.basket.forEach((item, i) => {
+      const before = seen[item.defId] ?? 0;
+      seen[item.defId] = before + 1;
       const row = el('div', 'entry-row plant-row');
       const info = el('div', 'entry-info');
       const rarity = specimenRarity(item.defId, item.variantId);
@@ -89,20 +93,21 @@ export class MarketPanel {
       if (rarityRank(rarity) >= 2 && others === 0) info.appendChild(note('Your only one. Propagate it first, and you could keep one and sell one.', 'row-note warn'));
       const glut = soldToday(state, item.defId);
       if (glut > 0) info.appendChild(note(`${glut} already sold today — buyers are paying less for more of the same. Prices recover tomorrow.`, 'row-note'));
+      else if (before > 0) info.appendChild(note(`Priced as the ${before === 1 ? 'second' : before === 2 ? 'third' : `${before + 1}th`} ${PLANTS[item.defId].name} sold today — each one fetches a little less.`, 'row-note'));
       if (!canSell(item.defId)) {
         info.appendChild(note('The stall won’t take this one.', 'row-note'));
         row.append(portrait(item.defId, item.variantId, Math.max(0.6, stageFloat(item.growth)), item.seed, 56), info, button('Not for sale', () => {}, 'secondary-btn', true));
         list.appendChild(row);
-        continue;
+        return;
       }
-      const price = priceOf(state, item);
+      const price = prices[i];
       const sell = button(`Sell · ${price}`, () => {
         this.game.sell(item.uid);
         this.render();
       }, 'primary-btn small');
       row.append(portrait(item.defId, item.variantId, Math.max(0.6, stageFloat(item.growth)), item.seed, 56), info, sell);
       list.appendChild(row);
-    }
+    });
     body.appendChild(list);
   }
 

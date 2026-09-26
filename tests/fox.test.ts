@@ -68,6 +68,9 @@ describe('fox behavior', () => {
     const state = createNewGame();
     state.fox.behavior = 'idle';
     state.fox.nextEventAt = 0;
+    // Not its first visit, and it has run once already: it pleases itself.
+    state.foxLog.sightings = 4;
+    state.foxLog.trailsStarted = 1;
     // rand > 0.65 means "don't lead" on the decision roll.
     tickFox(state, {
       playerZone: 'meadow',
@@ -81,5 +84,48 @@ describe('fox behavior', () => {
     });
     expect(state.fox.behavior).toBe('wandering');
     expect(state.fox.targetDiscoveryId).toBeNull();
+  });
+});
+
+describe('the fox and a new player', () => {
+  const ctx = (state: ReturnType<typeof createNewGame>, rand: () => number) => ({
+    playerZone: 'meadow' as const,
+    playerX: 64,
+    playerY: 44,
+    inGreenhouse: false,
+    dtSeconds: 1,
+    now: state.clock.totalMinutes,
+    discoveryPoints: DISCOVERY_SPOTS,
+    rand,
+    pickTrailDestination: () => ({ x: 52, y: 30 }),
+  });
+
+  it('always shows something on its first visit, whatever the dice say', () => {
+    const state = createNewGame();
+    state.fox.behavior = 'gone';
+    state.fox.nextEventAt = 0;
+    tickFox(state, ctx(state, () => 0.99));
+    expect(state.fox.behavior).toBe('leading');
+    expect(state.fox.targetDiscoveryId).not.toBeNull();
+  });
+
+  it('runs from you by its third visit if it has not yet', () => {
+    const state = createNewGame();
+    state.foxLog.sightings = 2;
+    state.fox.behavior = 'gone';
+    state.fox.nextEventAt = 0;
+    tickFox(state, ctx(state, () => 0.1));
+    expect(state.fox.behavior).toBe('lookingBack');
+    expect(state.fox.destX).toBe(52);
+  });
+
+  it('goes back to pleasing itself once it has run once', () => {
+    const state = createNewGame();
+    state.foxLog.sightings = 5;
+    state.foxLog.trailsStarted = 1;
+    state.fox.behavior = 'gone';
+    state.fox.nextEventAt = 0;
+    tickFox(state, ctx(state, () => 0.1));
+    expect(state.fox.behavior).toBe('leading');
   });
 });

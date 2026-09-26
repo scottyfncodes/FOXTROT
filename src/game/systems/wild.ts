@@ -236,6 +236,13 @@ export interface LushField {
   lush: Float32Array;
   /** Index into CHARACTERS of the tile's dominant landscape, or 255 for none. */
   character: Uint8Array;
+  /**
+   * The leaf colour of what covers each tile (hue, saturation, lightness,
+   * weighted by cover) and how much of it is variegated, so overgrown
+   * ground can be drawn as that plant's own foliage rather than a generic green.
+   */
+  leaf: Float32Array;
+  pale: Float32Array;
   /** 0…1 per region: share of it that's been overgrown. */
   zoneCover: Record<OutdoorZoneId, number>;
   /** Number of the player's plants per region. */
@@ -266,6 +273,9 @@ export function computeLushness(state: GameState): LushField {
   // is yours, but don't change the soil around the bed.
   const bedded = new Float32Array(n);
   const charW = new Float32Array(n * CHARACTERS.length);
+  const leaf = new Float32Array(n * 3);
+  const leafW = new Float32Array(n);
+  const paleW = new Float32Array(n);
   const zoneCount = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, 0])) as Record<OutdoorZoneId, number>;
   const zoneCharW: Record<string, number[]> = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, CHARACTERS.map(() => 0)]));
 
@@ -278,6 +288,7 @@ export function computeLushness(state: GameState): LushField {
     const r = (0.7 + sf * 0.6) * Math.max(0.7, look.size);
     const w = 0.18 + sf * 0.16;
     const ci = CHARACTERS.indexOf(def.landscape);
+    const variegated = look.variegation !== 'none' && look.variegation !== 'glow';
     zoneCount[p.location.zone]++;
     zoneCharW[p.location.zone][ci] += w;
     const { x, y, bedId } = p.location;
@@ -297,8 +308,21 @@ export function computeLushness(state: GameState): LushField {
         }
         lush[i] += v;
         charW[i * CHARACTERS.length + ci] += v;
+        leaf[i * 3] += look.hue * v;
+        leaf[i * 3 + 1] += look.sat * v;
+        leaf[i * 3 + 2] += look.light * v;
+        leafW[i] += v;
+        if (variegated) paleW[i] += v;
       }
     }
+  }
+  const pale = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    if (leafW[i] <= 0) continue;
+    leaf[i * 3] /= leafW[i];
+    leaf[i * 3 + 1] /= leafW[i];
+    leaf[i * 3 + 2] /= leafW[i];
+    pale[i] = paleW[i] / leafW[i];
   }
 
   // A light blur so overgrowth spreads over the ground in soft drifts
@@ -351,7 +375,7 @@ export function computeLushness(state: GameState): LushField {
     const max = Math.max(...ws);
     if (max > 0) zoneCharacter[z] = CHARACTERS[ws.indexOf(max)];
   }
-  return { lush, character, zoneCover, zoneCount, zoneCharacter };
+  return { lush, character, leaf, pale, zoneCover, zoneCount, zoneCharacter };
 }
 
 /** A few words describing what a region is turning into. */

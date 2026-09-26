@@ -25,6 +25,9 @@ function ctx(state: GameState, over: Partial<FoxTickContext> = {}): FoxTickConte
 function startTrail(state: GameState) {
   state.fox.behavior = 'gone';
   state.fox.nextEventAt = 0;
+  // A fox that has been about a while: its first-visit and third-visit habits don't apply.
+  state.foxLog.sightings = 5;
+  state.foxLog.trailsStarted = 1;
   // 0.9: don't lead to a patch; then 0.1: take the trail.
   const rolls = [0.9, 0.1, 0.5, 0.5, 0.5];
   let i = 0;
@@ -42,7 +45,7 @@ describe('the fox’s trails', () => {
     const res = tickFox(state, ctx(state, { playerX: state.fox.x - 2, playerY: state.fox.y }));
     expect(res.trailStarted).toBe(true);
     expect(state.fox.behavior).toBe('fleeing');
-    expect(state.foxLog.trailsStarted).toBe(1);
+    expect(state.foxLog.trailsStarted).toBe(2);
   });
 
   it('stops and looks back when you fall behind, and waits for you', () => {
