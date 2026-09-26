@@ -14,7 +14,7 @@ import { GREENHOUSE_EXIT } from '../data/stations';
 import { FRONT_DOOR, roomAt } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture, fixtureOffset, footprint } from '../systems/furniture';
-import { ACE_REWARD, COURSE_PAR, recordAce, recordRound, toPar } from '../systems/putting';
+import { ACE_REWARD, COURSE_PAR, bestRound, recordAce, recordRound, toPar } from '../systems/putting';
 import { makeIndoorCamera, screenToTiles } from '../world/IndoorCamera';
 import { Camera as CameraClass } from './Camera';
 import { ToolController, type ToolOutcome } from './Tools';
@@ -666,7 +666,7 @@ export class Game {
       const mat = findFurniture(this.state, 'lr-putting');
       if (mat) {
         const fp = footprint(mat.kind, mat.x, mat.y, mat.rot ?? 0);
-        const best = this.state.putting.best;
+        const best = bestRound(this.state.putting);
         const label = best === null ? 'Play a round of putt-putt' : `Play putt-putt · best ${best} (${toPar(best, COURSE_PAR)})`;
         consider({ kind: 'puttingMat', id: mat.id, x: fp.x, y: fp.y, label, available: true }, fp.x + fp.w / 2, fp.y + fp.h / 2, 1.2);
       }

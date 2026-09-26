@@ -223,6 +223,8 @@ export interface PuttingRecord {
   rounds: number;
   /** Fewest strokes for the full course, or null before the first finished round. */
   best: number | null;
+  /** How many holes the course had when that best was set: a longer course starts a fresh record. */
+  holes?: number;
   /** Holes aced at least once, by hole id. */
   aces: string[];
 }
