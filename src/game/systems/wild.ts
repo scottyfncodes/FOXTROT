@@ -4,7 +4,7 @@ import type { LandscapeCharacter, OutdoorZoneId } from '../types';
 import { PLANTS, lookFor } from '../data/plants';
 import { GRID_W, GRID_H, zoneAt, isWater } from '../data/worldMap';
 import { stageFloat, stageIndexOf, tickGrowth, type StageUp } from './growth';
-import { rollSport } from './propagation';
+import { rollSport, crossOf } from './propagation';
 import { hasFound } from './collection';
 import { SpatialGrid } from './spatial';
 import { bedContains, onPath } from './landscape';
@@ -29,6 +29,11 @@ const DIVERSE_SPORT_BOOST = 1.6;
 /** Chance a seedling in a diverse bed is something no one planted. */
 export const VOLUNTEER_CHANCE = 0.004;
 export const VOLUNTEER_SPECIES = 'cannabisSativa';
+/** Every species that can come up as a volunteer. */
+export const VOLUNTEER_POOL = ['cannabisSativa', 'cannabisIndica'];
+/** Chance a seedling of one cannabis parent, with the other growing close by, comes up a cross. */
+export const CROSS_SEEDLING_CHANCE = 0.25;
+const CROSS_RADIUS = 3;
 const MIN_SPACING = 0.85;
 const CROWD_RADIUS = 2;
 const CROWD_LIMIT = 7;
@@ -136,11 +141,20 @@ export function spreadStep(state: GameState, isOpenGround: GroundCheck, now: num
       let defId = parent.defId;
       let variantId = parent.variantId;
       let sport = false;
-      if (diverse && rand() < VOLUNTEER_CHANCE && PLANTS[VOLUNTEER_SPECIES]) {
+      const cross = crossOf(parent.defId);
+      const partnerNear =
+        cross &&
+        wild.some((o) => o.defId === cross.partner && o.location.kind === 'wild' && stageIndexOf(o.growth) >= 3 && Math.hypot(o.location.x - (parent.location as { x: number }).x, o.location.y - (parent.location as { y: number }).y) <= CROSS_RADIUS);
+      if (cross && partnerNear && rand() < CROSS_SEEDLING_CHANCE) {
+        // Wind-carried pollen from the other parent growing close by.
+        defId = cross.child;
+        variantId = PLANTS[cross.child].variants[0].id;
+        sport = true;
+      } else if (diverse && rand() < VOLUNTEER_CHANCE && PLANTS[VOLUNTEER_SPECIES]) {
         // Something nobody planted: a seed carried in by whatever visits a
         // bed this full of life.
-        defId = VOLUNTEER_SPECIES;
-        variantId = PLANTS[VOLUNTEER_SPECIES].variants[0].id;
+        defId = VOLUNTEER_POOL[Math.floor(rand() * VOLUNTEER_POOL.length) % VOLUNTEER_POOL.length];
+        variantId = PLANTS[defId].variants[0].id;
         sport = true;
       } else if (rand() < SEEDLING_SPORT_CHANCE * (diverse ? DIVERSE_SPORT_BOOST : 1)) {
         const v = rollSport(parent.defId, parent.variantId, rand);

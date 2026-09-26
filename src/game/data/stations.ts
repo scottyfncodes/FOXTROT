@@ -8,6 +8,9 @@
 export const GREENHOUSE_GRID_W = 18;
 export const GREENHOUSE_GRID_H = 12;
 export const GREENHOUSE_EXIT = { x: 9, y: 11 };
+/** The back door (north wall) and side door (west wall), from inside. */
+export const GREENHOUSE_BACK_EXIT = { x: 9, y: 0 };
+export const GREENHOUSE_SIDE_EXIT = { x: 0, y: 4 };
 
 export interface NurseryBed {
   id: string;

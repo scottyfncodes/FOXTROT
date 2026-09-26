@@ -128,6 +128,10 @@ export interface PlantDef {
   secret?: boolean;
   /** Can't be sold: the market simply won't take it. */
   keepsake?: boolean;
+  /** Kept out of the field journal's collection entirely. */
+  unlisted?: boolean;
+  /** Only comes from crossing these two species; never found anywhere. */
+  parents?: [string, string];
 }
 
 export type ToolId = 'basket' | 'lantern';

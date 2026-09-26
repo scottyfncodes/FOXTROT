@@ -69,7 +69,10 @@ export class HUD {
     this.modeBar = new ModeBar(game);
     this.buildLandMenu();
     this.interactionPrompt.append(el('kbd', undefined, 'E'), this.promptLabel);
-    this.root.append(top, this.interactionPrompt, this.toastStack, touch, this.landMenu, this.modeBar.root);
+    this.root.append(top, this.interactionPrompt, touch, this.landMenu, this.modeBar.root);
+    // Notifications sit above everything, open panels included, so news
+    // still gets through while a plant, bed or planter is open.
+    document.body.appendChild(this.toastStack);
 
     this.journalBtn.addEventListener('click', () => this.onJournal?.());
     this.basketBtn.addEventListener('click', () => this.onBasket?.());
@@ -164,6 +167,9 @@ export class HUD {
       greenhouseDoor: 'IN',
       greenhouseExit: 'OUT',
       frontDoor: 'OUT',
+      rock: 'HAUL',
+      decor: 'MOVE',
+      setDown: 'DROP',
       puttingMat: 'PUTT',
     };
     setText(this.actionBtn, verbs[n.kind] ?? 'GO');

@@ -1,10 +1,11 @@
 import type { OutdoorZoneId, ZoneId } from './types';
 import type { DecorId, FurnitureId } from './data/shop';
 import { PLAYER_START } from './data/worldMap';
+import { SHOP_ITEMS } from './data/shop';
 
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
 // fills new fields from createNewGame(). The storage key stays fixed.
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 // The storage key keeps the game's working title so existing saves carry over.
 export const SAVE_KEY = 'foxtrot-save-v4';
 
@@ -198,6 +199,8 @@ export interface ScottState {
   currentSpotId: string | null;
   targetSpotId: string;
   nextChangeAt: number;
+  /** Jogging back to work after being caught (and kissed). */
+  hurrying?: boolean;
 }
 
 export type CatActivity = 'wandering' | 'sitting' | 'grooming' | 'sleeping' | 'investigating' | 'hiding';
@@ -238,6 +241,10 @@ export interface GameState {
   coins: number;
   /** One-off shop purchases. */
   owned: string[];
+  /** How many of each price-escalating repeatable item have been bought. */
+  purchases: Record<string, number>;
+  /** Shop items the player has already looked at; anything else shows NEW. */
+  seenShop: string[];
   /** Garden decor bought but not yet placed. */
   decorStock: Partial<Record<DecorId, number>>;
   decor: PlacedDecor[];
@@ -295,6 +302,10 @@ export function createNewGame(): GameState {
     weather: { condition: 'clear', nextChangeAt: 8 * 60 + 360 },
     coins: 20,
     owned: [],
+    purchases: {},
+    // Everything on sale from the start counts as seen: NEW is for what
+    // unlocks later, not the whole catalogue on day one.
+    seenShop: SHOP_ITEMS.filter((s) => !s.after).map((s) => s.id),
     decorStock: {},
     decor: [],
     furnitureStock: {},

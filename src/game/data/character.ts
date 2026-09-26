@@ -66,10 +66,15 @@ export const CAT_APPEARANCE = {
  * little under a tile, the table reaches her hip, and everyone else sits in
  * proportion to her — Scott a head taller, Scout a medium dog, the cat and
  * fox small.
+ *
+ * Heights follow the real pair: Ellen is 5'3" and Scott 6'3", so crown to
+ * sole he stands 75/63 ≈ 1.19 times her height. His art is 0.682 of a
+ * native tile from sole to crown against her 0.65 (hat aside), which puts
+ * his scale at 1.4 × 1.19 × 0.65 / 0.682 ≈ 1.59.
  */
 export const CHARACTER_SCALE = {
   ellen: 1.4,
-  scott: 1.52,
+  scott: 1.59,
   scout: 1.2,
   cat: 1.1,
   fox: 1.0,

@@ -2,9 +2,9 @@ import type { Game } from '../game/engine/Game';
 import { Panel } from './Panel';
 import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity, rarityRank } from '../game/data/plants';
-import { SHOP_ITEMS, type ShopCategory } from '../game/data/shop';
+import { SHOP_ITEMS, PURPOSE_INFO, PURPOSE_ORDER, type ShopCategory, type ShopItem } from '../game/data/shop';
 import { STAGE_LABEL, stageFloat, stageOf } from '../game/systems/growth';
-import { priceOf, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday, canSell } from '../game/systems/market';
+import { priceOf, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday, canSell, itemPrice, shopItemVisible, isShopItemNew, markShopSeen } from '../game/systems/market';
 import { button, note, portrait, rarityBadge } from './common';
 
 type Tab = 'sell' | 'shop';
@@ -18,10 +18,13 @@ const CATEGORY_LABEL: Record<ShopCategory, string> = {
 };
 
 export class MarketPanel {
-  panel = new Panel('Farmer’s Market', { tabs: true });
+  panel = new Panel('Plant Stand & Supply', { tabs: true });
   private tab: Tab = 'sell';
+  /** Items shown in the Buy tab since it was last left; they stop being NEW once the player moves on. */
+  private shown = new Set<string>();
 
   constructor(private game: Game) {
+    this.panel.onClose = () => this.commitSeen();
     for (const [id, label] of [
       ['sell', 'Sell'],
       ['shop', 'Buy'],
@@ -29,6 +32,7 @@ export class MarketPanel {
       const b = el('button', 'panel-tab', label);
       b.dataset.tab = id;
       b.addEventListener('click', () => {
+        if (this.tab === 'shop' && id !== 'shop') this.commitSeen();
         this.tab = id;
         this.render();
       });
@@ -45,10 +49,18 @@ export class MarketPanel {
     if (this.panel.isOpen) this.render();
   }
 
+  /** Everything the player has now had a look at stops showing NEW. */
+  private commitSeen() {
+    if (!this.shown.size) return;
+    markShopSeen(this.game.state, [...this.shown]);
+    this.shown.clear();
+    this.game.onStateTouched?.();
+  }
+
   private render() {
     for (const c of Array.from(this.panel.tabsEl.children) as HTMLElement[]) c.classList.toggle('active', c.dataset.tab === this.tab);
     this.panel.clearBody();
-    this.panel.setTitle(`Farmer’s Market · ${this.game.state.coins} coins`);
+    this.panel.setTitle(`Plant Stand & Supply · ${this.game.state.coins} coins`);
     if (this.tab === 'sell') this.renderSell();
     else this.renderShop();
   }
@@ -99,27 +111,62 @@ export class MarketPanel {
     const body = this.panel.body;
     const cats: ShopCategory[] = ['greenhouse', 'pots', 'garden', 'equipment', 'stall'];
     for (const cat of cats) {
-      const items = SHOP_ITEMS.filter((s) => s.category === cat && (!s.after || state.owned.includes(s.after) || state.owned.includes(s.id)));
+      const items = SHOP_ITEMS.filter((s) => s.category === cat && shopItemVisible(state, s.id));
       if (!items.length) continue;
       body.appendChild(el('h4', 'section-head', CATEGORY_LABEL[cat]));
-      const list = el('div', 'entry-list');
-      for (const item of items) {
-        const row = el('div', 'entry-row');
-        const info = el('div', 'entry-info');
-        const stock = item.repeatable
-          ? (state.decorStock[item.id as keyof typeof state.decorStock] ?? 0) + (state.furnitureStock[item.id as keyof typeof state.furnitureStock] ?? 0)
-          : 0;
-        const extra = item.id === 'compostSack' ? ` (you have ${state.compost})` : stock ? ` (${stock} unplaced)` : '';
-        info.append(el('div', 'entry-name', item.name + extra), el('div', 'entry-sub', item.description));
-        const block = buyBlockReason(state, item.id);
-        const label = block === 'owned' ? 'Owned ✓' : `${item.price} coins`;
-        row.append(info, button(label, () => {
-          this.game.buy(item.id);
-          this.render();
-        }, block === 'owned' ? 'secondary-btn' : 'primary-btn small', !!block));
-        list.appendChild(row);
+      if (cat !== 'greenhouse') {
+        body.appendChild(this.itemList(items));
+        continue;
       }
-      body.appendChild(list);
+      // The greenhouse sells two very different things: capacity to grow
+      // more, and places to show plants off. Group them so neither hides the other.
+      for (const purpose of PURPOSE_ORDER) {
+        const group = items.filter((s) => s.purpose === purpose);
+        if (!group.length) continue;
+        const info = PURPOSE_INFO[purpose];
+        const sub = el('div', `shop-subhead purpose-${purpose}`);
+        sub.append(el('span', 'purpose-icon', info.icon), document.createTextNode(info.label));
+        body.appendChild(sub);
+        body.appendChild(this.itemList(group));
+      }
     }
+  }
+
+  private itemList(items: ShopItem[]): HTMLElement {
+    const state = this.game.state;
+    const list = el('div', 'entry-list');
+    for (const item of items) {
+      const row = el('div', `entry-row shop-row${item.purpose ? ` purpose-${item.purpose}` : ''}`);
+      const info = el('div', 'entry-info');
+      const stock = item.repeatable
+        ? (state.decorStock[item.id as keyof typeof state.decorStock] ?? 0) + (state.furnitureStock[item.id as keyof typeof state.furnitureStock] ?? 0)
+        : 0;
+      const extra = item.id === 'compostSack' ? ` (you have ${state.compost})` : stock ? ` (${stock} unplaced)` : '';
+      const name = el('div', 'entry-name', item.name + extra);
+      if (isShopItemNew(state, item.id)) name.appendChild(el('span', 'new-tag', 'NEW'));
+      this.shown.add(item.id);
+      info.appendChild(name);
+      if (item.purpose || item.blurb) {
+        const line = el('div', 'shop-blurb');
+        if (item.purpose) {
+          const p = PURPOSE_INFO[item.purpose];
+          const badge = el('span', 'purpose-badge', p.icon);
+          badge.title = p.label;
+          badge.setAttribute('aria-label', p.label);
+          line.appendChild(badge);
+        }
+        if (item.blurb) line.appendChild(document.createTextNode(item.blurb));
+        info.appendChild(line);
+      }
+      info.appendChild(el('div', 'entry-sub', item.description));
+      const block = buyBlockReason(state, item.id);
+      const label = block === 'owned' ? 'Owned ✓' : `${itemPrice(state, item.id)} coins`;
+      row.append(info, button(label, () => {
+        this.game.buy(item.id);
+        this.render();
+      }, block === 'owned' ? 'secondary-btn' : 'primary-btn small', !!block));
+      list.appendChild(row);
+    }
+    return list;
   }
 }

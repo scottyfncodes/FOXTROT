@@ -26,7 +26,7 @@ grow in patches all over it.
   variants you've never seen. The ground itself changes under them, and each
   region takes on the character of what you planted: fern glades, vine
   carpets, aroid jungles, painted gardens.
-- **Sell and build.** The farmer's market buys plants (rarer and bigger is
+- **Sell and build.** The Plant Stand & Supply buys plants (rarer and bigger is
   worth more; there's a daily "wanted" bonus) and sells pots, shelves,
   hanging hooks, grow lights, a sun-room expansion, garden decor and stall
   upgrades.

@@ -9,9 +9,8 @@ import { Renderer } from '../world/Renderer';
 import { generateObstacles, buildBlockingSet, type Obstacle } from '../world/Obstacles';
 import { isBlockedOutdoor, isBlockedIndoor, indoorSolids, type IndoorSolids } from '../world/Collision';
 import { tryMove } from '../world/Movement';
-import { GREENHOUSE_DOOR, HOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, isInBounds, isWater, isInsideHomeFootprint } from '../data/worldMap';
-import { GREENHOUSE_EXIT } from '../data/stations';
-import { FRONT_DOOR, roomAt } from '../data/interior';
+import { HOUSE_DOOR, MARKET_STALL, zoneAt, rectContains, isInBounds, isWater, isInsideHomeFootprint } from '../data/worldMap';
+import { FRONT_DOOR, roomAt, GREENHOUSE_DOORS, DOOR_OUTWARD, type GreenhouseDoor } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture, fixtureOffset, footprint } from '../systems/furniture';
 import { ACE_REWARD, COURSE_PAR, bestRound, recordAce, recordRound, toPar } from '../systems/putting';
@@ -29,6 +28,9 @@ import {
   wildGrid,
   currentRadius,
   type LandscapeWorld,
+  ROCK_REMOVAL_COST,
+  rockRemovalBlock,
+  removeRock,
 } from '../systems/landscape';
 import { createFoxFinds, collectFoxFind, expireFoxFinds } from '../systems/foxFinds';
 import { findCuriosity } from '../data/curiosities';
@@ -45,7 +47,7 @@ import { ZONES } from '../data/zones';
 import type { OutdoorZoneId, ZoneId } from '../types';
 import { tickFox } from '../systems/fox';
 import { tickScout } from '../systems/scout';
-import { tickScott } from '../systems/scott';
+import { tickScott, tickChase, newChase } from '../systems/scott';
 import { tickCat } from '../systems/cat';
 import { spotContent, collectSpot } from '../systems/spots';
 import { advanceWorld, canPlantAt, computeLushness, type LushField } from '../systems/wild';
@@ -61,9 +63,12 @@ import {
   setPot,
   creditGrown,
   occupantOf,
+  crossBlockReason,
+  crossPollinate,
+  crossOf,
 } from '../systems/propagation';
 import { sellItem, buyItem } from '../systems/market';
-import { placeDecor, pickUpDecor, nearestDecor } from '../systems/decor';
+import { placeDecor, pickUpDecor, nearestDecor, moveDecor, decorFits } from '../systems/decor';
 
 export type InteractableKind =
   | 'spot'
@@ -77,7 +82,10 @@ export type InteractableKind =
   | 'foxFind'
   | 'bed'
   | 'display'
-  | 'puttingMat';
+  | 'puttingMat'
+  | 'rock'
+  | 'decor'
+  | 'setDown';
 
 export interface Interactable {
   kind: InteractableKind;
@@ -184,6 +192,10 @@ export class Game {
   tools: ToolController;
   world: LandscapeWorld;
   obstacleMap = new Map<string, Obstacle>();
+  /** Ellen chasing Scott, and the kiss it ends in. */
+  chase = newChase();
+  /** The garden piece Ellen is carrying to somewhere new, if any. */
+  carryingDecorId: string | null = null;
   cleared = new Set<string>();
   flourishes: WorldFlourish[] = [];
   /** performance.now() when the last doorway was stepped through, for a soft fade. */
@@ -244,7 +256,10 @@ export class Game {
         isWater(tx, ty) ||
         isInsideHomeFootprint(tx, ty) ||
         rectContains(MARKET_STALL, tx, ty) ||
-        (tx === GREENHOUSE_DOOR.x && (ty === GREENHOUSE_DOOR.y || ty === GREENHOUSE_DOOR.y + 1)) ||
+        GREENHOUSE_DOORS.some((d) => {
+          const o = DOOR_OUTWARD[d.wall];
+          return (tx === d.outside.x && ty === d.outside.y) || (tx === d.outside.x + o.x && ty === d.outside.y + o.y);
+        }) ||
         (tx === HOUSE_DOOR.x && (ty === HOUSE_DOOR.y || ty === HOUSE_DOOR.y + 1)),
       isSpot: (tx, ty) => DISCOVERY_SPOTS.some((s) => s.x === tx && s.y === ty),
     };
@@ -438,7 +453,8 @@ export class Game {
       this.lushAcc = 0;
     }
 
-    const move = this.input.getMoveVector();
+    // Mid-kiss, she's not going anywhere.
+    const move = this.chase.kiss ? { x: 0, y: 0 } : this.input.getMoveVector();
     if (move.x !== 0 || move.y !== 0) {
       const speed = MOVE_SPEED * this.groundSpeed();
       const dx = move.x * speed * dtSeconds;
@@ -524,7 +540,13 @@ export class Game {
         indoors: this.state.player.inGreenhouse,
       });
     }
-    tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, offset: this.fixtureOffset });
+    const p = this.state.player;
+    const kissing = !!this.chase.kiss;
+    if (tickChase(this.chase, this.state.scott, { ellenX: p.x, ellenY: p.y, ellenIndoors: p.inGreenhouse, ellenMoving: move.x !== 0 || move.y !== 0, dtSeconds })) {
+      p.facing = this.chase.kiss!.ellenLeft ? 'right' : 'left';
+      if (this.tools.active) this.tools.cancel();
+    }
+    if (!kissing && !this.chase.kiss) tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, offset: this.fixtureOffset });
     this.catInterestAcc += dtMs;
     if (this.catInterestAcc >= CAT_INTEREST_MS) {
       this.catInterestAcc = 0;
@@ -583,23 +605,36 @@ export class Game {
     const tx = Math.floor(p.x);
     const ty = Math.floor(p.y);
     if (!p.inGreenhouse) {
-      if (tx === GREENHOUSE_DOOR.x && ty === GREENHOUSE_DOOR.y) this.enterGreenhouse();
+      const door = GREENHOUSE_DOORS.find((d) => d.outside.x === tx && d.outside.y === ty);
+      if (door) this.enterGreenhouse(door);
       else if (tx === HOUSE_DOOR.x && ty === HOUSE_DOOR.y) this.enterHouse();
-    } else if (tx === GREENHOUSE_EXIT.x && ty >= GREENHOUSE_EXIT.y) {
-      this.exitGreenhouse();
+    } else if (GREENHOUSE_DOORS.some((d) => this.throughDoor(d, p.x, p.y))) {
+      this.exitGreenhouse(GREENHOUSE_DOORS.find((d) => this.throughDoor(d, p.x, p.y)));
     } else if (tx === FRONT_DOOR.x && ty >= FRONT_DOOR.y) {
       this.exitHouse();
     }
   }
 
-  /** In through the garden door, straight into the greenhouse. */
-  private enterGreenhouse() {
+  /** Standing in a greenhouse doorway, as far out as the wall. */
+  private throughDoor(d: GreenhouseDoor, x: number, y: number): boolean {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    if (d.wall === 'south') return tx === d.inside.x && ty >= d.inside.y;
+    if (d.wall === 'north') return tx === d.inside.x && ty <= d.inside.y;
+    return ty === d.inside.y && tx <= d.inside.x;
+  }
+
+  /** In through one of the greenhouse's doors (the garden door unless told otherwise). */
+  private enterGreenhouse(door: GreenhouseDoor = GREENHOUSE_DOORS[0]) {
     const p = this.state.player;
+    // Anything being carried is left where it was last held.
+    this.carryingDecorId = null;
     if (this.tools.active) this.tools.cancel();
     p.inGreenhouse = true;
-    p.x = GREENHOUSE_EXIT.x + 0.5;
-    p.y = GREENHOUSE_EXIT.y - 1.5;
-    p.facing = 'up';
+    const o = DOOR_OUTWARD[door.wall];
+    p.x = door.inside.x + 0.5 - o.x * 1.5;
+    p.y = door.inside.y + 0.5 - o.y * 1.5;
+    p.facing = door.wall === 'south' ? 'up' : door.wall === 'north' ? 'down' : 'right';
     this.fadeFrom = performance.now();
     this.bringScoutAlong();
     if (this.state.basket.some((b) => b.growth === 0)) {
@@ -610,6 +645,8 @@ export class Game {
   /** In through the front door: home. */
   private enterHouse() {
     const p = this.state.player;
+    // Anything being carried is left where it was last held.
+    this.carryingDecorId = null;
     if (this.tools.active) this.tools.cancel();
     p.inGreenhouse = true;
     p.x = FRONT_DOOR.x + 0.5;
@@ -619,14 +656,15 @@ export class Game {
     this.bringScoutAlong();
   }
 
-  private exitGreenhouse() {
+  private exitGreenhouse(door: GreenhouseDoor = GREENHOUSE_DOORS[0]) {
     const p = this.state.player;
     if (this.tools.active) this.tools.cancel();
     this.indoorFocus = null;
     p.inGreenhouse = false;
-    p.x = GREENHOUSE_DOOR.x + 0.5;
-    p.y = GREENHOUSE_DOOR.y + 1.5;
-    p.facing = 'down';
+    const o = DOOR_OUTWARD[door.wall];
+    p.x = door.outside.x + 0.5 + o.x * 1.5;
+    p.y = door.outside.y + 0.5 + o.y * 1.5;
+    p.facing = door.wall === 'south' ? 'down' : door.wall === 'north' ? 'up' : 'left';
     this.fadeFrom = performance.now();
     this.bringScoutAlong();
   }
@@ -668,7 +706,25 @@ export class Game {
       }
     };
 
+    if (!p.inGreenhouse && this.carryingDecorId) {
+      const piece = this.state.decor.find((d) => d.id === this.carryingDecorId);
+      if (piece) {
+        const spot = this.carrySpot();
+        piece.x = spot.x;
+        piece.y = spot.y;
+        const name = findShopItem(piece.decorId)?.name ?? 'it';
+        const ok = this.canSetDecorHere(spot.x, spot.y, piece.id);
+        this.nearest = { kind: 'setDown', id: piece.id, x: spot.x, y: spot.y, label: ok ? `Set the ${name} down here` : `No room for the ${name} here`, available: ok };
+        return;
+      }
+      this.carryingDecorId = null;
+    }
+
     if (!p.inGreenhouse) {
+      for (const d of this.state.decor) {
+        const name = findShopItem(d.decorId)?.name ?? 'decor';
+        consider({ kind: 'decor', id: d.id, x: d.x, y: d.y, label: `Move the ${name}`, available: true }, d.x, d.y, 1.0);
+      }
       for (const spot of DISCOVERY_SPOTS) {
         const c = spotContent(this.state, spot);
         if (!c) continue;
@@ -697,11 +753,24 @@ export class Game {
         const label = f.kind === 'curiosity' ? 'Something here… look closer' : 'Something unusual is growing here';
         consider({ kind: 'foxFind', id: f.id, x: f.x, y: f.y, label, available: true }, f.x, f.y, 1.2);
       }
+      // Rocks can be hauled away, for a fee. Only the tiles right around her are checked.
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const tx = Math.floor(p.x) + dx;
+          const ty = Math.floor(p.y) + dy;
+          if (this.world.obstacleAt(tx, ty) !== 'rock') continue;
+          const afford = this.state.coins >= ROCK_REMOVAL_COST;
+          const label = afford ? `Have this rock hauled away · ${ROCK_REMOVAL_COST} coins` : `A rock · ${ROCK_REMOVAL_COST} coins to have it hauled away`;
+          consider({ kind: 'rock', id: `${tx},${ty}`, x: tx, y: ty, label, available: afford }, tx + 0.5, ty + 0.5);
+        }
+      }
       const mx = MARKET_STALL.x + MARKET_STALL.w / 2;
       const my = MARKET_STALL.y + 1.1;
-      consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Farmer’s Market', available: true }, mx, my, 1.6);
-      if (Math.hypot(p.x - (GREENHOUSE_DOOR.x + 0.5), p.y - (GREENHOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
-        best = { kind: 'greenhouseDoor', id: 'door', x: GREENHOUSE_DOOR.x, y: GREENHOUSE_DOOR.y, label: 'Into the Greenhouse', available: true };
+      consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Plant Stand & Supply', available: true }, mx, my, 1.6);
+      for (const d of GREENHOUSE_DOORS) {
+        if (Math.hypot(p.x - (d.outside.x + 0.5), p.y - (d.outside.y + 0.5)) < INTERACT_RANGE) {
+          best = { kind: 'greenhouseDoor', id: d.id, x: d.outside.x, y: d.outside.y, label: 'Into the Greenhouse', available: true };
+        }
       }
       if (Math.hypot(p.x - (HOUSE_DOOR.x + 0.5), p.y - (HOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
         best = { kind: 'houseDoor', id: 'house', x: HOUSE_DOOR.x, y: HOUSE_DOOR.y, label: 'Go inside — home', available: true };
@@ -709,8 +778,7 @@ export class Game {
     } else {
       for (const bed of nurserySpots(this.state)) {
         const plant = occupantOf(this.state, { bedId: bed.id });
-        const kindName = bed.kind === 'propagationTray' ? 'propagation tray' : 'nursery bed';
-        const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : `Empty ${kindName}`;
+        const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : 'Empty nursery bed';
         consider({ kind: 'bed', id: bed.id, x: bed.x, y: bed.y, label, available: true }, bed.x + 0.5, bed.y + 0.5);
       }
       for (const slot of displaySlots(this.state)) {
@@ -726,11 +794,9 @@ export class Game {
         const label = best === null ? 'Play a round of putt-putt' : `Play putt-putt · best ${best} (${toPar(best, COURSE_PAR)})`;
         consider({ kind: 'puttingMat', id: mat.id, x: fp.x, y: fp.y, label, available: true }, fp.x + fp.w / 2, fp.y + fp.h / 2, 1.2);
       }
-      consider(
-        { kind: 'greenhouseExit', id: 'exit', x: GREENHOUSE_EXIT.x, y: GREENHOUSE_EXIT.y, label: 'Out to the garden', available: true },
-        GREENHOUSE_EXIT.x + 0.5,
-        GREENHOUSE_EXIT.y + 0.5
-      );
+      for (const d of GREENHOUSE_DOORS) {
+        consider({ kind: 'greenhouseExit', id: d.id, x: d.inside.x, y: d.inside.y, label: d.label, available: true }, d.inside.x + 0.5, d.inside.y + 0.5);
+      }
       consider({ kind: 'frontDoor', id: 'front', x: FRONT_DOOR.x, y: FRONT_DOOR.y, label: 'Out the front door', available: true }, FRONT_DOOR.x + 0.5, FRONT_DOOR.y + 0.5);
     }
     this.nearest = best;
@@ -756,7 +822,7 @@ export class Game {
         else this.pushToast(`Took a cutting of ${name}.`, 'info');
         this.flourish(spot.x + 0.5, spot.y + 0.5, rarity, !!(result.newSpecies || result.newVariant));
         this.hint('firstCutting', 'Bring your cutting home to the greenhouse and pot it in a nursery bed.');
-        if (this.state.basket.length >= 3) this.hint('market', 'The market stall down the path buys plants — and sells pots, shelves and more. Rare plants fetch a lot.');
+        if (this.state.basket.length >= 3) this.hint('market', 'The Plant Stand & Supply down the path buys plants — and sells pots, shelves and more. Rare plants fetch a lot.');
         this.lushDirty = true;
       } else if (result.reason === 'basket-full') {
         this.pushToast('Your basket is full.', 'info');
@@ -770,15 +836,22 @@ export class Game {
     } else if (n.kind === 'market') {
       this.onOpenMarket?.();
     } else if (n.kind === 'greenhouseDoor') {
-      this.enterGreenhouse();
+      this.enterGreenhouse(GREENHOUSE_DOORS.find((d) => d.id === n.id));
     } else if (n.kind === 'houseDoor') {
       this.enterHouse();
     } else if (n.kind === 'greenhouseExit') {
-      this.exitGreenhouse();
+      this.exitGreenhouse(GREENHOUSE_DOORS.find((d) => d.id === n.id));
     } else if (n.kind === 'frontDoor') {
       this.exitHouse();
     } else if (n.kind === 'foxFind') {
       this.collectFind(n.id);
+    } else if (n.kind === 'rock') {
+      this.haulRock(n.id);
+    } else if (n.kind === 'decor') {
+      this.carryingDecorId = n.id;
+      this.pushToast('Carrying it. Walk to where it should go, then set it down.', 'info');
+    } else if (n.kind === 'setDown') {
+      this.setDownDecor();
     } else if (n.kind === 'bed' || n.kind === 'display') {
       this.onOpenGreenhouse?.({ kind: n.kind, id: n.id });
     } else if (n.kind === 'puttingMat') {
@@ -809,6 +882,64 @@ export class Game {
     } else {
       this.pushToast(`Took a cutting of ${name}.`, 'info');
     }
+    this.onStateTouched?.();
+  }
+
+  /** Where a carried garden piece would land: just in front of Ellen. */
+  private carrySpot(): { x: number; y: number } {
+    const p = this.state.player;
+    const off = { up: [0, -0.7], down: [0, 0.8], left: [-0.8, 0.2], right: [0.8, 0.2] }[p.facing];
+    return { x: p.x + off[0], y: p.y + off[1] };
+  }
+
+  private canSetDecorHere(x: number, y: number, ignoreId: string): boolean {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    if (!this.isOpenGround(tx, ty)) return false;
+    return decorFits(this.state, x, y, ignoreId);
+  }
+
+  /** Puts the carried garden piece down where it's being held. */
+  setDownDecor() {
+    const id = this.carryingDecorId;
+    if (!id) return;
+    const spot = this.carrySpot();
+    if (!this.canSetDecorHere(spot.x, spot.y, id)) return this.pushToast('No room for it just here.', 'info');
+    moveDecor(this.state, id, spot.x, spot.y);
+    this.carryingDecorId = null;
+    this.audio.playToolChime();
+    this.onStateTouched?.();
+  }
+
+  /** Pays to have a rock dug out and carted off. */
+  haulRock(key: string) {
+    const [tx, ty] = key.split(',').map(Number);
+    const block = rockRemovalBlock(this.state, this.world, tx, ty);
+    if (block === 'coins') return this.pushToast(`Hauling a rock away costs ${ROCK_REMOVAL_COST} coins.`, 'info');
+    if (!removeRock(this.state, this.world, tx, ty)) return;
+    this.refreshCleared();
+    this.audio.playToolChime();
+    this.pushToast(`Rock hauled away for ${ROCK_REMOVAL_COST} coins. Open ground now.`, 'coins');
+    this.onStateTouched?.();
+  }
+
+  /** Cross-pollinates a cannabis plant with its partner species; the hybrid seed goes in the basket. */
+  crossFrom(plantId: string) {
+    const plant = this.state.plants[plantId];
+    if (!plant) return;
+    const now = this.state.clock.totalMinutes;
+    const block = crossBlockReason(this.state, plant, now);
+    if (block === 'basket-full') return this.pushToast('Your basket is full.', 'info');
+    if (block === 'not-rooted') return this.pushToast('It needs to root and grow a little before it can be crossed.', 'info');
+    if (block === 'recovering') return this.pushToast('Both plants need to be rooted and rested to cross them.', 'info');
+    if (block === 'no-partner') return this.pushToast(`You’d need a ${PLANTS[crossOf(plant.defId)!.partner].name} of your own to cross it with.`, 'info');
+    const res = crossPollinate(this.state, plantId, now);
+    if (!res) return;
+    this.actionAnimUntil = now + 1.4;
+    this.audio.playDiscoveryChime();
+    const name = specimenName(res.item.defId, res.item.variantId);
+    if (res.newSpecies) this.announce(`A cross! ${name}.`, specimenRarity(res.item.defId, res.item.variantId));
+    else this.pushToast(`Crossed them: a ${name} seedling is in your basket.`, 'info');
     this.onStateTouched?.();
   }
 
@@ -1429,7 +1560,7 @@ export class Game {
   private render(now: number) {
     this.camera.follow(this.state.player.x, this.state.player.y);
     const crouching = this.state.clock.totalMinutes < this.actionAnimUntil;
-    const scene = { tools: this.tools.mode, flourishes: this.flourishes, cleared: this.cleared, fade: Math.max(0, 1 - (now - this.fadeFrom) / FADE_MS) };
+    const scene = { tools: this.tools.mode, flourishes: this.flourishes, cleared: this.cleared, fade: Math.max(0, 1 - (now - this.fadeFrom) / FADE_MS), kiss: this.chase.kiss };
     if (this.state.player.inGreenhouse) {
       this.renderer.renderIndoor(this.sceneCamera(), this.state, now, crouching, scene);
     } else {

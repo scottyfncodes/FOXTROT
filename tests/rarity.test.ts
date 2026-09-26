@@ -4,10 +4,11 @@ import { PLANTS, PLANT_LIST, RARITY_ORDER, RARITY_LABEL, rarityRank, specimenRar
 import { DISCOVERY_SPOTS } from '../src/game/data/discoveryPoints';
 import { spotPool, spotContent } from '../src/game/systems/spots';
 import { canSell, sellItem, demandSpecies } from '../src/game/systems/market';
-import { spreadStep, VOLUNTEER_SPECIES, DIVERSE_BED_SPECIES } from '../src/game/systems/wild';
+import { spreadStep, VOLUNTEER_POOL, DIVERSE_BED_SPECIES } from '../src/game/systems/wild';
 import { pickFoxPlant, SECRET_MIN_SPECIES } from '../src/game/systems/foxFinds';
 import { discoveryFlourish, discoveryAside } from '../src/game/systems/rarity';
-import { rollSport } from '../src/game/systems/propagation';
+import { rollSport, crossPollinate, crossBlockReason, crossOf } from '../src/game/systems/propagation';
+import { collectionTotals } from '../src/game/systems/collection';
 import { STAGE_AT } from '../src/game/systems/growth';
 import { SHOP_ITEMS } from '../src/game/data/shop';
 import { mulberry32 } from '../src/game/engine/Random';
@@ -57,10 +58,10 @@ describe('Cannabis sativa', () => {
     for (const word of ['weed', 'marijuana', 'pot ', 'high', 'smoke', 'drug']) expect(text).not.toContain(word);
   });
 
-  it('is the single rarest plant in the game', () => {
+  it('is, with its cannabis kin, the rarest plant in the game', () => {
     expect(specimenRarity(ID, 'wild')).toBe('mythic');
     expect(RARITY_LABEL.mythic).toBeTruthy();
-    const others = PLANT_LIST.filter((p) => p.id !== ID).flatMap((p) => p.variants.map((v) => specimenRarity(p.id, v.id)));
+    const others = PLANT_LIST.filter((p) => !p.id.startsWith('cannabis')).flatMap((p) => p.variants.map((v) => specimenRarity(p.id, v.id)));
     expect(others.every((r) => rarityRank(r) < rarityRank('mythic'))).toBe(true);
   });
 
@@ -128,7 +129,7 @@ describe('Cannabis sativa', () => {
       for (let i = 0; i < 1500; i++) {
         for (const ev of spreadStep(state, () => true, 0, rand)) {
           const child = state.plants[ev.childId];
-          if (child.defId === VOLUNTEER_SPECIES) volunteers++;
+          if (VOLUNTEER_POOL.includes(child.defId)) volunteers++;
           delete state.plants[ev.childId]; // keep the bed from filling up
         }
       }
@@ -145,5 +146,95 @@ describe('Cannabis sativa', () => {
     expect(def.growthRate).toBeGreaterThan(0);
     expect(def.spread).toBeGreaterThan(0);
     expect(def.habitat.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Cannabis indica and the hybrid', () => {
+  const plant = (state: GameState, id: string, defId: string, extra: Partial<OwnedPlant> = {}): OwnedPlant => {
+    const p: OwnedPlant = {
+      id,
+      defId,
+      variantId: PLANTS[defId].variants[0].id,
+      seed: 1,
+      growth: STAGE_AT.established,
+      location: { kind: 'nursery', bedId: id },
+      plantedAt: 0,
+      lastCuttingAt: null,
+      generation: 0,
+      bornWild: false,
+      ...extra,
+    };
+    state.plants[id] = p;
+    return p;
+  };
+
+  it('are mythic keepsakes that never grow in an ordinary patch', () => {
+    for (const id of ['cannabisIndica', 'cannabisHybrid']) {
+      expect(specimenRarity(id, PLANTS[id].variants[0].id)).toBe('mythic');
+      expect(canSell(id)).toBe(false);
+      for (const s of DISCOVERY_SPOTS) expect(spotPool(s).some((p) => p.id === id)).toBe(false);
+    }
+  });
+
+  it('the fox may lead to indica, but never to the hybrid', () => {
+    const state = createNewGame();
+    for (const p of PLANT_LIST.slice(0, SECRET_MIN_SPECIES)) state.collection[p.id] = { foundAt: 0, variants: [], grown: 0, propagated: 0, sold: 0, earned: 0, plantedOut: 0, displayed: 0 };
+    const rand = mulberry32(5);
+    const seen = new Set<string>();
+    for (let i = 0; i < 6000; i++) {
+      const pick = pickFoxPlant(state, 'rockyClearing', rand);
+      if (pick) seen.add(pick.defId);
+    }
+    expect(seen.has('cannabisIndica')).toBe(true);
+    expect(seen.has('cannabisHybrid')).toBe(false);
+  });
+
+  it('crossing a rooted sativa with a rooted indica puts a hybrid seedling in the basket', () => {
+    const state = createNewGame();
+    const sat = plant(state, 's', 'cannabisSativa');
+    expect(crossBlockReason(state, sat, 0)).toBe('no-partner');
+    const ind = plant(state, 'i', 'cannabisIndica');
+    expect(crossBlockReason(state, sat, 0)).toBeNull();
+    const res = crossPollinate(state, 's', 0)!;
+    expect(res.item.defId).toBe('cannabisHybrid');
+    expect(res.item.growth).toBe(0);
+    expect(res.newSpecies).toBe(true);
+    expect(state.collection.cannabisHybrid).toBeDefined();
+    // Both parents need to rest afterwards.
+    expect(sat.lastCuttingAt).toBe(0);
+    expect(ind.lastCuttingAt).toBe(0);
+    expect(crossBlockReason(state, ind, 1)).toBe('recovering');
+  });
+
+  it('won’t cross an unrooted plant, or anything without a partner species', () => {
+    const state = createNewGame();
+    const young = plant(state, 's', 'cannabisSativa', { growth: 0 });
+    plant(state, 'i', 'cannabisIndica');
+    expect(crossBlockReason(state, young, 0)).toBe('not-rooted');
+    const pothos = plant(state, 'p', 'pothos');
+    expect(crossBlockReason(state, pothos, 0)).toBe('no-cross');
+    expect(crossOf('cannabisHybrid')).toBeNull();
+  });
+
+  it('grown near each other outdoors, the two parents seed hybrids', () => {
+    const state = createNewGame();
+    plant(state, 's', 'cannabisSativa', { growth: STAGE_AT.specimen, location: { kind: 'wild', x: 46.5, y: 21.5, zone: 'meadow' } });
+    plant(state, 'i', 'cannabisIndica', { growth: STAGE_AT.specimen, location: { kind: 'wild', x: 48.5, y: 21.5, zone: 'meadow' } });
+    const rand = mulberry32(3);
+    let hybrids = 0;
+    for (let i = 0; i < 1500; i++) {
+      for (const ev of spreadStep(state, () => true, 0, rand)) {
+        if (state.plants[ev.childId].defId === 'cannabisHybrid') hybrids++;
+        delete state.plants[ev.childId];
+      }
+    }
+    expect(hybrids).toBeGreaterThan(0);
+  });
+
+  it('none of the three appear in the field journal or its totals', () => {
+    const state = createNewGame();
+    const totals = collectionTotals(state);
+    expect(totals.totalSpecies).toBe(PLANT_LIST.length - 3);
+    for (const id of ['cannabisSativa', 'cannabisIndica', 'cannabisHybrid']) expect(PLANTS[id].unlisted).toBe(true);
   });
 });

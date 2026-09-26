@@ -28,7 +28,26 @@ export interface LandscapeWorld {
   isSpot(tx: number, ty: number): boolean;
 }
 
-/** Trees and rocks stay; bushes, flowers and reeds can be cleared. */
+/** What it costs to have one rock dug out and carted away. */
+export const ROCK_REMOVAL_COST = 30;
+
+export type RockBlock = 'no-rock' | 'coins';
+
+export function rockRemovalBlock(state: GameState, world: LandscapeWorld, tx: number, ty: number): RockBlock | null {
+  if (world.obstacleAt(tx, ty) !== 'rock') return 'no-rock';
+  if (state.coins < ROCK_REMOVAL_COST) return 'coins';
+  return null;
+}
+
+/** Pays to have a rock hauled away: the tile becomes open ground for good. */
+export function removeRock(state: GameState, world: LandscapeWorld, tx: number, ty: number): boolean {
+  if (rockRemovalBlock(state, world, tx, ty)) return false;
+  state.coins -= ROCK_REMOVAL_COST;
+  state.clearedObstacles.push(`${tx},${ty}`);
+  return true;
+}
+
+/** Trees and rocks stay (unless you pay to have a rock moved); bushes, flowers and reeds can be cleared. */
 export function isHardObstacle(kind: string | null): boolean {
   return kind === 'tree' || kind === 'rock';
 }

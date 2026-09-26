@@ -73,7 +73,7 @@ export class JournalPanel {
       el('div', 'collection-summary', `${totals.species} of ${totals.totalSpecies} species · ${totals.variants} of ${totals.totalVariants} variants`)
     );
     const grid = el('div', 'collection-grid');
-    const sorted = [...PLANT_LIST].sort((a, b) => rarityRank(a.rarity) - rarityRank(b.rarity));
+    const sorted = PLANT_LIST.filter((p) => !p.unlisted).sort((a, b) => rarityRank(a.rarity) - rarityRank(b.rarity));
     for (const def of sorted) {
       const rec = state.collection[def.id];
       const card = el('div', `collection-card${rec ? ' found clickable' : ''}`);
@@ -101,7 +101,7 @@ export class JournalPanel {
     const state = this.game.state;
     const def = PLANTS[defId];
     const rec = state.collection[defId];
-    if (!def || !rec) return this.renderCollection();
+    if (!def || !rec || def.unlisted) return this.renderCollection();
     const body = this.panel.body;
     const back = el('button', 'back-link', '← Collection');
     back.addEventListener('click', () => {

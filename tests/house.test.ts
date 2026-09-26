@@ -1,3 +1,6 @@
+import { GREENHOUSE_BACK_EXIT, GREENHOUSE_SIDE_EXIT } from '../src/game/data/stations';
+import { GREENHOUSE_DOORS, DOOR_OUTWARD, isKeepClearTile } from '../src/game/data/interior';
+import { isInsideHomeFootprint } from '../src/game/data/worldMap';
 import { describe, it, expect } from 'vitest';
 import { createNewGame } from '../src/game/state';
 import { zoneAt, HOUSE_FOOTPRINT, HOUSE_DOOR, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR } from '../src/game/data/worldMap';
@@ -48,12 +51,27 @@ describe('the house and the greenhouse', () => {
 
   it('has walls all round, a doorway between the rooms, and a way out of each', () => {
     for (let x = 0; x < INTERIOR_W; x++) {
-      const topOpen = !isInteriorWallTile(x, 0);
-      expect(topOpen).toBe(false);
+      // The top wall is solid, bar the greenhouse's back door.
+      expect(!isInteriorWallTile(x, 0)).toBe(x === GREENHOUSE_BACK_EXIT.x);
     }
+    for (let y = 1; y < INTERIOR_H - 1; y++) expect(!isInteriorWallTile(0, y)).toBe(y === GREENHOUSE_SIDE_EXIT.y);
     expect(isInteriorWallTile(GREENHOUSE_EXIT.x, GREENHOUSE_EXIT.y)).toBe(false);
     expect(isInteriorWallTile(FRONT_DOOR.x, FRONT_DOOR.y)).toBe(false);
     for (let y = 1; y < INTERIOR_H - 1; y++) expect(isInteriorWallTile(PARTITION_X, y)).toBe(!PARTITION_DOOR_YS.includes(y));
+  });
+
+  it('gives the greenhouse three doors, each open to walk through and kept clear of furniture', () => {
+    const obstacles = buildBlockingSet(generateObstacles());
+    expect(GREENHOUSE_DOORS.map((d) => d.id)).toEqual(['garden', 'back', 'side']);
+    for (const d of GREENHOUSE_DOORS) {
+      expect(isInteriorWallTile(d.inside.x, d.inside.y)).toBe(false);
+      expect(isKeepClearTile(d.inside.x, d.inside.y)).toBe(true);
+      const o = DOOR_OUTWARD[d.wall];
+      // Outdoors, the door tile and the step beyond it are open ground next to the building.
+      expect(isBlockedOutdoor(d.outside.x + 0.5, d.outside.y + 0.5, obstacles)).toBe(false);
+      expect(isBlockedOutdoor(d.outside.x + o.x + 0.5, d.outside.y + o.y + 0.5, obstacles)).toBe(false);
+      expect(isInsideHomeFootprint(d.outside.x - o.x, d.outside.y - o.y)).toBe(true);
+    }
   });
 
   it('lets you walk from the front door through the living room into the greenhouse', () => {

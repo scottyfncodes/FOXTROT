@@ -6,7 +6,7 @@ import { placeDecor, pickUpDecor } from '../src/game/systems/decor';
 import { STAGE_AT } from '../src/game/systems/growth';
 import { MINUTES_PER_DAY } from '../src/game/engine/Clock';
 
-describe('farmer’s market', () => {
+describe('Plant Stand & Supply', () => {
   it('pays more for rarer plants and for bigger ones', () => {
     const state = createNewGame();
     state.clock.totalMinutes = 0;
@@ -94,5 +94,30 @@ describe('farmer’s market', () => {
     const cutting = priceOf(state, { defId: 'pothos', variantId: 'golden', growth: 0 });
     const specimen = priceOf(state, { defId: 'pothos', variantId: 'golden', growth: STAGE_AT.specimen });
     expect(specimen).toBeGreaterThanOrEqual(cutting * 9);
+  });
+});
+
+import { moveDecor, decorFits } from '../src/game/systems/decor';
+
+describe('moving garden pieces', () => {
+  it('moves a placed piece to open space, but not on top of another', () => {
+    const state = createNewGame();
+    state.decorStock = { gardenTrellis: 1, birdbath: 1 };
+    const trellis = placeDecor(state, 'gardenTrellis', 50, 30)!;
+    const bath = placeDecor(state, 'birdbath', 52, 30)!;
+    expect(moveDecor(state, trellis.id, 52.2, 30)).toBe(false);
+    expect(decorFits(state, 51, 31, trellis.id)).toBe(true);
+    expect(moveDecor(state, trellis.id, 51, 31)).toBe(true);
+    expect(state.decor.find((d) => d.id === trellis.id)).toMatchObject({ x: 51, y: 31 });
+    // A piece never collides with itself.
+    expect(moveDecor(state, bath.id, 52.1, 30.1)).toBe(true);
+  });
+
+  it('sells a garden trellis as a repeatable piece of decor', () => {
+    const state = createNewGame();
+    state.coins = 200;
+    expect(buyItem(state, 'gardenTrellis')).toBe(true);
+    expect(buyItem(state, 'gardenTrellis')).toBe(true);
+    expect(state.decorStock.gardenTrellis).toBe(2);
   });
 });

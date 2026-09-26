@@ -8,7 +8,7 @@ import { displaySlots, findFurniture } from '../game/systems/furniture';
 import { ESTABLISH_THRESHOLD, isEstablished } from '../game/systems/collection';
 import { STAGES, STAGE_LABEL, stageFloat, stageIndexOf, minutesToNextStage } from '../game/systems/growth';
 import { cuttingBlockReason, occupantOf, placementBlockReason, cuttingCooldown } from '../game/systems/propagation';
-import { button, note, portrait, rarityBadge, realTime } from './common';
+import { button, note, portrait, rarityBadge, realTime, crossButton } from './common';
 
 type Target = { kind: 'bed' | 'display'; id: string };
 
@@ -48,7 +48,7 @@ export class GreenhousePanel {
     this.panel.clearBody();
     const plant = t.kind === 'bed' ? occupantOf(this.game.state, { bedId: t.id }) : occupantOf(this.game.state, { slotId: t.id });
     if (t.kind === 'bed') {
-      this.panel.setTitle(findFurniture(this.game.state, t.id)?.kind === 'propagationTray' ? 'Propagation Tray' : 'Nursery Bed');
+      this.panel.setTitle('Nursery Bed');
       if (plant) this.renderPlant(plant);
       else this.renderPotting(t.id);
     } else {
@@ -126,7 +126,7 @@ export class GreenhousePanel {
       this.render();
     });
     body.appendChild(pots);
-    if (this.ownedPots().length === 1) body.appendChild(note('More pot styles are sold at the market.', 'row-note'));
+    if (this.ownedPots().length === 1) body.appendChild(note('More pot styles are sold at the Plant Stand & Supply.', 'row-note'));
     body.appendChild(el('h4', 'section-head', 'Choose a plant'));
     const list = el('div', 'entry-list');
     for (const item of eligible) {
@@ -173,9 +173,7 @@ export class GreenhousePanel {
       note(
         next !== null
           ? `${STAGE_LABEL[STAGES[idx]]}. ${STAGE_LABEL[STAGES[idx + 1]]} in ${realTime(next)}.`
-          : idx < STAGES.length - 1
-            ? `${STAGE_LABEL[STAGES[idx]]} — as big as it gets in a propagation tray. Give it a nursery bed or a pot to keep growing.`
-            : `${STAGE_LABEL[STAGES[idx]]} — fully grown, and still filling out.`,
+          : `${STAGE_LABEL[STAGES[idx]]} — fully grown, and still filling out.`,
         'growth-note'
       )
     );
@@ -206,6 +204,8 @@ export class GreenhousePanel {
       this.game.cutFrom(plant.id);
       this.render();
     }, 'primary-btn', !!block));
+    const crossBtn = crossButton(this.game, plant, () => this.render());
+    if (crossBtn) actions.appendChild(crossBtn);
     const liftLabel = plant.location.kind === 'nursery' && est && idx >= 1 ? 'Lift — to display or plant out' : 'Lift into basket';
     actions.appendChild(button(liftLabel, () => {
       this.game.lift(plant.id);

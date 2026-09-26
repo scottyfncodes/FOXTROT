@@ -66,12 +66,13 @@ export function collectionTotals(state: GameState) {
   let species = 0;
   let variants = 0;
   let totalVariants = 0;
-  for (const def of Object.values(PLANTS)) {
+  const listed = Object.values(PLANTS).filter((d) => !d.unlisted);
+  for (const def of listed) {
     totalVariants += def.variants.length;
     const rec = state.collection[def.id];
     if (!rec) continue;
     species++;
     variants += rec.variants.length;
   }
-  return { species, totalSpecies: Object.keys(PLANTS).length, variants, totalVariants };
+  return { species, totalSpecies: listed.length, variants, totalVariants };
 }

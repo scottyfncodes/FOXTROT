@@ -4,7 +4,8 @@ import { TILE_SIZE } from '../data/worldMap';
 import { daylightFactor, isNight } from '../engine/Clock';
 import {
   FRONT_DOOR,
-  GREENHOUSE_EXIT,
+  GREENHOUSE_DOORS,
+  greenhouseDoorAtInside,
   IMPLIED_DOORWAYS,
   INTERIOR_H,
   INTERIOR_W,
@@ -60,7 +61,7 @@ export function drawInteriorShell(ctx: Ctx, camera: Camera, state: GameState, no
       const living = x > PARTITION_X;
       const border = x === 0 || y === 0 || x === INTERIOR_W - 1 || y === INTERIOR_H - 1;
       const partition = x === PARTITION_X && !PARTITION_DOOR_YS.includes(y);
-      const exit = (x === GREENHOUSE_EXIT.x || x === FRONT_DOOR.x) && y === INTERIOR_H - 1;
+      const exit = !!greenhouseDoorAtInside(x, y) || (x === FRONT_DOOR.x && y === INTERIOR_H - 1);
       if ((border || partition) && !exit) {
         if (living || partition) drawWallTile(ctx, sx, sy, size, tile, x, y, partition);
         else drawGlassTile(ctx, sx, sy, size, tile, x, y, day, now);
@@ -135,11 +136,15 @@ export function drawInteriorShell(ctx: Ctx, camera: Camera, state: GameState, no
   for (const d of IMPLIED_DOORWAYS) drawImpliedDoorway(ctx, camera, d, state);
 
   // The two ways out: the garden door in the glass, the front door in the wall.
-  const g = camera.worldToScreen(GREENHOUSE_EXIT.x * TILE_SIZE, GREENHOUSE_EXIT.y * TILE_SIZE);
-  ctx.fillStyle = day > 0.3 ? 'rgba(170,215,160,0.55)' : 'rgba(60,90,90,0.6)';
-  ctx.fillRect(g.x, g.y, tile, tile);
-  ctx.fillStyle = 'rgba(150,200,255,0.25)';
-  ctx.fillRect(g.x - tile * 0.3, g.y, tile * 1.6, tile);
+  // Every glass door out to the garden: garden, back and side.
+  for (const d of GREENHOUSE_DOORS) {
+    const g = camera.worldToScreen(d.inside.x * TILE_SIZE, d.inside.y * TILE_SIZE);
+    ctx.fillStyle = day > 0.3 ? 'rgba(170,215,160,0.55)' : 'rgba(60,90,90,0.6)';
+    ctx.fillRect(g.x, g.y, tile, tile);
+    ctx.fillStyle = 'rgba(150,200,255,0.25)';
+    if (d.wall === 'west') ctx.fillRect(g.x, g.y - tile * 0.3, tile, tile * 1.6);
+    else ctx.fillRect(g.x - tile * 0.3, g.y, tile * 1.6, tile);
+  }
   const f = camera.worldToScreen(FRONT_DOOR.x * TILE_SIZE, FRONT_DOOR.y * TILE_SIZE);
   ctx.fillStyle = '#3f5a4c';
   ctx.fillRect(f.x + tile * 0.08, f.y + tile * 0.05, tile * 0.84, tile * 0.9);

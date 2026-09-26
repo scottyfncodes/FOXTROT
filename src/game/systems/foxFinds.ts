@@ -31,7 +31,8 @@ function speciesFound(state: GameState): number {
 
 /** A plant worth being led to: the fox's own species, or an unusual form of something that grows here. */
 export function pickFoxPlant(state: GameState, zone: OutdoorZoneId, rand: () => number): { defId: string; variantId: string } | null {
-  const secret = PLANT_LIST.find((p) => p.secret && p.habitat.includes(zone));
+  const secrets = PLANT_LIST.filter((p) => p.secret && !p.parents && p.habitat.includes(zone));
+  const secret = secrets.length ? secrets[Math.floor(rand() * secrets.length) % secrets.length] : undefined;
   if (secret && speciesFound(state) >= SECRET_MIN_SPECIES && rand() < SECRET_FIND_CHANCE) {
     return { defId: secret.id, variantId: secret.variants[0].id };
   }

@@ -2,7 +2,7 @@ import { Camera } from '../engine/Camera';
 import type { GameState, ScoutState, ScottState, CatState, Facing, OwnedPlant, PlacedDecor } from '../state';
 import type { Obstacle } from './Obstacles';
 import type { DiscoverySpot, ZoneId } from '../types';
-import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, GREENHOUSE_DOOR, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
+import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
 import { ZONES } from '../data/zones';
 import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
 import { displaySlots, climbsTrellis } from '../systems/furniture';
@@ -37,13 +37,14 @@ import {
   drawFindCover,
 } from './LandscapeArt';
 import { drawInteriorShell, drawFixture, type FixtureContext } from './HomeArt';
-import { PARTITION_X, type LivingFixture } from '../data/interior';
+import { PARTITION_X, GREENHOUSE_DOORS, type LivingFixture } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { allFurniture, footprint } from '../systems/furniture';
 import { catLift } from '../systems/cat';
 import { foxFade } from '../systems/fox';
 import { isCouchNap, isCouchSpot } from '../data/scottSpots';
 import { PATH_WIDTH } from '../systems/landscape';
+import { dipAmount, smiling, DIP_END } from '../systems/scott';
 
 /** Everything the scene needs beyond the game state: what the player is doing with their hands, and passing effects. */
 export interface SceneExtras {
@@ -52,6 +53,8 @@ export interface SceneExtras {
   cleared: Set<string>;
   /** 1 just after stepping through a door, falling to 0. */
   fade: number;
+  /** Scott dipping Ellen into a kiss, if he's been caught. */
+  kiss?: { t: number; ellenLeft: boolean } | null;
 }
 
 const NO_EXTRAS: SceneExtras = { tools: { kind: 'play' }, flourishes: [], cleared: new Set(), fade: 0 };
@@ -273,13 +276,18 @@ export class Renderer {
       });
     }
     drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
-    if (state.scott.zone !== 'greenhouse') {
-      drawables.push({ y: state.scott.y, draw: () => this.atScale(camera, state.scott.x, state.scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, state.scott, now)) });
-    }
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
-    drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
+    if (extras.kiss && state.scott.zone !== 'greenhouse') {
+      const kiss = extras.kiss;
+      drawables.push({ y: state.player.y, draw: () => this.drawKiss(camera, state, kiss, now) });
+    } else {
+      if (state.scott.zone !== 'greenhouse') {
+        drawables.push({ y: state.scott.y, draw: () => this.atScale(camera, state.scott.x, state.scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, state.scott, now)) });
+      }
+      drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
+    }
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
 
@@ -467,10 +475,15 @@ export class Renderer {
     // Warm interior glow
     ctx.fillStyle = night ? 'rgba(255,200,120,0.18)' : 'rgba(255,220,150,0.08)';
     ctx.fillRect(topLeft.x + tile, topLeft.y + tile, w - tile * 2, h - tile * 2);
-    // Door
-    const doorScreen = camera.worldToScreen(GREENHOUSE_DOOR.x * TILE_SIZE, GREENHOUSE_DOOR.y * TILE_SIZE);
+    // Doors: the garden door at the front, a back door and a side door,
+    // each a timber frame straddling the glass wall it opens through.
     ctx.fillStyle = '#4a3623';
-    ctx.fillRect(doorScreen.x, doorScreen.y - tile * 0.3, tile, tile * 0.5);
+    for (const d of GREENHOUSE_DOORS) {
+      const s = camera.worldToScreen(d.outside.x * TILE_SIZE, d.outside.y * TILE_SIZE);
+      if (d.wall === 'south') ctx.fillRect(s.x, s.y - tile * 0.3, tile, tile * 0.5);
+      else if (d.wall === 'north') ctx.fillRect(s.x, s.y + tile * 0.8, tile, tile * 0.5);
+      else ctx.fillRect(s.x + tile * 0.8, s.y, tile * 0.5, tile);
+    }
   }
 
   private drawObstacle(camera: Camera, o: Obstacle, lushHere: number) {
@@ -793,7 +806,7 @@ export class Renderer {
   }
 
   /**
-   * The farmer's market stall: a trestle table, crates of plants for sale,
+   * The Plant Stand & Supply stall: a trestle table, crates of plants for sale,
    * and a chalkboard advertising what people are asking for today.
    * Upgrades show up on the stall itself.
    */
@@ -1031,16 +1044,75 @@ export class Renderer {
   }
 
   /** Draws a character scaled about its feet, so resizing never lifts it off the ground. */
-  private atScale(camera: Camera, x: number, y: number, k: number, draw: () => void) {
+  /** Set while drawing a tender moment: faces with closed, smiling eyes. */
+  private happyFaces = false;
+
+  private atScale(camera: Camera, x: number, y: number, k: number, draw: () => void, tilt = 0) {
     const { ctx } = this;
     const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
     const footY = screen.y + TILE_SIZE * camera.zoom * 0.25;
     ctx.save();
     ctx.translate(screen.x, footY);
+    // A lean, pivoting on the feet (radians; positive tips the head right).
+    if (tilt) ctx.rotate(tilt);
     ctx.scale(k, k);
     ctx.translate(-screen.x, -footY);
     draw();
     ctx.restore();
+  }
+
+  /**
+   * Caught: Scott turns, sweeps Ellen back into a dip and kisses her. Both
+   * are drawn side-on facing each other; he leans in over her as she tips
+   * back, each pivoting on their feet, and a heart drifts up between them.
+   */
+  private drawKiss(camera: Camera, state: GameState, kiss: { t: number; ellenLeft: boolean }, now: number) {
+    const tile = TILE_SIZE * camera.zoom;
+    const dip = dipAmount(kiss.t);
+    // Toward Scott is +1 when Ellen stands on the left.
+    const toward = kiss.ellenLeft ? 1 : -1;
+    const p = state.player;
+    const ellenFacing: Facing = kiss.ellenLeft ? 'right' : 'left';
+    const scott = { ...state.scott, activity: 'traveling' as const, facing: (kiss.ellenLeft ? 'left' : 'right') as Facing };
+    // She tips back, away from him; he leans in over her. Angles and the
+    // slide of her feet in under him are set so their faces meet at the
+    // bottom of the dip (he's the taller by a head). Up again, they sway a
+    // little, smiling at each other.
+    const sway = smiling(kiss.t) ? Math.sin(now * 0.006) * 0.035 : 0;
+    const ellenTilt = -toward * 0.45 * dip + sway;
+    const scottTilt = -toward * 0.6 * dip + sway;
+    const ex = p.x + toward * 0.15 * dip;
+    this.happyFaces = true;
+    this.atScale(camera, scott.x, scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, scott, 0), scottTilt);
+    this.atScale(camera, ex, p.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, ex, p.y, ellenFacing, 0, false, false), ellenTilt);
+    this.happyFaces = false;
+
+    const mid = camera.worldToScreen(((ex + scott.x) / 2) * TILE_SIZE, p.y * TILE_SIZE);
+    if (dip > 0.6) {
+      const rise = (kiss.t / DIP_END) * tile * 0.6;
+      this.drawHeart(mid.x + Math.sin(now * 0.004) * tile * 0.05, mid.y - tile * 1.1 - rise, tile * 0.09, Math.min(1, (dip - 0.6) * 2.5));
+    }
+    if (smiling(kiss.t)) {
+      // A couple of small hearts drifting up while they smile.
+      const u = (kiss.t - DIP_END) / (1 - DIP_END);
+      for (let i = 0; i < 2; i++) {
+        const k = (u * 1.6 + i * 0.5) % 1;
+        const alpha = Math.sin(k * Math.PI);
+        this.drawHeart(mid.x + (i ? 1 : -1) * tile * 0.18 + Math.sin(now * 0.005 + i) * tile * 0.04, mid.y - tile * 1.2 - k * tile * 0.7, tile * 0.06, alpha);
+      }
+    }
+  }
+
+  private drawHeart(hx: number, hy: number, r: number, alpha: number) {
+    const { ctx } = this;
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.fillStyle = '#d9534f';
+    ctx.beginPath();
+    ctx.moveTo(hx, hy + r * 1.1);
+    ctx.bezierCurveTo(hx - r * 1.6, hy - r * 0.2, hx - r * 0.7, hy - r * 1.4, hx, hy - r * 0.5);
+    ctx.bezierCurveTo(hx + r * 0.7, hy - r * 1.4, hx + r * 1.6, hy - r * 0.2, hx, hy + r * 1.1);
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   private drawFox(camera: Camera, x: number, y: number, now: number) {
@@ -1377,12 +1449,25 @@ export class Renderer {
       const eyeR = Math.max(1, headR * 0.13);
       const eyes = isSide ? [cx + s * headR * 0.55] : [cx - headR * 0.36, cx + headR * 0.36];
       ctx.fillStyle = '#2a2018';
-      for (const ex of eyes) {
-        ctx.beginPath();
-        ctx.ellipse(ex, eyeY, eyeR, eyeR * 1.25, 0, 0, Math.PI * 2);
-        ctx.fill();
+      if (this.happyFaces) {
+        // eyes closed in happy upturned arcs
+        ctx.strokeStyle = '#2a2018';
+        ctx.lineWidth = Math.max(1, eyeR * 0.7);
+        ctx.lineCap = 'round';
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.arc(ex, eyeY + eyeR * 0.6, eyeR * 1.1, 1.15 * Math.PI, 1.85 * Math.PI);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      } else {
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.ellipse(ex, eyeY, eyeR, eyeR * 1.25, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
-      if (tile >= 40) {
+      if (tile >= 40 && !this.happyFaces) {
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
         for (const ex of eyes) {
           ctx.beginPath();
@@ -1402,16 +1487,18 @@ export class Renderer {
       }
       ctx.fillStyle = ELLEN_APPEARANCE.blush;
       const blushX = isSide ? [cx + s * headR * 0.45] : [cx - headR * 0.52, cx + headR * 0.52];
+      const flush = this.happyFaces ? 1.35 : 1;
       for (const bx of blushX) {
         ctx.beginPath();
-        ctx.ellipse(bx, headY + headR * 0.45, headR * 0.17, headR * 0.1, 0, 0, Math.PI * 2);
+        ctx.ellipse(bx, headY + headR * 0.45, headR * 0.17 * flush, headR * 0.1 * flush, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.strokeStyle = '#8a4a3a';
       ctx.lineWidth = Math.max(1, headR * 0.08);
       ctx.beginPath();
       const mouthX = isSide ? cx + s * headR * 0.62 : cx;
-      ctx.arc(mouthX, headY + headR * 0.5, headR * 0.16, 0.2 * Math.PI, 0.8 * Math.PI);
+      // a wider, happier smile in a tender moment
+      ctx.arc(mouthX, headY + headR * (this.happyFaces ? 0.44 : 0.5), headR * (this.happyFaces ? 0.22 : 0.16), 0.15 * Math.PI, 0.85 * Math.PI);
       ctx.stroke();
     };
 
@@ -1548,6 +1635,53 @@ export class Renderer {
   }
 
   /** Scout: Ellen's scruffy one-eyed field companion. */
+  /**
+   * Four legs for a small animal, drawn before its body so the body covers
+   * the tops. In profile the front pair sits under the head and the hind
+   * pair under the tail; face-on the near pair is lower and wider, the far
+   * pair tucked up behind. They step in diagonal pairs, like a real trot.
+   */
+  private drawQuadrupedLegs(
+    cx: number,
+    cy: number,
+    dir: readonly [number, number] | number[],
+    tile: number,
+    o: { along: number; spread: number; top: number; paw: number; width: number; swing: number; near: string; far: string }
+  ) {
+    const { ctx } = this;
+    const legs: { x: number; top: number; paw: number; dx: number; dy: number; far: boolean }[] = [];
+    const sw = o.swing;
+    if (dir[0] !== 0) {
+      const f = dir[0];
+      const lift = tile * 0.015;
+      const off = f * tile * 0.012;
+      legs.push({ x: cx + f * o.along + off, top: cy + o.top - lift, paw: cy + o.paw - lift, dx: -sw * f, dy: 0, far: true });
+      legs.push({ x: cx - f * o.along + off, top: cy + o.top - lift, paw: cy + o.paw - lift, dx: sw * f, dy: 0, far: true });
+      legs.push({ x: cx + f * o.along, top: cy + o.top, paw: cy + o.paw, dx: sw * f, dy: 0, far: false });
+      legs.push({ x: cx - f * o.along, top: cy + o.top, paw: cy + o.paw, dx: -sw * f, dy: 0, far: false });
+    } else {
+      const tuck = tile * 0.04;
+      legs.push({ x: cx - o.spread * 0.8, top: cy + o.top - tuck, paw: cy + o.paw - tuck, dx: 0, dy: -sw, far: true });
+      legs.push({ x: cx + o.spread * 0.8, top: cy + o.top - tuck, paw: cy + o.paw - tuck, dx: 0, dy: sw, far: true });
+      legs.push({ x: cx - o.spread, top: cy + o.top, paw: cy + o.paw, dx: 0, dy: sw, far: false });
+      legs.push({ x: cx + o.spread, top: cy + o.top, paw: cy + o.paw, dx: 0, dy: -sw, far: false });
+    }
+    ctx.lineCap = 'round';
+    for (const l of legs) {
+      ctx.strokeStyle = l.far ? o.far : o.near;
+      ctx.lineWidth = Math.max(1, o.width);
+      ctx.beginPath();
+      ctx.moveTo(l.x, l.top);
+      ctx.lineTo(l.x + l.dx, l.paw + Math.min(0, l.dy));
+      ctx.stroke();
+      ctx.fillStyle = l.far ? o.far : o.near;
+      ctx.beginPath();
+      ctx.ellipse(l.x + l.dx, l.paw + Math.min(0, l.dy), o.width * 0.6, o.width * 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.lineCap = 'butt';
+  }
+
   private drawScout(camera: Camera, scout: ScoutState, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
@@ -1589,6 +1723,34 @@ export class Renderer {
     );
     ctx.stroke();
 
+    // four legs: a trot while following, planted when standing; sitting,
+    // just the two front legs straight down under his chest
+    if (sitting) {
+      const fx = cx + dir[0] * tile * 0.08;
+      for (const side of [-1, 1]) {
+        const lx = dir[0] !== 0 ? fx + side * tile * 0.015 : cx + side * tile * 0.05;
+        ctx.strokeStyle = side < 0 && dir[0] !== 0 ? SCOUT_APPEARANCE.furDark : SCOUT_APPEARANCE.furBase;
+        ctx.lineWidth = Math.max(1, tile * 0.04);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(lx, cy);
+        ctx.lineTo(lx, cy + tile * 0.12);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
+    } else {
+      this.drawQuadrupedLegs(cx, cy, dir, tile, {
+        along: tile * 0.09,
+        spread: tile * 0.07,
+        top: tile * 0.0,
+        paw: tile * 0.13,
+        width: tile * 0.038,
+        swing: legSwing,
+        near: SCOUT_APPEARANCE.furBase,
+        far: SCOUT_APPEARANCE.furDark,
+      });
+    }
+
     // body with a scruffy darker patch
     ctx.fillStyle = SCOUT_APPEARANCE.furBase;
     ctx.beginPath();
@@ -1598,16 +1760,6 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(cx - dir[0] * tile * 0.03, cy - tile * 0.05 - dir[1] * tile * 0.02, tile * 0.08, tile * 0.05 * bodyScaleY, 0, 0, Math.PI * 2);
     ctx.fill();
-
-    if (!sitting) {
-      ctx.fillStyle = SCOUT_APPEARANCE.furDark;
-      ctx.beginPath();
-      ctx.ellipse(cx - tile * 0.07, cy + tile * 0.1 + legSwing, tile * 0.03, tile * 0.035, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(cx + tile * 0.07, cy + tile * 0.1 - legSwing, tile * 0.03, tile * 0.035, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
 
     // head
     const headX = cx + dir[0] * tile * 0.14;
@@ -1701,7 +1853,7 @@ export class Renderer {
     const tinkering = scott.activity === 'tinkering';
     const snacking = scott.activity === 'snacking';
 
-    const walkPhase = moving ? now * 0.011 : now * 0.0025;
+    const walkPhase = moving ? now * (scott.hurrying ? 0.02 : 0.011) : now * 0.0025;
     const walkAmp = moving ? 1 : 0.25;
     const bob = Math.abs(Math.sin(walkPhase)) * -tile * 0.02 * walkAmp;
     const stride = moving ? Math.sin(walkPhase) : 0;
@@ -2030,7 +2182,16 @@ export class Renderer {
         // mouth: a skin-coloured gap in the beard
         ctx.fillStyle = 'rgba(120,70,50,0.7)';
         ctx.beginPath();
-        ctx.ellipse(isSide ? cx + s * headR * 0.55 : cx, headY + headR * 0.66, headR * (isSide ? 0.14 : 0.2), headR * 0.07, 0, 0, Math.PI * 2);
+        if (this.happyFaces) {
+          // a grin: the gap curves up at the corners
+          const mx = isSide ? cx + s * headR * 0.55 : cx;
+          const mw = headR * (isSide ? 0.18 : 0.26);
+          ctx.moveTo(mx - mw, headY + headR * 0.6);
+          ctx.quadraticCurveTo(mx, headY + headR * 0.82, mx + mw, headY + headR * 0.6);
+          ctx.quadraticCurveTo(mx, headY + headR * 0.7, mx - mw, headY + headR * 0.6);
+        } else {
+          ctx.ellipse(isSide ? cx + s * headR * 0.55 : cx, headY + headR * 0.66, headR * (isSide ? 0.14 : 0.2), headR * 0.07, 0, 0, Math.PI * 2);
+        }
         ctx.fill();
       }
 
@@ -2062,10 +2223,22 @@ export class Renderer {
       const eyeY = headY + headR * (golfing && t < IMPACT ? 0.08 : 0.0);
       const eyeR = Math.max(0.7, headR * 0.085);
       const eyes = isSide ? [cx + s * headR * 0.55] : [cx - headR * 0.32, cx + headR * 0.32];
-      for (const ex of eyes) {
-        ctx.beginPath();
-        ctx.ellipse(ex, eyeY, eyeR, eyeR * (snacking ? 0.5 : 1.15), 0, 0, Math.PI * 2);
-        ctx.fill();
+      if (this.happyFaces) {
+        ctx.strokeStyle = '#2a2018';
+        ctx.lineWidth = Math.max(0.8, eyeR * 0.8);
+        ctx.lineCap = 'round';
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.arc(ex, eyeY + eyeR * 0.7, eyeR * 1.3, 1.15 * Math.PI, 1.85 * Math.PI);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      } else {
+        for (const ex of eyes) {
+          ctx.beginPath();
+          ctx.ellipse(ex, eyeY, eyeR, eyeR * (snacking ? 0.5 : 1.15), 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       // light, fair brows — dark ones read as sunglasses at this size
       ctx.strokeStyle = A.hair;
@@ -2213,13 +2386,29 @@ export class Renderer {
     ctx.stroke();
 
     if (!sitting && !grooming) {
-      ctx.fillStyle = CAT_APPEARANCE.furDark;
-      ctx.beginPath();
-      ctx.ellipse(cx - tile * 0.05, cy + tile * 0.08 + legSwing, tile * 0.02, tile * 0.025, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(cx + tile * 0.05, cy + tile * 0.08 - legSwing, tile * 0.02, tile * 0.025, 0, 0, Math.PI * 2);
-      ctx.fill();
+      this.drawQuadrupedLegs(cx, cy, dir, tile, {
+        along: tile * 0.065,
+        spread: tile * 0.05,
+        top: tile * 0.0,
+        paw: tile * 0.1,
+        width: tile * 0.026,
+        swing: legSwing,
+        near: CAT_APPEARANCE.furBase,
+        far: CAT_APPEARANCE.furDark,
+      });
+    } else {
+      // sitting upright: front legs straight down, paws together
+      for (const side of [-1, 1]) {
+        const lx = cx + dir[0] * tile * 0.05 + side * tile * (dir[0] !== 0 ? 0.012 : 0.03);
+        ctx.strokeStyle = CAT_APPEARANCE.furLight;
+        ctx.lineWidth = Math.max(1, tile * 0.024);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(lx, cy);
+        ctx.lineTo(lx, cy + tile * 0.085);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
     }
 
     // body, orange tabby
@@ -2496,7 +2685,8 @@ export class Renderer {
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
     drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
-    if (scottHome) {
+    const kissing = !!extras.kiss && scottHome;
+    if (scottHome && !kissing) {
       // On the couch he's sitting down, so he sits lower — the couch back hides the rest of him.
       const seated = isCouchSpot(state.scott.currentSpotId) && (state.scott.activity === 'watchingTV' || state.scott.activity === 'relaxing');
       // Napping on the couch he's stretched out on the seat: drawn up on it, in front of it.
@@ -2520,7 +2710,10 @@ export class Renderer {
         ctx.restore();
       },
     });
-    drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
+    if (kissing) {
+      const kiss = extras.kiss!;
+      drawables.push({ y: state.player.y, draw: () => this.drawKiss(camera, state, kiss, now) });
+    } else drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
     // Hanging pots are overhead, so they draw over everyone.
@@ -2637,7 +2830,7 @@ export class Renderer {
 
   }
 
-  /** A nursery bed (a timber seed trough) or a propagation tray (shallow, with a clear lid), either way round. */
+  /** A nursery bed: a timber seed trough, either way round. */
   private drawNurseryPiece(camera: Camera, piece: PlacedFurniture, plant: OwnedPlant | undefined, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
@@ -2645,16 +2838,15 @@ export class Renderer {
     const a = camera.worldToScreen(fp.x * TILE_SIZE, fp.y * TILE_SIZE);
     const w = fp.w * tile;
     const h = fp.h * tile;
-    const tray = piece.kind === 'propagationTray';
-    const depth = tile * (tray ? 0.1 : 0.2);
+    const depth = tile * 0.2;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fillRect(a.x + tile * 0.03, a.y + h + depth - tile * 0.02, w, tile * 0.08);
     // Front face, then the soil-filled top.
-    ctx.fillStyle = tray ? '#2f4a3a' : '#6b4a2e';
+    ctx.fillStyle = '#6b4a2e';
     ctx.fillRect(a.x, a.y + h - depth * 0.2, w, depth + depth * 0.2);
-    ctx.fillStyle = tray ? '#3d5c48' : '#7a5636';
+    ctx.fillStyle = '#7a5636';
     ctx.fillRect(a.x, a.y - depth * 0.6, w, h + depth * 0.4);
-    ctx.fillStyle = tray ? '#4a3a2a' : '#3d2a1a';
+    ctx.fillStyle = '#3d2a1a';
     ctx.fillRect(a.x + tile * 0.05, a.y - depth * 0.45, w - tile * 0.1, h + depth * 0.1);
     // Seed-tray cells.
     ctx.strokeStyle = 'rgba(30,20,10,0.4)';
@@ -2675,13 +2867,6 @@ export class Renderer {
     const cx = a.x + w / 2;
     const cy = a.y + h / 2;
     if (plant) this.drawPlantSprite(cx, cy - tile * 0.02, tile * 0.85, plant.defId, plant.variantId, stageFloat(plant.growth), plant.seed, 'pot', now);
-    if (tray) {
-      // The clear lid, propped open at the back.
-      ctx.fillStyle = 'rgba(210,235,240,0.18)';
-      ctx.fillRect(a.x - tile * 0.02, a.y - depth * 0.6 - tile * 0.28, w + tile * 0.04, tile * 0.22);
-      ctx.strokeStyle = 'rgba(230,245,250,0.5)';
-      ctx.strokeRect(a.x - tile * 0.02, a.y - depth * 0.6 - tile * 0.28, w + tile * 0.04, tile * 0.22);
-    }
   }
 
   private drawHouseRug(camera: Camera, piece: PlacedFurniture) {

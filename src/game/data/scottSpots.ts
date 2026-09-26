@@ -14,14 +14,12 @@ export interface ScottSpot {
 }
 
 // Ellen's husband doesn't follow anyone — he potters between a handful of
-// favorite spots around the garden, the wilderness, and the greenhouse,
+// favorite spots around the garden, the wilderness, and the house,
 // each tied to one of his moods — including a patch of meadow he's quietly
 // turned into a driving range, and a putting green by the greenhouse. Adding a new spot (or a new zone
 // for him to loaf around in) is just a data entry, same as everything else.
 export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'meadow-garden-tinker', kind: 'tinker', zone: 'meadow', x: 58, y: 44 },
-  // He naps in two places only: his patch of lawn in the sun, and the couch.
-  { id: 'meadow-sun-nap', kind: 'nap', zone: 'meadow', x: 75, y: 30 },
   { id: 'meadow-snack', kind: 'snack', zone: 'meadow', x: 52, y: 36 },
   { id: 'woodland-snack', kind: 'snack', zone: 'woodland', x: 25, y: 8 },
   { id: 'overgrown-snack', kind: 'snack', zone: 'overgrownClearing', x: 20, y: 45 },
@@ -31,7 +29,8 @@ export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'greenhouse-tinker', kind: 'tinker', zone: 'greenhouse', x: 8, y: 7 },
   { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
   // The living room: the ball game on the couch, a drink with his feet up,
-  // a nap stretched out along it, and the putting mat when it's raining.
+  // the putting mat when it's raining — and the only place he naps,
+  // stretched out along the couch.
   { id: 'living-couch-tv', kind: 'tv', zone: 'greenhouse', x: 21.35, y: 3.5, anchor: 'lr-couch' },
   { id: 'living-couch-drink', kind: 'drink', zone: 'greenhouse', x: 20.8, y: 3.5, anchor: 'lr-couch' },
   { id: 'living-couch-nap', kind: 'nap', zone: 'greenhouse', x: 21.35, y: 3.5, anchor: 'lr-couch' },
