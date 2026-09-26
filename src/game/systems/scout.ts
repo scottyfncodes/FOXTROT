@@ -1,4 +1,5 @@
 import type { Facing, ScoutState } from '../state';
+import { interiorWaypoint } from '../data/interior';
 
 // Scout trails just behind and to the side of Ellen (a real walking-companion
 // offset, not stacked on top of her), catching up briskly when he falls far
@@ -46,6 +47,8 @@ export interface ScoutTickContext {
   /** Nearest not-yet-discovered thing worth a curious glance, if any is close. */
   nearbyUndiscovered: { x: number; y: number } | null;
   rand: () => number;
+  /** Inside the house: the rooms are joined by one doorway, so he goes through it. */
+  indoors?: boolean;
 }
 
 export function tickScout(scout: ScoutState, ctx: ScoutTickContext): void {
@@ -72,9 +75,11 @@ export function tickScout(scout: ScoutState, ctx: ScoutTickContext): void {
 
   if (d > SETTLE_DIST) {
     const speed = (d > FAR_THRESHOLD ? CATCHUP_SPEED : NORMAL_SPEED) * ctx.dtSeconds;
-    const step = Math.min(speed, d);
-    scout.x += ((targetX - scout.x) / d) * step;
-    scout.y += ((targetY - scout.y) / d) * step;
+    const wp = ctx.indoors ? interiorWaypoint(scout.x, scout.y, targetX, targetY) : { x: targetX, y: targetY };
+    const wd = Math.hypot(wp.x - scout.x, wp.y - scout.y) || 1;
+    const step = Math.min(speed, wd);
+    scout.x += ((wp.x - scout.x) / wd) * step;
+    scout.y += ((wp.y - scout.y) / wd) * step;
     const mdx = targetX - scout.x;
     const mdy = targetY - scout.y;
     if (Math.abs(mdx) > 0.04 || Math.abs(mdy) > 0.04) {

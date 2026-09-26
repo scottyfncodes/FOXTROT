@@ -15,6 +15,7 @@ import { FRONT_DOOR, roomAt } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { displaySlots, nurserySpots, placeFurniture, placeBlockReason, pickUpFurniture, findFurniture, fixtureOffset, footprint } from '../systems/furniture';
 import { ACE_REWARD, COURSE_PAR, bestRound, recordAce, recordRound, toPar } from '../systems/putting';
+import { endPlay, startPlay, tickPlay, type PlayState } from '../systems/play';
 import { makeIndoorCamera, screenToTiles } from '../world/IndoorCamera';
 import { Camera as CameraClass } from './Camera';
 import { ToolController, type ToolOutcome } from './Tools';
@@ -458,23 +459,36 @@ export class Game {
       this.audio.setZone('greenhouse', false, dtSeconds);
     }
 
-    tickScout(this.state.scout, {
-      playerX: this.state.player.x,
-      playerY: this.state.player.y,
-      playerFacing: this.state.player.facing,
-      playerMoving: move.x !== 0 || move.y !== 0,
-      dtSeconds,
-      now: this.state.clock.totalMinutes,
-      nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUnseen(),
-      rand: Math.random,
-    });
+    // In the greenhouse, Scout and the cat play chase instead of their usual routines.
+    const playing = this.state.player.inGreenhouse && roomAt(this.state.player.x) === 'greenhouse';
+    if (playing) {
+      this.play ??= startPlay(Math.random);
+      tickPlay(this.play, this.state.scout, this.state.cat, { dtSeconds, rand: Math.random, isOpen: this.isOpenIndoors });
+    } else if (this.play) {
+      this.play = null;
+      endPlay(this.state.scout, this.state.cat, this.state.clock.totalMinutes);
+    }
+
+    if (!playing) {
+      tickScout(this.state.scout, {
+        playerX: this.state.player.x,
+        playerY: this.state.player.y,
+        playerFacing: this.state.player.facing,
+        playerMoving: move.x !== 0 || move.y !== 0,
+        dtSeconds,
+        now: this.state.clock.totalMinutes,
+        nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUnseen(),
+        rand: Math.random,
+        indoors: this.state.player.inGreenhouse,
+      });
+    }
     tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, offset: this.fixtureOffset });
     this.catInterestAcc += dtMs;
     if (this.catInterestAcc >= CAT_INTEREST_MS) {
       this.catInterestAcc = 0;
       this.catInterests = this.computeCatInterests();
     }
-    tickCat(this.state.cat, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, interests: this.catInterests, offset: this.fixtureOffset });
+    if (!playing) tickCat(this.state.cat, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random, interests: this.catInterests, offset: this.fixtureOffset });
     const nowMs = performance.now();
     this.flourishes = this.flourishes.filter((f) => nowMs - f.start < 2600);
 
@@ -991,6 +1005,12 @@ export class Game {
     }
     return best;
   }
+
+  /** Scout and the cat's game of chase, while Ellen is in the greenhouse with them. */
+  private play: PlayState | null = null;
+
+  /** Open indoor floor: somewhere for a playing animal to run to. */
+  private isOpenIndoors = (x: number, y: number) => !isBlockedIndoor(x, y, this.indoorSolid) && !isBlockedIndoor(x + 0.3, y, this.indoorSolid) && !isBlockedIndoor(x - 0.3, y, this.indoorSolid);
 
   /** How far a living-room piece has been moved, for the cat's and Scott's spots on it. */
   private fixtureOffset = (id: string) => fixtureOffset(this.state, id);

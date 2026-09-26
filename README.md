@@ -36,8 +36,10 @@ grow in patches all over it.
   into a living room — couch, TV, the cat's bed, a putting mat, doorways to
   the rest of the house — and a doorway leads through into the greenhouse,
   whose garden door opens onto the valley. Scott is sometimes home watching
-  the ball game or practising his putting; the cat has her own places, and
-  her own ideas about your plants.
+  the ball game, practising his putting or asleep on the couch; the cat has
+  her own places, and her own ideas about your plants. In the greenhouse,
+  she and Scout can't leave each other alone: one stalks, pounces and chases,
+  then it's the other's turn.
 - **Arrange it yourself.** Everything indoors — beds, trays, stands, tables,
   planters, hooks, lamps, rugs — can be dragged anywhere, turned, or put
   away (🪑 button indoors). Plants move with their pots. The living room's

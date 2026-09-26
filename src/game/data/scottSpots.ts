@@ -20,29 +20,32 @@ export interface ScottSpot {
 // for him to loaf around in) is just a data entry, same as everything else.
 export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'meadow-garden-tinker', kind: 'tinker', zone: 'meadow', x: 58, y: 44 },
+  // He naps in two places only: his patch of lawn in the sun, and the couch.
   { id: 'meadow-sun-nap', kind: 'nap', zone: 'meadow', x: 75, y: 30 },
   { id: 'meadow-snack', kind: 'snack', zone: 'meadow', x: 52, y: 36 },
-  { id: 'woodland-shade-nap', kind: 'nap', zone: 'woodland', x: 15, y: 15 },
   { id: 'woodland-snack', kind: 'snack', zone: 'woodland', x: 25, y: 8 },
-  { id: 'rocky-nap', kind: 'nap', zone: 'rockyClearing', x: 65, y: 55 },
-  { id: 'overgrown-nap', kind: 'nap', zone: 'overgrownClearing', x: 10, y: 50 },
   { id: 'overgrown-snack', kind: 'snack', zone: 'overgrownClearing', x: 20, y: 45 },
   { id: 'meadow-driving-range', kind: 'golf', zone: 'meadow', x: 79, y: 36 },
   { id: 'meadow-putting-green', kind: 'putt', zone: 'meadow', x: 54, y: 41 },
   { id: 'rocky-chipping', kind: 'golf', zone: 'rockyClearing', x: 71, y: 57 },
   { id: 'greenhouse-tinker', kind: 'tinker', zone: 'greenhouse', x: 8, y: 7 },
-  { id: 'greenhouse-nap', kind: 'nap', zone: 'greenhouse', x: 12, y: 9 },
   { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
   // The living room: the ball game on the couch, a drink with his feet up,
-  // and the putting mat when it's raining.
+  // a nap stretched out along it, and the putting mat when it's raining.
   { id: 'living-couch-tv', kind: 'tv', zone: 'greenhouse', x: 21.35, y: 3.5, anchor: 'lr-couch' },
   { id: 'living-couch-drink', kind: 'drink', zone: 'greenhouse', x: 20.8, y: 3.5, anchor: 'lr-couch' },
+  { id: 'living-couch-nap', kind: 'nap', zone: 'greenhouse', x: 21.35, y: 3.5, anchor: 'lr-couch' },
   { id: 'living-putting', kind: 'putt', zone: 'greenhouse', x: 19.7, y: 8.55, anchor: 'lr-putting' },
 ];
 
 /** Spots where he's sitting on the couch, seen from behind. */
 export function isCouchSpot(id: string | null): boolean {
   return id === 'living-couch-tv' || id === 'living-couch-drink';
+}
+
+/** Stretched out asleep along the couch. */
+export function isCouchNap(id: string | null): boolean {
+  return id === 'living-couch-nap';
 }
 
 export function findScottSpot(id: string): ScottSpot | undefined {
