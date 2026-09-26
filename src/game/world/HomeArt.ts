@@ -398,11 +398,11 @@ export function drawFixture(ctx: Ctx, camera: Camera, f: LivingFixture, fc: Fixt
       ctx.fillStyle = '#5a4230';
       ctx.fillRect(a.x - tile * 0.1, a.y + h * 0.35, w + tile * 0.2, h * 0.75);
       ctx.fillStyle = '#1a1a1c';
-      ctx.fillRect(a.x, a.y - tile * 0.72, w, tile * 0.95);
-      const sx = a.x + tile * 0.06;
-      const sy = a.y - tile * 0.66;
-      const sw = w - tile * 0.12;
-      const sh = tile * 0.83;
+      ctx.fillRect(a.x, a.y - tile * 0.5, w, tile * 0.72);
+      const sx = a.x + tile * 0.05;
+      const sy = a.y - tile * 0.45;
+      const sw = w - tile * 0.1;
+      const sh = tile * 0.62;
       if (fc.scottWatching) {
         // The ball game: a green diamond under the lights.
         ctx.fillStyle = '#2f6a34';
@@ -538,7 +538,7 @@ export function drawFixture(ctx: Ctx, camera: Camera, f: LivingFixture, fc: Fixt
     }
     case 'bookshelf': {
       ctx.fillStyle = '#5a4030';
-      ctx.fillRect(a.x, a.y - tile * 1.0, w, tile * 1.0 + h);
+      ctx.fillRect(a.x, a.y - tile * 0.8, w, tile * 0.8 + h);
       const spines = ['#8a3a2e', '#3e5a7a', '#c9a463', '#4d6a44', '#7a4a6a', '#d8cdb4'];
       for (let r = 0; r < 3; r++) {
         let x = a.x + tile * 0.06;
@@ -546,7 +546,7 @@ export function drawFixture(ctx: Ctx, camera: Camera, f: LivingFixture, fc: Fixt
         while (x < a.x + w - tile * 0.12) {
           const bw = tile * (0.07 + hash2(i, r) * 0.06);
           ctx.fillStyle = spines[i % spines.length];
-          ctx.fillRect(x, a.y - tile * (0.92 - r * 0.33), bw, tile * 0.27);
+          ctx.fillRect(x, a.y - tile * (0.74 - r * 0.26), bw, tile * 0.21);
           x += bw + 1;
           i++;
         }

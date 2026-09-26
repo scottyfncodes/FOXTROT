@@ -33,9 +33,9 @@ export const SCOTT_SPOTS: ScottSpot[] = [
   { id: 'greenhouse-snack', kind: 'snack', zone: 'greenhouse', x: 9, y: 4 },
   // The living room: the ball game on the couch, a drink with his feet up,
   // and the putting mat when it's raining.
-  { id: 'living-couch-tv', kind: 'tv', zone: 'greenhouse', x: 21.3, y: 3.62 },
-  { id: 'living-couch-drink', kind: 'drink', zone: 'greenhouse', x: 20.55, y: 3.62 },
-  { id: 'living-putting', kind: 'putt', zone: 'greenhouse', x: 19.55, y: 8.55 },
+  { id: 'living-couch-tv', kind: 'tv', zone: 'greenhouse', x: 21.35, y: 3.5 },
+  { id: 'living-couch-drink', kind: 'drink', zone: 'greenhouse', x: 20.8, y: 3.5 },
+  { id: 'living-putting', kind: 'putt', zone: 'greenhouse', x: 19.7, y: 8.55 },
 ];
 
 /** Spots where he's sitting on the couch, seen from behind. */

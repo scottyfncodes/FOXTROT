@@ -208,7 +208,10 @@ export class Game {
       now: () => this.state.clock.totalMinutes,
       player: () => ({ x: this.state.player.x, y: this.state.player.y }),
     });
-    this.tools.onChange = () => this.onToolsChanged?.();
+    this.tools.onChange = () => {
+      if (this.tools.mode.kind !== 'arrange') this.indoorFocus = null;
+      this.onToolsChanged?.();
+    };
 
     this.input.onInteract(() => {
       if (!this.tools.active) this.interactWithNearest();
@@ -1003,7 +1006,8 @@ export class Game {
   /** The camera the current scene is drawn with. */
   sceneCamera(): CameraClass {
     if (!this.state.player.inGreenhouse) return this.camera;
-    const f = this.indoorFocus ?? this.state.player;
+    // A panned view belongs to arranging only; normal play always frames Ellen.
+    const f = this.tools.mode.kind === 'arrange' && this.indoorFocus ? this.indoorFocus : this.state.player;
     return makeIndoorCamera(this.camera, f.x, f.y);
   }
 
@@ -1232,7 +1236,10 @@ export class Game {
       now: () => this.state.clock.totalMinutes,
       player: () => ({ x: this.state.player.x, y: this.state.player.y }),
     });
-    this.tools.onChange = () => this.onToolsChanged?.();
+    this.tools.onChange = () => {
+      if (this.tools.mode.kind !== 'arrange') this.indoorFocus = null;
+      this.onToolsChanged?.();
+    };
     this.refreshCleared();
     this.refreshIndoor();
     this.lush = computeLushness(this.state);
