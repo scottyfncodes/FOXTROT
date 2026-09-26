@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - claude/foxtrot-web-game-bj1a0a
+      - main
   workflow_dispatch:
 
 permissions:
