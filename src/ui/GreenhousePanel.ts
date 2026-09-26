@@ -58,15 +58,7 @@ export class GreenhousePanel {
       if (plant) this.renderPlant(plant);
       else this.renderDisplayChoice(t.id);
     }
-    // Anything indoors can be moved — with its plant, if it has one.
-    if (findFurniture(this.game.state, t.id)) {
-      const row = el('div', 'action-row');
-      row.appendChild(button('Move it…', () => {
-        this.panel.close();
-        this.game.beginArrange(undefined, t.id);
-      }, 'secondary-btn'));
-      this.panel.body.appendChild(row);
-    }
+    // Moving the piece (plant and all) lives in arrange mode, the 🪑 button indoors.
   }
 
   private renderPotting(bedId: string) {
