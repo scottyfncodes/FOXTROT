@@ -119,8 +119,9 @@ export class ModeBar {
     }
     const sel = m.selectedId ? state.decor.find((d) => d.id === m.selectedId) : undefined;
     if (sel) {
-      status.textContent = `${nameOf(sel.decorId)} · drag to move`;
-      row.append(bigButton('Put away', 'secondary', () => this.game.tools.storeSelected()), done);
+      const occupied = occupantOf(state, { slotId: sel.id });
+      status.textContent = occupied ? `${nameOf(sel.decorId)} · with its ${specimenName(occupied.defId, occupied.variantId)} — drag to move them together` : `${nameOf(sel.decorId)} · drag to move`;
+      row.append(bigButton('Put away', 'secondary', () => this.game.tools.storeSelected(), !!occupied), done);
       this.root.append(status, row);
       return;
     }

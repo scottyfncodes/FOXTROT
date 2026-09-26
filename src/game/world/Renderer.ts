@@ -6,7 +6,7 @@ import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, zoneAt, isWater, type Rect } f
 import { ZONES } from '../data/zones';
 import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
 import { displaySlots, climbsTrellis } from '../systems/furniture';
-import { trellisAt } from '../systems/decor';
+import { occupantOf } from '../systems/propagation';
 import { STALL_ID, stallRect, yardFootprint, type YardPiece } from '../systems/yard';
 import { PLANTS, lookFor, specimenRarity, rarityRank } from '../data/plants';
 import { TOOL_PICKUPS } from '../data/toolPickups';
@@ -670,19 +670,7 @@ export class Renderer {
     const dy = wy - state.player.y;
     const hides = dy > 0 && dy < 0.6 + sf * 0.3 && Math.abs(dx) < 0.5 + sf * 0.25;
     if (hides) ctx.globalAlpha = 0.45;
-    if (climbsTrellis(PLANTS[p.defId]?.form ?? '') && trellisAt(state, wx, wy)) {
-      // At the foot of a garden trellis a vine climbs it: its hanging form
-      // mirrored upward about the ground, clipped so nothing spills below.
-      const base = s.y + tile * 0.05;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(s.x - tile * 1.2, base - tile * 1.9, tile * 2.4, tile * 1.9);
-      ctx.clip();
-      ctx.translate(0, 2 * base);
-      ctx.scale(1, -1);
-      this.drawPlantSprite(s.x, base, tile * 0.85, p.defId, p.variantId, sf, p.seed, 'hanging', now);
-      ctx.restore();
-    } else this.drawPlantSprite(s.x, s.y + tile * 0.05, tile, p.defId, p.variantId, sf, p.seed, 'ground', now, state.weather.condition === 'rain');
+    this.drawPlantSprite(s.x, s.y + tile * 0.05, tile, p.defId, p.variantId, sf, p.seed, 'ground', now, state.weather.condition === 'rain');
     ctx.globalAlpha = 1;
     if (p.unnoticed) this.drawSparkle(s.x, s.y - tile * 0.35, tile, now, '#fff4c2', 3);
   }
@@ -945,34 +933,9 @@ export class Renderer {
         break;
       }
       case 'gardenTrellis': {
-        // A freestanding cedar lattice, two posts driven into the ground.
-        const left = s.x - tile * 0.4;
-        const right = s.x + tile * 0.4;
-        const top = s.y - tile * 1.35;
-        const floor = s.y;
-        ctx.fillStyle = 'rgba(0,0,0,0.2)';
-        ctx.fillRect(left, floor - tile * 0.03, right - left, tile * 0.08);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(left, top, right - left, floor - top - tile * 0.1);
-        ctx.clip();
-        ctx.strokeStyle = '#a7784a';
-        ctx.lineWidth = Math.max(1, tile * 0.03);
-        const step = tile * 0.2;
-        ctx.beginPath();
-        for (let k = -8; k <= 10; k++) {
-          const x0 = left + k * step;
-          ctx.moveTo(x0, floor);
-          ctx.lineTo(x0 + (floor - top), top);
-          ctx.moveTo(x0, top);
-          ctx.lineTo(x0 + (floor - top), floor);
-        }
-        ctx.stroke();
-        ctx.restore();
-        ctx.fillStyle = '#7e5634';
-        ctx.fillRect(left - tile * 0.03, top - tile * 0.03, tile * 0.06, floor - top + tile * 0.03);
-        ctx.fillRect(right - tile * 0.03, top - tile * 0.03, tile * 0.06, floor - top + tile * 0.03);
-        ctx.fillRect(left - tile * 0.03, top - tile * 0.05, right - left + tile * 0.06, tile * 0.06);
+        // A planter, like the wall trellis indoors: a pot at its foot, vines climbing the lattice.
+        const slot: DisplaySlot = { id: d.id, x: d.x - 0.5, y: d.y - 0.8, kind: 'trellis' };
+        this.drawDisplaySlot(camera, slot, occupantOf(state, { slotId: d.id }), now);
         break;
       }
       case 'gardenBench': {

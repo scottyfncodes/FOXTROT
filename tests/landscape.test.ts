@@ -333,37 +333,44 @@ describe('hauling rocks away', () => {
   });
 });
 
+
 describe('garden trellis', () => {
-  it('is sold as garden decor, and a vine planted at its foot climbs it', async () => {
+  it('is a planter, like the wall trellis indoors: pot a plant in it, and it moves with it', async () => {
     const { createNewGame } = await import('../src/game/state');
     const { buyItem } = await import('../src/game/systems/market');
-    const { placeDecor, trellisAt } = await import('../src/game/systems/decor');
-    const { climbsTrellis } = await import('../src/game/systems/furniture');
-    const { PLANTS } = await import('../src/game/data/plants');
+    const { placeDecor, moveDecor, pickUpDecor, gardenPlanter } = await import('../src/game/systems/decor');
+    const { placeOnDisplay, occupantOf, liftPlant } = await import('../src/game/systems/propagation');
     const state = createNewGame();
     state.coins = 500;
     expect(buyItem(state, 'gardenTrellis')).toBe(true);
-    expect(state.decorStock.gardenTrellis).toBe(1);
     const t = placeDecor(state, 'gardenTrellis', 60.5, 42.5)!;
-    expect(t).not.toBeNull();
-    // Right at its foot, in front: climbs. Behind it, or off to one side: doesn't.
-    expect(trellisAt(state, t.x, t.y + 0.3)?.id).toBe(t.id);
-    expect(trellisAt(state, t.x + 0.4, t.y + 0.6)?.id).toBe(t.id);
-    expect(trellisAt(state, t.x, t.y - 0.5)).toBeNull();
-    expect(trellisAt(state, t.x + 1.2, t.y + 0.3)).toBeNull();
-    expect(climbsTrellis(PLANTS.pothos.form)).toBe(true);
-    expect(climbsTrellis(PLANTS.monstera.form)).toBe(false);
+    expect(gardenPlanter(state, t.id)).toBe(t);
+    state.collection.pothos = { foundAt: 0, variants: ['golden'], grown: 2, propagated: 0, sold: 0, earned: 0, plantedOut: 0, displayed: 0 };
+    state.basket.push({ uid: 'u', defId: 'pothos', variantId: 'golden', seed: 1, growth: 600, generation: 1, origin: 'lifted', collectedAt: 0 });
+    const plant = placeOnDisplay(state, 'u', t.id, 'terracotta', 0)!;
+    expect(plant.location).toEqual({ kind: 'display', slotId: t.id, potId: 'terracotta' });
+    // Can't be put away with a plant in it; moving it takes the plant along.
+    expect(pickUpDecor(state, t.id)).toBe(false);
+    expect(moveDecor(state, t.id, 55.5, 30.5)).toBe(true);
+    expect(occupantOf(state, { slotId: t.id })?.id).toBe(plant.id);
+    // Lift the plant out and it can be put away again.
+    expect(liftPlant(state, plant.id, 0)).not.toBeNull();
+    expect(pickUpDecor(state, t.id)).toBe(true);
   });
 
-  it('lets a plant go in right at its foot, where other decor needs room around it', async () => {
+  it('grows its plant as an outdoor plant — by the country it stands in, not the greenhouse lights', async () => {
     const { createNewGame } = await import('../src/game/state');
-    const { checkPlanting } = await import('../src/game/systems/landscape');
+    const { growthMultiplier } = await import('../src/game/systems/growth');
+    const { PLANTS } = await import('../src/game/data/plants');
     const state = createNewGame();
-    const world = { isBuiltOrWater: () => false, obstacleAt: () => null, isSpot: () => false };
-    state.decor.push({ id: 't', decorId: 'gardenTrellis', x: 60.5, y: 42.5 }, { id: 'b', decorId: 'birdbath', x: 64.5, y: 42.5 });
-    expect(checkPlanting(state, 'pothos', 60.5, 42.8, world as never, 0).block).not.toBe('decor');
-    expect(checkPlanting(state, 'pothos', 64.5, 42.8, world as never, 0).block).toBe('decor');
-    // Not behind it, though: that's where the lattice is.
-    expect(checkPlanting(state, 'pothos', 60.5, 42.2, world as never, 0).block).toBe('decor');
+    state.owned.push('growLights');
+    state.decor.push({ id: 'meadowT', decorId: 'gardenTrellis', x: 60.5, y: 30.5 }, { id: 'rockyT', decorId: 'gardenTrellis', x: 60.5, y: 50.5 });
+    const base = { variantId: 'golden', seed: 1, growth: 600, plantedAt: 0, lastCuttingAt: null, generation: 1, bornWild: false, defId: 'pothos' };
+    const inMeadow = { ...base, id: 'a', location: { kind: 'display' as const, slotId: 'meadowT', potId: 'terracotta' } };
+    const onRocks = { ...base, id: 'b', location: { kind: 'display' as const, slotId: 'rockyT', potId: 'terracotta' } };
+    const indoors = { ...base, id: 'c', location: { kind: 'display' as const, slotId: 'stand1', potId: 'terracotta' } };
+    expect(growthMultiplier(state, inMeadow)).toBeCloseTo(PLANTS.pothos.growthRate * 1.3);
+    expect(growthMultiplier(state, onRocks)).toBeCloseTo(PLANTS.pothos.growthRate * 0.85);
+    expect(growthMultiplier(state, indoors)).toBeCloseTo(PLANTS.pothos.growthRate * 1.5);
   });
 });

@@ -68,7 +68,7 @@ import {
   crossOf,
 } from '../systems/propagation';
 import { sellItem, buyItem } from '../systems/market';
-import { pickUpDecor, nearestDecor, moveDecor, decorFits } from '../systems/decor';
+import { pickUpDecor, nearestDecor, moveDecor, decorFits, isGardenPlanter } from '../systems/decor';
 import { stallRect } from '../systems/yard';
 
 export type InteractableKind =
@@ -728,7 +728,12 @@ export class Game {
     if (!p.inGreenhouse) {
       for (const d of this.state.decor) {
         const name = findShopItem(d.decorId)?.name ?? 'decor';
-        consider({ kind: 'decor', id: d.id, x: d.x, y: d.y, label: `Move the ${name}`, available: true }, d.x, d.y, 1.0);
+        if (isGardenPlanter(d.decorId)) {
+          // A garden trellis is a planter, like the one indoors: walking up to it opens it. It moves with the 🪑 button.
+          const plant = occupantOf(this.state, { slotId: d.id });
+          const label = plant ? `${specimenName(plant.defId, plant.variantId)} — ${STAGE_LABEL[stageName(plant)]}` : `Empty ${name.toLowerCase()}`;
+          consider({ kind: 'display', id: d.id, x: d.x, y: d.y, label, available: true }, d.x, d.y, 1.0);
+        } else consider({ kind: 'decor', id: d.id, x: d.x, y: d.y, label: `Move the ${name}`, available: true }, d.x, d.y, 1.0);
       }
       for (const spot of DISCOVERY_SPOTS) {
         const c = spotContent(this.state, spot);
@@ -1538,7 +1543,10 @@ export class Game {
   }
 
   nearbyDecor() {
-    return this.state.player.inGreenhouse ? null : nearestDecor(this.state, this.state.player.x, this.state.player.y + 0.4, 1.2);
+    if (this.state.player.inGreenhouse) return null;
+    const d = nearestDecor(this.state, this.state.player.x, this.state.player.y + 0.4, 1.2);
+    // A planter with a plant in it can't be picked up.
+    return d && !occupantOf(this.state, { slotId: d.id }) ? d : null;
   }
 
   pickUpNearbyDecor() {

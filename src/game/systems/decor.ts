@@ -1,6 +1,21 @@
 import type { GameState, PlacedDecor } from '../state';
 import { makeUid } from '../state';
 import type { DecorId } from '../data/shop';
+import { occupantOf } from './propagation';
+
+/**
+ * Decor that holds a potted plant, the way a stand or the wall trellis does
+ * indoors: the garden trellis. Its plant lives on display (slotId = the
+ * trellis's id) and travels with it when it's moved.
+ */
+export function isGardenPlanter(decorId: DecorId): boolean {
+  return decorId === 'gardenTrellis';
+}
+
+/** The garden planter with this id, if it is one. */
+export function gardenPlanter(state: Pick<GameState, 'decor'>, id: string): PlacedDecor | undefined {
+  return state.decor.find((d) => d.id === id && isGardenPlanter(d.decorId));
+}
 
 /** Puts a piece of stocked garden decor down at (x, y). */
 export function placeDecor(state: GameState, decorId: DecorId, x: number, y: number): PlacedDecor | null {
@@ -39,30 +54,11 @@ export function moveDecor(state: GameState, id: string, x: number, y: number): b
   return true;
 }
 
-/** Picks a placed piece back up into stock, to move it somewhere else. */
+/** Picks a placed piece back up into stock, to move it somewhere else. A planter with a plant in it stays. */
 export function pickUpDecor(state: GameState, id: string): boolean {
   const idx = state.decor.findIndex((d) => d.id === id);
-  if (idx === -1) return false;
+  if (idx === -1 || occupantOf(state, { slotId: id })) return false;
   const [d] = state.decor.splice(idx, 1);
   state.decorStock[d.decorId] = (state.decorStock[d.decorId] ?? 0) + 1;
   return true;
 }
-
-/**
- * The garden trellis a plant at (x, y) would climb: one standing just behind
- * it (the plant at its foot, in front of the lattice). Only vines and
- * trailers climb; ask climbsTrellis() about the plant's form.
- */
-export function trellisAt(state: Pick<GameState, 'decor'>, x: number, y: number): PlacedDecor | null {
-  for (const d of state.decor) {
-    if (d.decorId !== 'gardenTrellis') continue;
-    const dx = x - d.x;
-    const dy = y - d.y;
-    if (Math.abs(dx) <= TRELLIS_REACH_X && dy >= -0.05 && dy <= TRELLIS_REACH_Y) return d;
-  }
-  return null;
-}
-
-/** How far to the side of a trellis, and in front of it, a plant can stand and still climb it. */
-export const TRELLIS_REACH_X = 0.55;
-export const TRELLIS_REACH_Y = 0.8;
