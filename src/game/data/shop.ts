@@ -97,7 +97,9 @@ export const DECOR_IDS: DecorId[] = ['steppingStones', 'picketFence', 'gardenLan
 /**
  * Everything that can stand (or hang) indoors. The first group is sold at
  * the market; the second is the greenhouse's own original fittings, which
- * can be moved or stored like anything else once the player picks them up.
+ * can be moved or stored like anything else once the player picks them up;
+ * the third is the living room's furniture, which can be moved but stays.
+ * FURNITURE_IDS lists only what can ever be in stock.
  */
 export type FurnitureId =
   | 'plantStand'
@@ -113,7 +115,20 @@ export type FurnitureId =
   | 'nurseryBed'
   | 'wallShelf'
   | 'tieredStand'
-  | 'sunroomStand';
+  | 'sunroomStand'
+  // The living room's own furniture: moved like anything else, never put away.
+  | 'tv'
+  | 'couch'
+  | 'coffeeTable'
+  | 'sideTable'
+  | 'catTree'
+  | 'catBed'
+  | 'puttingMat'
+  | 'rug'
+  | 'bookshelf'
+  | 'doormat'
+  | 'coatRack'
+  | 'floorLamp';
 export const FURNITURE_IDS: FurnitureId[] = [
   'plantStand',
   'ironPedestal',

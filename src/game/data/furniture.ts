@@ -21,6 +21,10 @@ export interface FurnitureDef {
   layer: FurnitureLayer;
   /** Can be turned a quarter-turn (its footprint swaps). */
   rotatable?: boolean;
+  /** Part of the house: it can be moved but never put away. */
+  fixed?: boolean;
+  /** Lies flat but keeps its floor to itself (the cat's bed, the putting mat). */
+  reserves?: boolean;
 }
 
 export const FURNITURE_DEFS: Record<FurnitureId, FurnitureDef> = {
@@ -38,6 +42,19 @@ export const FURNITURE_DEFS: Record<FurnitureId, FurnitureDef> = {
   growLamp: { id: 'growLamp', name: 'Grow Lamp', role: 'lamp', w: 0.32, h: 0.32, layer: 'floor' },
   wateringCan: { id: 'wateringCan', name: 'Watering Can', role: 'decor', w: 0.36, h: 0.26, layer: 'floor' },
   houseRug: { id: 'houseRug', name: 'Woven Rug', role: 'decor', w: 1.8, h: 1.2, layer: 'flat', rotatable: true },
+  // The living room. Sizes match the layout in interior.ts.
+  tv: { id: 'tv', name: 'TV', role: 'decor', w: 1.3, h: 0.42, layer: 'floor', fixed: true },
+  couch: { id: 'couch', name: 'Couch', role: 'decor', w: 2.0, h: 0.8, layer: 'floor', fixed: true },
+  coffeeTable: { id: 'coffeeTable', name: 'Coffee Table', role: 'decor', w: 0.95, h: 0.42, layer: 'floor', fixed: true },
+  sideTable: { id: 'sideTable', name: 'Side Table', role: 'decor', w: 0.5, h: 0.5, layer: 'floor', fixed: true },
+  catTree: { id: 'catTree', name: 'Cat Tree', role: 'decor', w: 0.6, h: 0.6, layer: 'floor', fixed: true },
+  catBed: { id: 'catBed', name: 'Cat Bed', role: 'decor', w: 0.75, h: 0.5, layer: 'flat', fixed: true, reserves: true },
+  puttingMat: { id: 'puttingMat', name: 'Putting Mat', role: 'decor', w: 3.8, h: 0.6, layer: 'flat', fixed: true, reserves: true },
+  rug: { id: 'rug', name: 'Living Room Rug', role: 'decor', w: 3.5, h: 2.5, layer: 'flat', fixed: true },
+  bookshelf: { id: 'bookshelf', name: 'Bookshelf', role: 'decor', w: 1.0, h: 0.42, layer: 'floor', fixed: true },
+  doormat: { id: 'doormat', name: 'Doormat', role: 'decor', w: 1.5, h: 0.5, layer: 'flat', fixed: true, reserves: true },
+  coatRack: { id: 'coatRack', name: 'Coat Rack', role: 'decor', w: 0.5, h: 0.5, layer: 'floor', fixed: true },
+  floorLamp: { id: 'floorLamp', name: 'Floor Lamp', role: 'decor', w: 0.35, h: 0.35, layer: 'floor', fixed: true },
 };
 
 /** How far a grow lamp's light reaches, in tiles, and how much it speeds things up. */

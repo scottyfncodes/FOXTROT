@@ -40,7 +40,13 @@ grow in patches all over it.
   her own ideas about your plants.
 - **Arrange it yourself.** Everything indoors — beds, trays, stands, tables,
   planters, hooks, lamps, rugs — can be dragged anywhere, turned, or put
-  away (🪑 button indoors). Plants move with their pots.
+  away (🪑 button indoors). Plants move with their pots. The living room's
+  own furniture (couch, TV, cat bed, cat tree, putting mat…) can be moved
+  too, and the cat and Scott follow their favourite spots wherever they go.
+- **Putt-putt.** Walk up to the putting mat in the living room for six holes
+  laid out with whatever was lying around — a mug, a slipper, books, and the
+  cat. Drag back from the ball and let go. The first hole in one on each hole
+  is worth a few coins, and the house remembers your best round.
 - **Shape the land.** Drag a plant to exactly where it should grow; move it
   while it's young. Compost plants in the wrong place (for compost, and
   maybe a cutting — maybe not quite the same). Dig garden beds (🌿 button)

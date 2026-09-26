@@ -3,7 +3,7 @@ import { makeUid } from '../state';
 import type { FurnitureId } from '../data/shop';
 import { DISPLAY_SLOTS, GREENHOUSE_FURNITURE, NURSERY_BEDS, STORAGE_CRATES, type DisplayKind, type DisplaySlot } from '../data/stations';
 import { FURNITURE_DEFS, GROW_LAMP_RADIUS, type FurnitureDef } from '../data/furniture';
-import { INTERIOR_H, INTERIOR_W, LIVING_FIXTURES, PARTITION_X, isKeepClearTile, type InteriorRect } from '../data/interior';
+import { INTERIOR_H, INTERIOR_W, LIVING_FIXTURES, PARTITION_X, PUTTING_CUP_OFFSET, isKeepClearTile, type InteriorRect, type LivingFixture } from '../data/interior';
 import { occupantOf } from './propagation';
 
 // Indoor furniture: everything that stands, hangs or lies in the house and
@@ -16,7 +16,8 @@ import { occupantOf } from './propagation';
 // stand where the layout data puts them, so old saves and a fresh game look
 // the same, and the first time the player picks one up it becomes an
 // ordinary placed piece with the same id — so whatever is growing in it
-// comes along.
+// comes along. The living room's furniture works the same way, except it
+// can only be moved, never put away: the cat is not giving up her bed.
 
 export const FURNITURE_SLOT_KIND: Partial<Record<FurnitureId, DisplayKind>> = Object.fromEntries(
   Object.values(FURNITURE_DEFS)
@@ -43,7 +44,30 @@ export function builtInFurniture(state: Pick<GameState, 'owned' | 'seededFixture
   const out: PlacedFurniture[] = [];
   for (const b of NURSERY_BEDS) if (has(b.requires) && !seeded.includes(b.id)) out.push({ id: b.id, kind: 'nurseryBed', x: b.x, y: b.y });
   for (const s of DISPLAY_SLOTS) if (has(s.requires) && !seeded.includes(s.id)) out.push({ id: s.id, kind: BUILT_IN_KIND[s.kind], x: s.x, y: s.y });
+  for (const f of LIVING_FIXTURES) if (!seeded.includes(f.id)) out.push(fixtureHome(f));
   return out;
+}
+
+/** A living-room fixture as a piece, standing where the layout puts it (the inverse of footprint()). */
+function fixtureHome(f: LivingFixture): PlacedFurniture {
+  return { id: f.id, kind: f.kind, x: f.x + f.w / 2 - 0.5, y: f.y + f.h / 2 - 0.56 };
+}
+
+/** How far a living-room fixture has been moved from its original place, in tiles. */
+export function fixtureOffset(state: Pick<GameState, 'owned' | 'seededFixtures' | 'furniture'>, fixtureId: string): { dx: number; dy: number } {
+  const f = LIVING_FIXTURES.find((l) => l.id === fixtureId);
+  if (!f || !(state.seededFixtures ?? []).includes(fixtureId)) return { dx: 0, dy: 0 };
+  const piece = state.furniture.find((p) => p.id === fixtureId);
+  if (!piece) return { dx: 0, dy: 0 };
+  const home = fixtureHome(f);
+  return { dx: piece.x - home.x, dy: piece.y - home.y };
+}
+
+/** Where the putting mat's cup is right now, in interior tiles. */
+export function puttingCup(state: Pick<GameState, 'owned' | 'seededFixtures' | 'furniture'>): { x: number; y: number } {
+  const mat = LIVING_FIXTURES.find((f) => f.kind === 'puttingMat')!;
+  const { dx, dy } = fixtureOffset(state, mat.id);
+  return { x: mat.x + PUTTING_CUP_OFFSET.x + dx, y: mat.y + PUTTING_CUP_OFFSET.y + dy };
 }
 
 /** Every piece of furniture indoors right now. */
@@ -90,17 +114,11 @@ export function nurserySpots(state: GameState): PlacedFurniture[] {
   return allFurniture(state).filter((f) => FURNITURE_DEFS[f.kind]?.role === 'nursery');
 }
 
-/** Things that aren't furniture but still take up floor: fixed set dressing, the living room, the sun room's crates. */
+/** Things that aren't furniture but still take up floor: fixed greenhouse set dressing and the sun room's crates. */
 export function staticSolids(state: Pick<GameState, 'owned'>): InteriorRect[] {
   const rects: InteriorRect[] = GREENHOUSE_FURNITURE.map((f) => ({ x: f.x + 0.15, y: f.y + 0.2, w: 0.7, h: 0.6 }));
   if (!state.owned.includes('sunRoom')) for (const c of STORAGE_CRATES) rects.push({ x: c.x + 0.06, y: c.y + 0.1, w: 0.88, h: 0.8 });
-  for (const f of LIVING_FIXTURES) if (f.solid) rects.push({ x: f.x, y: f.y, w: f.w, h: f.h });
   return rects;
-}
-
-/** Floor you can't put furniture on even though you can walk on it (the putting mat, the cat's bed…). */
-function reservedFloor(): InteriorRect[] {
-  return LIVING_FIXTURES.filter((f) => !f.solid && f.kind !== 'rug').map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h }));
 }
 
 export type PlaceBlock = 'none-left' | 'wall' | 'doorway' | 'occupied';
@@ -119,7 +137,8 @@ export function sitBlockReason(state: GameState, kind: FurnitureId, x: number, y
   if (!def) return 'wall';
   const r = footprint(kind, x, y, opts.rot ?? 0);
   // Inside the walls, and not straddling the wall between the rooms.
-  if (r.x < 1 || r.y < 0.9 || r.x + r.w > INTERIOR_W - 1 || r.y + r.h > INTERIOR_H - 1) return 'wall';
+  // The north wall is drawn low, so things can stand right up against it (the TV, the bookshelf).
+  if (r.x < 1 || r.y < 0.7 || r.x + r.w > INTERIOR_W - 1 || r.y + r.h > INTERIOR_H - 1) return 'wall';
   if (r.x < PARTITION_X + 1 && r.x + r.w > PARTITION_X) return 'wall';
   if (def.layer === 'overhead') {
     // A hook can hang above anything, just not right next to another hook.
@@ -127,7 +146,18 @@ export function sitBlockReason(state: GameState, kind: FurnitureId, x: number, y
     if (others.some((f) => Math.hypot(f.x - x, f.y - y) < 0.55)) return 'occupied';
     return null;
   }
-  if (def.layer === 'flat') return null;
+  if (def.layer === 'flat') {
+    // A rug goes anywhere; the cat's bed or the putting mat needs clear floor.
+    if (!def.reserves) return null;
+    for (const f of allFurniture(state)) {
+      if (f.id === opts.ignoreId) continue;
+      const fd = FURNITURE_DEFS[f.kind];
+      if (!fd || !(fd.layer === 'floor' || fd.reserves)) continue;
+      if (rectsOverlap(r, footprint(f.kind, f.x, f.y, f.rot ?? 0))) return 'occupied';
+    }
+    for (const s of staticSolids(state)) if (rectsOverlap(r, s)) return 'occupied';
+    return null;
+  }
   for (let ty = Math.floor(r.y); ty <= Math.floor(r.y + r.h); ty++) {
     for (let tx = Math.floor(r.x); tx <= Math.floor(r.x + r.w); tx++) {
       if (isKeepClearTile(tx, ty) && rectTouchesTile(r, tx, ty)) return 'doorway';
@@ -136,10 +166,12 @@ export function sitBlockReason(state: GameState, kind: FurnitureId, x: number, y
   for (const f of allFurniture(state)) {
     if (f.id === opts.ignoreId) continue;
     const fd = FURNITURE_DEFS[f.kind];
-    if (!fd || fd.layer !== 'floor') continue;
-    if (rectsOverlap(r, footprint(f.kind, f.x, f.y, f.rot ?? 0), 0.02)) return 'occupied';
+    if (!fd) continue;
+    if (fd.layer === 'floor' && rectsOverlap(r, footprint(f.kind, f.x, f.y, f.rot ?? 0), 0.02)) return 'occupied';
+    // Floor you can walk on but can't furnish: the putting mat, the cat's bed…
+    if (fd.reserves && rectsOverlap(r, footprint(f.kind, f.x, f.y, f.rot ?? 0))) return 'occupied';
   }
-  for (const s of [...staticSolids(state), ...reservedFloor()]) if (rectsOverlap(r, s)) return 'occupied';
+  for (const s of staticSolids(state)) if (rectsOverlap(r, s)) return 'occupied';
   for (const p of opts.avoid ?? []) if (rectsOverlap(r, { x: p.x - 0.3, y: p.y - 0.3, w: 0.6, h: 0.6 })) return 'occupied';
   return null;
 }
@@ -193,7 +225,7 @@ export function rotateFurniture(state: GameState, id: string, avoid?: { x: numbe
 /** Picks an empty piece back up into stock, to set it down somewhere else. */
 export function pickUpFurniture(state: GameState, id: string): boolean {
   const piece = findFurniture(state, id);
-  if (!piece) return false;
+  if (!piece || FURNITURE_DEFS[piece.kind].fixed) return false;
   if (occupantOf(state, { slotId: id }) || occupantOf(state, { bedId: id })) return false;
   takeOver(state, id);
   const idx = state.furniture.findIndex((f) => f.id === id);

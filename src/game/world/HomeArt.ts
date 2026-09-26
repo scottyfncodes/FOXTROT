@@ -11,7 +11,7 @@ import {
   LIVING_WINDOWS,
   PARTITION_DOOR_YS,
   PARTITION_X,
-  PUTTING_CUP,
+  PUTTING_CUP_OFFSET,
   type LivingFixture,
 } from '../data/interior';
 import { SCOTT_APPEARANCE, ELLEN_APPEARANCE } from '../data/character';
@@ -302,11 +302,6 @@ export interface FixtureContext {
   scottRelaxing: boolean;
 }
 
-/** Things lying flat on the floor, drawn before anyone stands on them. */
-export function isFlatFixture(f: LivingFixture): boolean {
-  return f.kind === 'rug' || f.kind === 'puttingMat' || f.kind === 'doormat' || f.kind === 'catBed';
-}
-
 export function drawFixture(ctx: Ctx, camera: Camera, f: LivingFixture, fc: FixtureContext) {
   const tile = TILE_SIZE * camera.zoom;
   const a = camera.worldToScreen(f.x * TILE_SIZE, f.y * TILE_SIZE);
@@ -352,7 +347,7 @@ export function drawFixture(ctx: Ctx, camera: Camera, f: LivingFixture, fc: Fixt
       ctx.strokeStyle = '#e8e0cc';
       ctx.lineWidth = Math.max(1, tile * 0.03);
       ctx.strokeRect(a.x, a.y, w, h);
-      const cup = camera.worldToScreen(PUTTING_CUP.x * TILE_SIZE, PUTTING_CUP.y * TILE_SIZE);
+      const cup = camera.worldToScreen((f.x + PUTTING_CUP_OFFSET.x) * TILE_SIZE, (f.y + PUTTING_CUP_OFFSET.y) * TILE_SIZE);
       ctx.fillStyle = '#1a2a18';
       ctx.beginPath();
       ctx.ellipse(cup.x, cup.y, tile * 0.07, tile * 0.045, 0, 0, Math.PI * 2);

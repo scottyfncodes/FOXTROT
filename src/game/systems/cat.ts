@@ -1,5 +1,5 @@
 import type { CatActivity, CatState } from '../state';
-import { CAT_SPOTS, findCatSpot, type CatSpotKind } from '../data/catSpots';
+import { CAT_SPOTS, findCatSpot, spotPosition, type AnchorOffset, type CatSpotKind } from '../data/catSpots';
 import { interiorWaypoint } from '../data/interior';
 import { weightedPick } from '../engine/Random';
 
@@ -46,6 +46,8 @@ export interface CatTickContext {
   rand: () => number;
   /** Plants and trays around the house right now. */
   interests?: CatInterest[];
+  /** How far the living-room furniture has been moved, so her spots follow it. */
+  offset?: AnchorOffset;
 }
 
 function pickWhim(cat: CatState, ctx: CatTickContext): boolean {
@@ -95,6 +97,13 @@ export function catLift(cat: CatState): number {
 
 export function tickCat(cat: CatState, ctx: CatTickContext): void {
   if (cat.activity !== 'wandering') {
+    // Settled on a piece of furniture that's been moved: she goes with it.
+    const here = cat.currentSpotId ? findCatSpot(cat.currentSpotId) : undefined;
+    if (here?.anchor) {
+      const at = spotPosition(here, ctx.offset);
+      cat.x = at.x;
+      cat.y = at.y;
+    }
     if (ctx.now < cat.nextChangeAt) return;
     cat.targetX = null;
     cat.targetY = null;
@@ -117,8 +126,9 @@ export function tickCat(cat: CatState, ctx: CatTickContext): void {
     cat.nextChangeAt = ctx.now + 10;
     return;
   }
-  const tx = whim ? cat.targetX! : spot!.x;
-  const ty = whim ? cat.targetY! : spot!.y;
+  const at = spot ? spotPosition(spot, ctx.offset) : null;
+  const tx = whim ? cat.targetX! : at!.x;
+  const ty = whim ? cat.targetY! : at!.y;
 
   const d = Math.hypot(tx - cat.x, ty - cat.y);
   if (d > ARRIVE_DIST) {
