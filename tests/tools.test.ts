@@ -3,6 +3,7 @@ import { createNewGame, type GameState } from '../src/game/state';
 import { ToolController } from '../src/game/engine/Tools';
 import type { LandscapeWorld } from '../src/game/systems/landscape';
 import { findFurniture } from '../src/game/systems/furniture';
+import { STALL_ID, stallRect } from '../src/game/systems/yard';
 
 const world: LandscapeWorld = {
   obstacleAt: (x, y) => (x === 60 && y === 30 ? 'tree' : null),
@@ -177,6 +178,64 @@ describe('a press that turns into a pinch', () => {
     tools.cancelPress();
     const m = tools.mode;
     expect(m.kind === 'bed' && m.a).toBe(null);
+    expect(tools.canConfirm()).toBe(false);
+  });
+});
+
+describe('arranging the garden by touch', () => {
+  it('drags the market stall to a new spot, snapped to whole tiles', () => {
+    const { state, tools } = setup();
+    tools.startYard();
+    expect(tools.pointerDown(70, 42.2)).toBe('grab');
+    expect(tools.mode.kind === 'yard' && tools.mode.selectedId).toBe(STALL_ID);
+    tools.pointerMove(74.1, 46.3);
+    expect(tools.pointerUp(74.1, 46.3).kind).toBe('placed');
+    expect(state.stall).toEqual({ x: 73, y: 46 });
+    expect(stallRect(state)).toMatchObject({ x: 73, y: 46, w: 2, h: 1 });
+  });
+
+  it('springs the stall back if it’s let go in the creek or on top of a plant', () => {
+    const { state, tools } = setup();
+    state.plants.p = { id: 'p', defId: 'pothos', variantId: 'golden', seed: 1, growth: 300, location: { kind: 'wild', x: 74.5, y: 46.5, zone: 'meadow' }, plantedAt: 0, lastCuttingAt: null, generation: 0, bornWild: false };
+    tools.startYard();
+    tools.pointerDown(70, 42.2);
+    tools.pointerMove(42, 20.2);
+    expect(tools.mode.kind === 'yard' && tools.mode.drag?.block).toBe('ground');
+    tools.pointerMove(75, 46.2);
+    expect(tools.mode.kind === 'yard' && tools.mode.drag?.block).toBe('occupied');
+    expect(tools.pointerUp(75, 46.2).kind).toBe('none');
+    expect(state.stall).toEqual({ x: 69, y: 42 });
+  });
+
+  it('places garden decor from stock, moves it, and puts it away again — but never the stall', () => {
+    const { state, tools } = setup();
+    state.decorStock = { birdbath: 1 };
+    tools.startYard('birdbath', { x: 50, y: 20 });
+    expect(tools.mode.kind === 'yard' && tools.mode.pending?.decorId).toBe('birdbath');
+    expect(tools.confirm().kind).toBe('placed');
+    expect(state.decorStock.birdbath).toBe(0);
+    expect(state.decor[0]).toMatchObject({ decorId: 'birdbath', x: 50, y: 20 });
+    expect(tools.mode.kind).toBe('yard');
+
+    expect(tools.pointerDown(50, 19.8)).toBe('grab');
+    tools.pointerMove(52, 21.8);
+    expect(tools.pointerUp(52, 21.8).kind).toBe('placed');
+    expect(state.decor[0]).toMatchObject({ x: 52, y: 22 });
+
+    expect(tools.storeSelected()).toBe(true);
+    expect(state.decor).toHaveLength(0);
+    expect(state.decorStock.birdbath).toBe(1);
+
+    tools.select(STALL_ID);
+    expect(tools.storeSelected()).toBe(false);
+    expect(state.stall).toEqual({ x: 69, y: 42 });
+  });
+
+  it('won’t set decor down in the water', () => {
+    const { state, tools } = setup();
+    state.decorStock = { gardenLantern: 1 };
+    tools.startYard('gardenLantern', { x: 41, y: 20 });
+    expect(tools.mode.kind === 'yard' && tools.mode.pending?.block).toBe('ground');
     expect(tools.canConfirm()).toBe(false);
   });
 });

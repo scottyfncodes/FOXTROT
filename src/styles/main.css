@@ -1130,6 +1130,9 @@ button {
     transform: translateX(-50%);
     width: min(440px, calc(100vw - 28px));
   }
+  .mode-bar.arranging {
+    left: 50%;
+  }
 }
 
 .mode-status {

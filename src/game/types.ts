@@ -45,7 +45,8 @@ export type PlantForm =
   | 'trap' // low rosette of hinged, toothed snap-traps (venus flytrap)
   | 'dew' // spoon leaves bristling with dew-tipped hairs (sundew)
   | 'pitcher' // upright hooded trumpets (sarracenia)
-  | 'cups'; // a scrambling vine hanging lidded cups from its leaf tips (nepenthes)
+  | 'cups' // a scrambling vine hanging lidded cups from its leaf tips (nepenthes)
+  | 'fig'; // a little indoor tree: a woody trunk hung with big leathery leaves (fiddle leaf fig, rubber plant)
 
 /**
  * What kind of landscape a species pushes an area toward once it's
@@ -83,6 +84,8 @@ export interface PlantLook {
   grafted?: boolean;
   /** Old man cactus: shaggy white hair over the stems. */
   hairy?: boolean;
+  /** Figs: violin-waisted leaves (fiddle leaf) instead of plain ovals. */
+  fiddle?: boolean;
 }
 
 export interface VariantDef {

@@ -155,6 +155,67 @@ export const PLANTS: Record<string, PlantDef> = {
     spread: 0.4,
   },
 
+  // The figs: little indoor trees, slow to get going and tall once they have.
+  fiddleLeafFig: {
+    id: 'fiddleLeafFig',
+    name: 'Fiddle Leaf Fig',
+    latin: 'Ficus lyrata',
+    form: 'fig',
+    rarity: 'uncommon',
+    habitat: ['woodland', 'overgrownClearing'],
+    landscape: 'jungle',
+    description: 'A little tree hung with huge, leathery leaves shaped like violins. Famously sulky about being moved — but it grows tall once it settles.',
+    hint: 'A small tree whose leaves are shaped like violins.',
+    look: { hue: 112, sat: 46, light: 30, accentHue: 85, accentSat: 55, accentLight: 48, variegation: 'veins', variegationColor: [95, 38, 42], size: 1.3, fiddle: true },
+    variants: [
+      { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Glossy, dark violin leaves with pale ribs.', look: {} },
+      { id: 'bambino', name: 'Bambino', rarity: 'rare', description: 'A dwarf: small, tight, upright leaves on a compact little trunk.', look: { size: 0.85, leafWidth: 0.85 } },
+      { id: 'variegata', name: 'Variegata', rarity: 'veryRare', description: 'Every fiddle marbled with creamy yellow, no two alike.', look: { variegation: 'splash', variegationColor: CREAM, light: 34 } },
+    ],
+    growthRate: 0.75,
+    spread: 0.3,
+  },
+
+  rubberPlant: {
+    id: 'rubberPlant',
+    name: 'Rubber Plant',
+    latin: 'Ficus elastica',
+    form: 'fig',
+    rarity: 'common',
+    habitat: ['woodland', 'dampForest'],
+    landscape: 'jungle',
+    description: 'Thick, glossy, oval leaves, each unfurling from a blushing red sheath. Tough as old boots and happy almost anywhere.',
+    hint: 'Leaves like polished leather, each new one wrapped in red.',
+    look: { hue: 132, sat: 34, light: 22, accentHue: 350, accentSat: 60, accentLight: 42, variegation: 'none', size: 1.15, leafWidth: 0.9 },
+    variants: [
+      { id: 'robusta', name: 'Robusta', rarity: 'common', description: 'Deep green, almost black in the shade.', look: {} },
+      { id: 'burgundy', name: 'Burgundy', rarity: 'uncommon', description: 'Leaves so dark a red they read as black until the light hits them.', look: { hue: 345, sat: 30, light: 17, accentHue: 355, accentLight: 36 } },
+      { id: 'tineke', name: 'Tineke', rarity: 'rare', description: 'Cream and sage margins around a dark green heart, with a blush of pink on new growth.', look: { variegation: 'edge', variegationColor: CREAM, light: 30, accentHue: 340, accentLight: 66 } },
+      { id: 'ruby', name: 'Ruby', rarity: 'veryRare', description: 'Splashed with bright pink where the Tineke is cream.', look: { variegation: 'splash', variegationColor: PINK, light: 28, accentHue: 340, accentLight: 62 } },
+    ],
+    growthRate: 0.95,
+    spread: 0.35,
+  },
+
+  ficusAudrey: {
+    id: 'ficusAudrey',
+    name: 'Ficus Audrey',
+    latin: 'Ficus benghalensis',
+    form: 'fig',
+    rarity: 'rare',
+    habitat: ['overgrownClearing'],
+    landscape: 'jungle',
+    description: 'The banyan’s houseplant cousin: soft, velvety oval leaves traced with pale veins. Slow, steady and very hard to upset.',
+    hint: 'Velvet leaves on a pale trunk, where the clearing is overgrown.',
+    look: { hue: 100, sat: 36, light: 36, accentHue: 70, accentSat: 30, accentLight: 70, variegation: 'veins', variegationColor: [75, 35, 72], size: 1.2, leafWidth: 1.05 },
+    variants: [
+      { id: 'audrey', name: 'Audrey', rarity: 'rare', description: 'Matte green leaves traced with cream veins.', look: {} },
+      { id: 'krishna', name: 'Krishna', rarity: 'veryRare', description: 'Every leaf folded into a little cup at the base — the legend says, for stealing butter.', look: { leafWidth: 0.75, ruffled: true, size: 1.05 } },
+    ],
+    growthRate: 0.8,
+    spread: 0.3,
+  },
+
   // ----------------------------------------------------------------- Creek
   syngonium: {
     id: 'syngonium',

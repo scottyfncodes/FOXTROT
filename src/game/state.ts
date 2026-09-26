@@ -1,6 +1,6 @@
 import type { OutdoorZoneId, ZoneId } from './types';
 import type { DecorId, FurnitureId } from './data/shop';
-import { PLAYER_START } from './data/worldMap';
+import { MARKET_STALL, PLAYER_START } from './data/worldMap';
 import { SHOP_ITEMS } from './data/shop';
 
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
@@ -248,6 +248,8 @@ export interface GameState {
   /** Garden decor bought but not yet placed. */
   decorStock: Partial<Record<DecorId, number>>;
   decor: PlacedDecor[];
+  /** Where the Plant Stand & Supply stall stands: its top-left tile. It can be moved like the decor. */
+  stall: { x: number; y: number };
   /** Greenhouse furniture bought but not yet placed. */
   furnitureStock: Partial<Record<FurnitureId, number>>;
   /** Stands, hooks, trays, tables… the player has placed or moved indoors. */
@@ -308,6 +310,7 @@ export function createNewGame(): GameState {
     seenShop: SHOP_ITEMS.filter((s) => !s.after).map((s) => s.id),
     decorStock: {},
     decor: [],
+    stall: { x: MARKET_STALL.x, y: MARKET_STALL.y },
     furnitureStock: {},
     furniture: [],
     seededFixtures: [],

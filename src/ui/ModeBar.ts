@@ -1,6 +1,7 @@
 import type { Game } from '../game/engine/Game';
 import { el, clear } from './dom';
-import { SHOP_ITEMS, FURNITURE_IDS } from '../game/data/shop';
+import { SHOP_ITEMS, FURNITURE_IDS, DECOR_IDS } from '../game/data/shop';
+import { STALL_ID } from '../game/systems/yard';
 import { FURNITURE_DEFS } from '../game/data/furniture';
 import { findFurniture } from '../game/systems/furniture';
 import { occupantOf } from '../game/systems/propagation';
@@ -37,6 +38,7 @@ export class ModeBar {
     let sig: string = m.kind;
     if (m.kind === 'plant') sig += `${m.check.block}|${m.check.bedId}`;
     else if (m.kind === 'arrange') sig += `${m.selectedId}|${m.pending?.kind}|${m.pending?.block}|${m.pending?.rot}|${JSON.stringify(state.furnitureStock)}|${state.furniture.length}`;
+    else if (m.kind === 'yard') sig += `${m.selectedId}|${m.pending?.decorId}|${m.pending?.block}|${JSON.stringify(state.decorStock)}|${state.decor.length}`;
     else if (m.kind === 'bed') sig += `${m.shape}|${m.block}|${this.game.tools.bedCost()}|${state.compost}|${!!m.a}`;
     else if (m.kind === 'path') sig += `${m.preview?.block}|${m.preview?.plants.length}|${m.points.length > 0}`;
     if (sig === this.sig) return;
@@ -48,7 +50,7 @@ export class ModeBar {
     const m = this.game.tools.mode;
     const state = this.game.state;
     this.root.classList.toggle('open', m.kind !== 'play');
-    this.root.classList.toggle('arranging', m.kind === 'arrange');
+    this.root.classList.toggle('arranging', m.kind === 'arrange' || m.kind === 'yard');
     clear(this.root);
     if (m.kind === 'play') return;
     const status = el('div', 'mode-status');
@@ -91,8 +93,45 @@ export class ModeBar {
     } else if (m.kind === 'arrange') {
       this.renderArrange(m, status, row);
       return;
+    } else if (m.kind === 'yard') {
+      this.renderYard(m, status, row);
+      return;
     }
     this.root.append(status, row);
+  }
+
+  private renderYard(m: Extract<Game['tools']['mode'], { kind: 'yard' }>, status: HTMLElement, row: HTMLElement) {
+    const state = this.game.state;
+    const done = bigButton('Done', 'confirm', () => this.game.cancelTool());
+    const nameOf = (id: string) => SHOP_ITEMS.find((s) => s.id === id)?.name ?? 'piece';
+    if (m.pending) {
+      const name = nameOf(m.pending.decorId).toLowerCase();
+      status.textContent = m.pending.block ? `Not there — drag the ${name} onto open ground` : `Set the ${name} down here?`;
+      row.append(bigButton('✕', 'cancel', () => this.game.tools.storeSelected()), bigButton('✓ Place', 'confirm', () => this.game.confirmTool(), !!m.pending.block));
+      this.root.append(status, row);
+      return;
+    }
+    if (m.selectedId === STALL_ID) {
+      status.textContent = 'Plant Stand & Supply · drag to move the whole stall';
+      row.append(done);
+      this.root.append(status, row);
+      return;
+    }
+    const sel = m.selectedId ? state.decor.find((d) => d.id === m.selectedId) : undefined;
+    if (sel) {
+      status.textContent = `${nameOf(sel.decorId)} · drag to move`;
+      row.append(bigButton('Put away', 'secondary', () => this.game.tools.storeSelected()), done);
+      this.root.append(status, row);
+      return;
+    }
+    status.textContent = 'Drag anything to move it — the stall too. Drag the ground to look around.';
+    const stocked = DECOR_IDS.filter((id) => (state.decorStock[id] ?? 0) > 0);
+    if (stocked.length) {
+      const tray = el('div', 'stock-tray');
+      for (const id of stocked) tray.appendChild(bigButton(`${nameOf(id)} ×${state.decorStock[id]}`, 'stock', () => this.game.addDecorFromStock(id)));
+      this.root.append(status, tray, row);
+    } else this.root.append(status, row);
+    row.append(done);
   }
 
   private renderArrange(m: Extract<Game['tools']['mode'], { kind: 'arrange' }>, status: HTMLElement, row: HTMLElement) {

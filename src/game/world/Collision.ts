@@ -1,17 +1,18 @@
 import type { GameState } from '../state';
-import { GREENHOUSE_DOOR, GREENHOUSE_FOOTPRINT, HOUSE_FOOTPRINT, MARKET_STALL, isInBounds, isWater, rectContains } from '../data/worldMap';
+import { GREENHOUSE_DOOR, GREENHOUSE_FOOTPRINT, HOUSE_FOOTPRINT, MARKET_STALL, isInBounds, isWater, rectContains, type Rect } from '../data/worldMap';
 import { isInteriorWallTile, type InteriorRect } from '../data/interior';
 import { FURNITURE_DEFS } from '../data/furniture';
 import { allFurniture, footprint, staticSolids } from '../systems/furniture';
 
-export function isBlockedOutdoor(x: number, y: number, blockingSet: Set<string>): boolean {
+/** `stall` is where the market stall stands now (it can be moved). */
+export function isBlockedOutdoor(x: number, y: number, blockingSet: Set<string>, stall: Rect = MARKET_STALL): boolean {
   const tx = Math.floor(x);
   const ty = Math.floor(y);
   if (!isInBounds(tx, ty)) return true;
   if (isWater(tx, ty)) return true;
   if (rectContains(GREENHOUSE_FOOTPRINT, tx, ty) && !(tx === GREENHOUSE_DOOR.x && ty === GREENHOUSE_DOOR.y)) return true;
   if (rectContains(HOUSE_FOOTPRINT, tx, ty)) return true;
-  if (rectContains(MARKET_STALL, tx, ty)) return true;
+  if (rectContains(stall, tx, ty)) return true;
   if (blockingSet.has(`${tx},${ty}`)) return true;
   return false;
 }

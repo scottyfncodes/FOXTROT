@@ -2,11 +2,12 @@ import { Camera } from '../engine/Camera';
 import type { GameState, ScoutState, ScottState, CatState, Facing, OwnedPlant, PlacedDecor } from '../state';
 import type { Obstacle } from './Obstacles';
 import type { DiscoverySpot, ZoneId } from '../types';
-import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, MARKET_STALL, zoneAt, isWater } from '../data/worldMap';
+import { TILE_SIZE, GRID_W, GREENHOUSE_FOOTPRINT, zoneAt, isWater, type Rect } from '../data/worldMap';
 import { ZONES } from '../data/zones';
 import { GREENHOUSE_GRID_W, GREENHOUSE_GRID_H, GREENHOUSE_EXIT, NURSERY_BEDS, STORAGE_CRATES, type DisplaySlot } from '../data/stations';
 import { displaySlots, climbsTrellis } from '../systems/furniture';
 import { trellisAt } from '../systems/decor';
+import { STALL_ID, stallRect, yardFootprint, type YardPiece } from '../systems/yard';
 import { PLANTS, lookFor, specimenRarity, rarityRank } from '../data/plants';
 import { TOOL_PICKUPS } from '../data/toolPickups';
 import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
@@ -219,7 +220,12 @@ export class Renderer {
       if (!inView(spot.x, spot.y)) continue;
       drawables.push({ y: spot.y + 0.5, draw: () => this.drawSpot(camera, state, spot, now) });
     }
-    for (const d of state.decor) {
+    // While arranging outdoors, a piece being dragged is drawn where the finger has it.
+    const yard = extras.tools.kind === 'yard' ? extras.tools : null;
+    const decor: PlacedDecor[] = state.decor.map((d) => (yard?.drag?.id === d.id ? { ...d, x: yard.drag.x, y: yard.drag.y } : d));
+    if (yard?.pending) decor.push({ id: '__pending', decorId: yard.pending.decorId, x: yard.pending.x, y: yard.pending.y });
+    const stall = yard?.drag?.id === STALL_ID ? { ...stallRect(state), x: yard.drag.x, y: yard.drag.y } : stallRect(state);
+    for (const d of decor) {
       if (!inView(d.x, d.y)) continue;
       // A trellis stands just behind whatever is climbing it.
       drawables.push({ y: d.decorId === 'gardenTrellis' ? d.y - 0.1 : d.y, draw: () => this.drawDecor(camera, d, state, now) });
@@ -228,8 +234,8 @@ export class Renderer {
       if (state.tools[tp.tool] || !inView(tp.x, tp.y)) continue;
       drawables.push({ y: tp.y + 0.5, draw: () => this.drawLanternPickup(camera, tp.x + 0.5, tp.y + 0.5, now) });
     }
-    if (inView(MARKET_STALL.x, MARKET_STALL.y, 4)) {
-      drawables.push({ y: MARKET_STALL.y + 0.8, draw: () => this.drawMarketStall(camera, state, now) });
+    if (inView(stall.x, stall.y, 4)) {
+      drawables.push({ y: stall.y + 0.8, draw: () => this.drawMarketStall(camera, state, now, stall) });
     }
     if (state.fox.visible && !state.player.inGreenhouse) {
       const fade = foxFade(state);
@@ -307,6 +313,10 @@ export class Renderer {
       if (spec) drawBedPreview(this.ctx, camera, spec, tools.block, state.compost);
     } else if (tools.kind === 'path') {
       if (tools.points.length >= 2) drawPathPreview(this.ctx, camera, tools.points, tools.preview, PATH_WIDTH);
+    }
+    if (yard) {
+      const pieces: YardPiece[] = [{ id: STALL_ID, kind: 'stall', x: stall.x, y: stall.y }, ...decor.map((d) => ({ id: d.id, kind: d.decorId, x: d.x, y: d.y }))];
+      this.drawYardOverlay(camera, yard, pieces);
     }
     const nowMs = performance.now();
     for (const f of extras.flourishes) drawFlourish(this.ctx, camera, f, nowMs);
@@ -810,11 +820,11 @@ export class Renderer {
    * and a chalkboard advertising what people are asking for today.
    * Upgrades show up on the stall itself.
    */
-  private drawMarketStall(camera: Camera, state: GameState, now: number) {
+  private drawMarketStall(camera: Camera, state: GameState, now: number, stall: Rect) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
-    const tl = camera.worldToScreen(MARKET_STALL.x * TILE_SIZE, MARKET_STALL.y * TILE_SIZE);
-    const w = MARKET_STALL.w * tile;
+    const tl = camera.worldToScreen(stall.x * TILE_SIZE, stall.y * TILE_SIZE);
+    const w = stall.w * tile;
     const awning = state.owned.includes('stallAwning');
     const crates = state.owned.includes('stallCrates');
     // Sized against the characters: the table comes to Ellen's hip and the
@@ -2764,6 +2774,35 @@ export class Renderer {
       ctx.restore();
     }
     void state;
+  }
+
+  /** Arranging outdoors: every movable garden piece is outlined; the one in hand shows whether it fits. */
+  private drawYardOverlay(camera: Camera, m: Extract<ToolMode, { kind: 'yard' }>, pieces: YardPiece[]) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const now = performance.now();
+    for (const p of pieces) {
+      const fp = yardFootprint(p.kind, p.x, p.y);
+      const a = camera.worldToScreen(fp.x * TILE_SIZE, fp.y * TILE_SIZE);
+      const isPending = p.id === '__pending';
+      const dragging = m.drag?.id === p.id;
+      const selected = m.selectedId === p.id || isPending;
+      const block = isPending ? m.pending?.block : dragging ? m.drag?.block : null;
+      ctx.save();
+      ctx.lineWidth = Math.max(1.5, tile * (selected || dragging ? 0.06 : 0.03));
+      if (block) ctx.strokeStyle = 'rgba(255,120,100,0.95)';
+      else if (selected || dragging) ctx.strokeStyle = `rgba(200,255,190,${0.75 + 0.25 * Math.sin(now * 0.006)})`;
+      else ctx.strokeStyle = 'rgba(246,239,224,0.45)';
+      if (!selected && !dragging) ctx.setLineDash([tile * 0.08, tile * 0.08]);
+      ctx.beginPath();
+      ctx.roundRect(a.x - tile * 0.06, a.y - tile * 0.06, fp.w * tile + tile * 0.12, fp.h * tile + tile * 0.12, tile * 0.08);
+      ctx.stroke();
+      if (block || selected || dragging) {
+        ctx.fillStyle = block ? 'rgba(255,110,90,0.18)' : 'rgba(160,230,150,0.12)';
+        ctx.fill();
+      }
+      ctx.restore();
+    }
   }
 
   /** Scout's own round bed: set dressing that makes the greenhouse somewhere they live. Movable like the rest. */
