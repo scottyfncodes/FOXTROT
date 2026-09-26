@@ -8,9 +8,9 @@ import { addToBasket, basketFull } from './basket';
 import { recordFound } from './collection';
 
 /** Relative odds of each species rarity turning up in a patch. */
-export const SPECIES_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 36, rare: 10, veryRare: 2.5, extremelyRare: 0.7, mythic: 0 };
+export const SPECIES_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 36, rare: 10, veryRare: 2.5, extremelyRare: 0.7, unheardOf: 0, mythic: 0 };
 /** Relative odds of each variant, compared with a common standard form at 100. */
-export const VARIANT_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 20, rare: 5, veryRare: 1.2, extremelyRare: 0.3, mythic: 0 };
+export const VARIANT_WEIGHT: Record<Rarity, number> = { common: 100, uncommon: 20, rare: 5, veryRare: 1.2, extremelyRare: 0.3, unheardOf: 0, mythic: 0 };
 
 export interface SpotContent {
   defId: string;
@@ -54,7 +54,7 @@ export function spotContent(state: GameState, spot: DiscoverySpot): SpotContent 
     def = weightedPick(fallback, (p) => SPECIES_WEIGHT[p.rarity], rand);
   }
   if (!def) return null;
-  const variant = weightedPick(def.variants, (v) => (v === def!.variants[0] ? 100 : VARIANT_WEIGHT[v.rarity]), rand) ?? def.variants[0];
+  const variant = weightedPick(def.variants, (v) => (v.sportOnly ? 0 : v === def!.variants[0] ? 100 : VARIANT_WEIGHT[v.rarity]), rand) ?? def.variants[0];
   return { defId: def.id, variantId: variant.id, seed: Math.floor(rand() * 1e9) };
 }
 

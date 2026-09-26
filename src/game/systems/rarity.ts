@@ -20,6 +20,7 @@ export function discoveryFlourish(r: Rarity, isNew: boolean): Flourish {
 /** The quiet line under a discovery toast: “Wait… this one is different.” */
 export function discoveryAside(r: Rarity): string {
   const rank = rarityRank(r);
+  if (rank >= 5 && r !== 'mythic') return 'Nothing like it grows anywhere.';
   if (rank >= 3) return 'Wait… this one is different.';
   if (rank >= 2) return 'Not one you see every day.';
   return '';

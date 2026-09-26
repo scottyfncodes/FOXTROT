@@ -808,6 +808,15 @@ button {
 .rarity-rare { color: #2f6f9a; }
 .rarity-veryRare { color: #8a4aa0; }
 .rarity-extremelyRare { color: #b8862a; font-weight: 700; }
+/* The form nature never made: a colour that isn't quite one colour. */
+.rarity-unheardOf {
+  color: #4a6fa5;
+  font-weight: 700;
+  background: linear-gradient(90deg, #2f8f9a, #8a4aa0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 
 .plant-head {
   display: flex;

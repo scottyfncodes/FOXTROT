@@ -24,6 +24,7 @@ const RARITY_GLOW: Record<Rarity, string> = {
   rare: '#9fd0ff',
   veryRare: '#d4a8ff',
   extremelyRare: '#ffd98a',
+  unheardOf: '#a8f0ff',
   mythic: '#e9ffd2',
 };
 

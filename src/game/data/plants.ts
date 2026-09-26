@@ -2,7 +2,9 @@ import type { PlantDef, Rarity } from '../types';
 
 // The houseplant roster. Every species grows wild somewhere in the
 // valley; each has a standard form plus named variants that range from
-// "you'll see one eventually" to "you may never see one". A variant's
+// "you'll see one eventually" to "you may never see one" — and one form
+// beyond that, which nature never made: it never grows wild and is only
+// ever thrown as a sport, by a big plant's cutting or a lively bed's seedling. A variant's
 // look overrides the species look, so rarity is something you can *see*.
 //
 // Colours are HSL. Variegation colour is [h, s, l].
@@ -31,6 +33,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'marbleQueen', name: 'Marble Queen', rarity: 'uncommon', description: 'Heavily streaked with cream — more white than green in places.', look: { variegation: 'splash', variegationColor: CREAM, light: 42 } },
       { id: 'neon', name: 'Neon', rarity: 'rare', description: 'Electric chartreuse, almost glowing in the shade.', look: { hue: 72, sat: 85, light: 55, variegation: 'none' } },
       { id: 'manjula', name: 'Manjula', rarity: 'veryRare', description: 'Wavy, rounded leaves splashed silver, cream and green all at once.', look: { variegation: 'splash', variegationColor: WHITE, ruffled: true, leafWidth: 1.25 } },
+      { id: 'moonrunner', name: 'Moonrunner', rarity: 'unheardOf', sportOnly: true, description: 'Silver-white leaves veined with a cold light that shows after dark. No nursery has ever listed it.', look: { hue: 200, sat: 15, light: 70, variegation: 'glow', variegationColor: [190, 90, 75] } },
     ],
     growthRate: 1.35,
     spread: 0.85,
@@ -51,6 +54,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'green', name: 'Green', rarity: 'common', description: 'Plain, lush green ribbons.', look: {} },
       { id: 'vittatum', name: 'Vittatum', rarity: 'uncommon', description: 'A bright cream stripe down the middle of every leaf.', look: { variegation: 'stripe', variegationColor: CREAM } },
       { id: 'bonnie', name: 'Bonnie', rarity: 'rare', description: 'Curling, corkscrewed leaves with cream margins. Looks like it’s been to a salon.', look: { variegation: 'edge', variegationColor: CREAM, ruffled: true } },
+      { id: 'comet', name: 'Comet', rarity: 'unheardOf', sportOnly: true, description: 'Ribbons gone translucent blue, each tip lit like a spark.', look: { hue: 205, sat: 55, light: 58, variegation: 'glow', variegationColor: [195, 100, 80] } },
     ],
     growthRate: 1.2,
     spread: 0.7,
@@ -71,6 +75,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Matte green coins.', look: {} },
       { id: 'sugar', name: 'Sugar', rarity: 'rare', description: 'Every coin is dusted with fine silver speckles.', look: { variegation: 'speckle', variegationColor: SILVER } },
       { id: 'whiteSplash', name: 'White Splash', rarity: 'veryRare', description: 'Coins randomly splashed with pure white — no two alike.', look: { variegation: 'splash', variegationColor: WHITE } },
+      { id: 'lantern', name: 'Lantern', rarity: 'unheardOf', sportOnly: true, description: 'Coins of amber glass that hold the day’s light and let it go at night.', look: { hue: 40, sat: 80, light: 58, variegation: 'glow', variegationColor: [45, 100, 70] } },
     ],
     growthRate: 1.0,
     spread: 0.55,
@@ -90,6 +95,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'zebrina', name: 'Zebrina', rarity: 'common', description: 'Silver-striped purple leaves.', look: {} },
       { id: 'nanouk', name: 'Nanouk', rarity: 'rare', description: 'Candy-striped pink, cream and green. Looks like a sweet shop.', look: { hue: 330, sat: 55, light: 62, variegation: 'stripe', variegationColor: [120, 30, 70] } },
+      { id: 'nightfall', name: 'Nightfall', rarity: 'unheardOf', sportOnly: true, description: 'Leaves so dark they’re nearly black, with a violet shimmer where the stripe was.', look: { hue: 275, sat: 45, light: 14, variegation: 'glow', variegationColor: [280, 90, 70] } },
     ],
     growthRate: 1.3,
     spread: 0.9,
@@ -111,6 +117,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'green', name: 'Green', rarity: 'common', description: 'Deep, glossy green hearts.', look: {} },
       { id: 'brasil', name: 'Brasil', rarity: 'uncommon', description: 'A bold lime flame down the centre of each leaf.', look: { variegation: 'stripe', variegationColor: [80, 70, 55] } },
       { id: 'pinkPrincess', name: 'Pink Princess', rarity: 'veryRare', description: 'Near-black leaves splashed with bubblegum pink. Collectors lose sleep over these.', look: { hue: 340, sat: 30, light: 20, variegation: 'splash', variegationColor: PINK } },
+      { id: 'emberheart', name: 'Emberheart', rarity: 'unheardOf', sportOnly: true, description: 'Hearts of deep red that smoulder along the veins.', look: { hue: 5, sat: 70, light: 30, variegation: 'glow', variegationColor: [20, 100, 60] } },
     ],
     growthRate: 1.15,
     spread: 0.7,
@@ -131,6 +138,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'deliciosa', name: 'Deliciosa', rarity: 'uncommon', description: 'The classic swiss-cheese giant.', look: {} },
       { id: 'albo', name: 'Albo', rarity: 'veryRare', description: 'Great half-moons of pure white cut through the leaves.', look: { variegation: 'splash', variegationColor: WHITE } },
       { id: 'thaiConstellation', name: 'Thai Constellation', rarity: 'extremelyRare', description: 'Every leaf is scattered with creamy stars, like a night sky turned green.', look: { variegation: 'speckle', variegationColor: CREAM } },
+      { id: 'starwindow', name: 'Starwindow', rarity: 'unheardOf', sportOnly: true, description: 'Midnight-blue leaves; through the holes, a faint light.', look: { hue: 225, sat: 45, light: 22, variegation: 'glow', variegationColor: [210, 100, 78] } },
     ],
     growthRate: 0.85,
     spread: 0.45,
@@ -150,6 +158,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'standard', name: 'Standard', rarity: 'common', description: 'Classic white blooms.', look: {} },
       { id: 'domino', name: 'Domino', rarity: 'rare', description: 'Leaves streaked and flecked with white, like spilled paint.', look: { variegation: 'marble', variegationColor: WHITE } },
+      { id: 'wraith', name: 'Wraith', rarity: 'unheardOf', sportOnly: true, description: 'White from stem to sail, leaves and all, and faintly luminous.', look: { hue: 90, sat: 8, light: 88, variegation: 'glow', variegationColor: [60, 40, 92] } },
     ],
     growthRate: 1.0,
     spread: 0.4,
@@ -171,6 +180,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Glossy, dark violin leaves with pale ribs.', look: {} },
       { id: 'bambino', name: 'Bambino', rarity: 'rare', description: 'A dwarf: small, tight, upright leaves on a compact little trunk.', look: { size: 0.85, leafWidth: 0.85 } },
       { id: 'variegata', name: 'Variegata', rarity: 'veryRare', description: 'Every fiddle marbled with creamy yellow, no two alike.', look: { variegation: 'splash', variegationColor: CREAM, light: 34 } },
+      { id: 'violinBlue', name: 'Violin Blue', rarity: 'unheardOf', sportOnly: true, description: 'Violins of dusty blue, veined with pale gold.', look: { hue: 215, sat: 30, light: 40, variegation: 'glow', variegationColor: [48, 90, 70] } },
     ],
     growthRate: 0.75,
     spread: 0.3,
@@ -192,6 +202,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'burgundy', name: 'Burgundy', rarity: 'uncommon', description: 'Leaves so dark a red they read as black until the light hits them.', look: { hue: 345, sat: 30, light: 17, accentHue: 355, accentLight: 36 } },
       { id: 'tineke', name: 'Tineke', rarity: 'rare', description: 'Cream and sage margins around a dark green heart, with a blush of pink on new growth.', look: { variegation: 'edge', variegationColor: CREAM, light: 30, accentHue: 340, accentLight: 66 } },
       { id: 'ruby', name: 'Ruby', rarity: 'veryRare', description: 'Splashed with bright pink where the Tineke is cream.', look: { variegation: 'splash', variegationColor: PINK, light: 28, accentHue: 340, accentLight: 62 } },
+      { id: 'obsidian', name: 'Obsidian', rarity: 'unheardOf', sportOnly: true, description: 'Leaves like black glass, with a red ember at every vein.', look: { hue: 340, sat: 30, light: 10, variegation: 'glow', variegationColor: [355, 100, 55] } },
     ],
     growthRate: 0.95,
     spread: 0.35,
@@ -211,6 +222,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'audrey', name: 'Audrey', rarity: 'rare', description: 'Matte green leaves traced with cream veins.', look: {} },
       { id: 'krishna', name: 'Krishna', rarity: 'veryRare', description: 'Every leaf folded into a little cup at the base — the legend says, for stealing butter.', look: { leafWidth: 0.75, ruffled: true, size: 1.05 } },
+      { id: 'ghost', name: 'Ghost', rarity: 'unheardOf', sportOnly: true, description: 'Velvet leaves gone the grey of moth wings, veined with light.', look: { hue: 90, sat: 8, light: 70, variegation: 'glow', variegationColor: [70, 60, 88] } },
     ],
     growthRate: 0.8,
     spread: 0.3,
@@ -232,6 +244,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'whiteButterfly', name: 'White Butterfly', rarity: 'common', description: 'Pale green centres with soft white veins.', look: {} },
       { id: 'neonRobusta', name: 'Neon Robusta', rarity: 'rare', description: 'Soft, blushing pink all over.', look: { hue: 345, sat: 55, light: 72, variegation: 'none' } },
       { id: 'albo', name: 'Albo', rarity: 'veryRare', description: 'Stark white sectors, some leaves entirely ghostly.', look: { variegation: 'splash', variegationColor: WHITE, light: 38 } },
+      { id: 'moth', name: 'Moth', rarity: 'unheardOf', sportOnly: true, description: 'Pale arrowheads with a dusting that glows blue-green.', look: { hue: 170, sat: 25, light: 78, variegation: 'glow', variegationColor: [165, 90, 72] } },
     ],
     growthRate: 1.15,
     spread: 0.75,
@@ -252,6 +265,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'redVein', name: 'Red Vein', rarity: 'uncommon', description: 'Herringbone veins in bright red.', look: {} },
       { id: 'lemonLime', name: 'Lemon Lime', rarity: 'rare', description: 'Zesty yellow-green veins on a lime ground.', look: { hue: 90, light: 42, variegation: 'veins', variegationColor: [65, 80, 68] } },
       { id: 'orbifolia', name: 'Orbifolia', rarity: 'veryRare', description: 'Enormous round leaves, silver-banded like a watermelon rind.', look: { variegation: 'stripe', variegationColor: SILVER, leafWidth: 1.5, size: 1.2 } },
+      { id: 'aurora', name: 'Aurora', rarity: 'unheardOf', sportOnly: true, description: 'The pattern runs teal and violet, and keeps its colour after the light has gone.', look: { hue: 190, sat: 50, light: 30, variegation: 'glow', variegationColor: [290, 80, 72] } },
     ],
     growthRate: 0.9,
     spread: 0.35,
@@ -273,6 +287,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'standard', name: 'Standard', rarity: 'common', description: 'Classic arching fronds.', look: {} },
       { id: 'fluffyRuffles', name: 'Fluffy Ruffles', rarity: 'uncommon', description: 'Dense, frilly, overexcited fronds.', look: { ruffled: true, hue: 92, light: 45 } },
       { id: 'tigerFern', name: 'Tiger Fern', rarity: 'rare', description: 'Fronds striped in gold like a lazy cat.', look: { variegation: 'stripe', variegationColor: GOLD } },
+      { id: 'frostfeather', name: 'Frostfeather', rarity: 'unheardOf', sportOnly: true, description: 'Fronds of pale ice-blue, tipped with light.', look: { hue: 195, sat: 40, light: 68, variegation: 'glow', variegationColor: [190, 90, 85] } },
     ],
     growthRate: 1.1,
     spread: 0.8,
@@ -292,6 +307,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Glossy apple-green blades.', look: {} },
       { id: 'crispyWave', name: 'Crispy Wave', rarity: 'rare', description: 'Tightly crimped blades, like a green lasagne.', look: { hue: 105, light: 38 } },
+      { id: 'tidePool', name: 'Tide Pool', rarity: 'unheardOf', sportOnly: true, description: 'A nest of blades gone sea-green and glassy, lit at the rim.', look: { hue: 175, sat: 45, light: 45, variegation: 'glow', variegationColor: [170, 100, 82] } },
     ],
     growthRate: 0.9,
     spread: 0.4,
@@ -311,6 +327,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'dragonScale', name: 'Dragon Scale', rarity: 'rare', description: 'Silvery-green scales and dark veins.', look: {} },
       { id: 'silverDragon', name: 'Silver Dragon', rarity: 'veryRare', description: 'Almost entirely pewter-grey, with ghostly veins.', look: { sat: 8, light: 70, variegationColor: [150, 15, 45] } },
+      { id: 'wyrm', name: 'Wyrm', rarity: 'unheardOf', sportOnly: true, description: 'Scales of bronze on black, and the veins run gold.', look: { hue: 30, sat: 35, light: 16, variegation: 'glow', variegationColor: [42, 100, 62] } },
     ],
     growthRate: 0.75,
     spread: 0.3,
@@ -331,6 +348,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'standard', name: 'Discolor', rarity: 'rare', description: 'Wine-dark velvet with pink veins.', look: {} },
       { id: 'alba', name: 'Alba', rarity: 'veryRare', description: 'Emerald velvet with veins of pure silver.', look: { hue: 140, sat: 35, light: 22, variegationColor: [0, 0, 85] } },
+      { id: 'nebula', name: 'Nebula', rarity: 'unheardOf', sportOnly: true, description: 'Velvet so dark it’s blue, netted with veins that shine like a night sky.', look: { hue: 240, sat: 40, light: 12, variegation: 'glow', variegationColor: [40, 60, 90] } },
     ],
     growthRate: 0.7,
     spread: 0.3,
@@ -354,6 +372,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'standard', name: 'Standard', rarity: 'common', description: 'Dark banded green swords.', look: {} },
       { id: 'laurentii', name: 'Laurentii', rarity: 'uncommon', description: 'Each sword trimmed in a golden margin.', look: { variegation: 'edge', variegationColor: GOLD } },
       { id: 'moonshine', name: 'Moonshine', rarity: 'rare', description: 'Pale, silvery mint all over, as if carved from moonlight.', look: { sat: 18, light: 72, variegation: 'none' } },
+      { id: 'lightblade', name: 'Lightblade', rarity: 'unheardOf', sportOnly: true, description: 'Blades of pale silver-green, each edge a line of cold light.', look: { hue: 110, sat: 15, light: 62, variegation: 'glow', variegationColor: [170, 90, 80] } },
     ],
     growthRate: 0.8,
     spread: 0.5,
@@ -374,6 +393,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'elegans', name: 'Mexican Snowball', rarity: 'common', description: 'Powdery blue-green rosettes.', look: {} },
       { id: 'perle', name: 'Perle von Nürnberg', rarity: 'uncommon', description: 'Dusky lavender-pink, pearlescent at the tips.', look: { hue: 300, sat: 25, light: 62 } },
       { id: 'cristata', name: 'Cristata', rarity: 'veryRare', description: 'A mutant crest: the rosette has grown into a wavy fan of brains.', look: { ruffled: true, size: 0.9, hue: 150 } },
+      { id: 'nightlight', name: 'Nightlight', rarity: 'unheardOf', sportOnly: true, description: 'A rosette of deep indigo that glows from the heart.', look: { hue: 250, sat: 50, light: 35, variegation: 'glow', variegationColor: [260, 100, 78] } },
     ],
     growthRate: 0.9,
     spread: 0.55,
@@ -393,6 +413,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Bright green pearls.', look: {} },
       { id: 'variegata', name: 'Variegata', rarity: 'veryRare', description: 'Pearls blushing pink and cream.', look: { variegation: 'splash', variegationColor: PINK } },
+      { id: 'moonpearls', name: 'Moonpearls', rarity: 'unheardOf', sportOnly: true, description: 'Pearls the milky white of moonstone, each with its own faint light.', look: { hue: 210, sat: 20, light: 85, variegation: 'glow', variegationColor: [200, 80, 88] } },
     ],
     growthRate: 1.0,
     spread: 0.65,
@@ -412,6 +433,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Glossy green ladders.', look: {} },
       { id: 'raven', name: 'Raven', rarity: 'rare', description: 'Leaves that ripen to a glossy near-black.', look: { hue: 260, sat: 15, light: 13 } },
+      { id: 'oilslick', name: 'Oilslick', rarity: 'unheardOf', sportOnly: true, description: 'Leaves black-green with the colours of oil on water.', look: { hue: 280, sat: 40, light: 22, variegation: 'glow', variegationColor: [160, 90, 60] } },
     ],
     growthRate: 0.8,
     spread: 0.35,
@@ -434,6 +456,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'albata', name: 'Albata', rarity: 'uncommon', description: 'Snow-white dots — the “angel wings” form.', look: { spines: [60, 15, 96], light: 46 } },
       { id: 'rufida', name: 'Rufida', rarity: 'rare', description: 'Blue-grey pads freckled with cinnamon-red tufts.', look: { hue: 150, sat: 18, light: 46, spines: [18, 60, 42] } },
       { id: 'variegata', name: 'Variegata', rarity: 'veryRare', description: 'Pads splashed with buttery cream, every one different.', look: { variegation: 'splash', variegationColor: CREAM } },
+      { id: 'seaGlass', name: 'Sea Glass', rarity: 'unheardOf', sportOnly: true, description: 'Pads of frosted turquoise, the spines white and faintly bright.', look: { hue: 175, sat: 55, light: 62, variegation: 'glow', variegationColor: [180, 100, 85], spines: [180, 40, 92] } },
     ],
     growthRate: 0.75,
     spread: 0.35,
@@ -454,6 +477,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'golden', name: 'Golden', rarity: 'uncommon', description: 'The classic ball of gold.', look: {} },
       { id: 'albispinus', name: 'Albispinus', rarity: 'rare', description: 'Every spine bleached bone white.', look: { spines: [50, 15, 94] } },
       { id: 'inermis', name: 'Inermis', rarity: 'veryRare', description: 'Almost spineless — just soft woolly buttons down smooth green ribs.', look: { spineLength: 0.15, light: 40 } },
+      { id: 'emberBarrel', name: 'Ember Barrel', rarity: 'unheardOf', sportOnly: true, description: 'A ball of dark coal, its ribs lit orange from within.', look: { hue: 20, sat: 40, light: 20, variegation: 'glow', variegationColor: [25, 100, 60], spines: [25, 90, 60] } },
     ],
     growthRate: 0.6,
     spread: 0.25,
@@ -476,6 +500,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'lemon', name: 'Lemon', rarity: 'rare', description: 'Sherbet yellow.', look: { hue: 52, sat: 90, light: 60 } },
       { id: 'bubblegum', name: 'Bubblegum', rarity: 'rare', description: 'Candy pink.', look: { hue: 330, sat: 75, light: 70 } },
       { id: 'harlequin', name: 'Harlequin', rarity: 'veryRare', description: 'Red patched with gold and green, like it couldn’t decide.', look: { variegation: 'splash', variegationColor: GOLD } },
+      { id: 'eclipse', name: 'Eclipse', rarity: 'unheardOf', sportOnly: true, description: 'The grafted ball gone black, with a corona of light around its rim.', look: { hue: 270, sat: 40, light: 14, variegation: 'glow', variegationColor: [50, 100, 80] } },
     ],
     growthRate: 0.8,
     spread: 0.2,
@@ -498,6 +523,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'blueSpire', name: 'Blue Spire', rarity: 'uncommon', description: 'Frosted blue-green, as if dusted with chalk.', look: { hue: 170, sat: 22, light: 48 } },
       { id: 'fairyGold', name: 'Fairy Gold', rarity: 'rare', description: 'Towers streaked and capped with gold.', look: { variegation: 'splash', variegationColor: GOLD } },
       { id: 'moonlit', name: 'Moonlit', rarity: 'veryRare', description: 'It finally flowered: big white blossoms on every tower.', look: { flowers: true } },
+      { id: 'lanternTown', name: 'Lantern Town', rarity: 'unheardOf', sportOnly: true, description: 'Every tower topped with a window of warm light.', look: { hue: 120, sat: 30, light: 30, variegation: 'glow', variegationColor: [40, 100, 70] } },
     ],
     growthRate: 0.85,
     spread: 0.4,
@@ -518,6 +544,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'silver', name: 'Silver', rarity: 'rare', description: 'A full head of white hair.', look: {} },
       { id: 'goldenLocks', name: 'Golden Locks', rarity: 'veryRare', description: 'Hair the colour of straw in the sun.', look: { spines: [45, 70, 72] } },
       { id: 'blossom', name: 'Blossom', rarity: 'extremelyRare', description: 'An old, old plant, crowned with pink flowers.', look: { flowers: true } },
+      { id: 'wisp', name: 'Will-o’-the-Wisp', rarity: 'unheardOf', sportOnly: true, description: 'Hair of pale blue that drifts, and glows.', look: { hue: 200, sat: 30, light: 45, variegation: 'glow', variegationColor: [195, 100, 82], hairy: true } },
     ],
     growthRate: 0.6,
     spread: 0.15,
@@ -540,6 +567,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'hummelsSunset', name: 'Hummel’s Sunset', rarity: 'uncommon', description: 'Golden leaves with fiery red edges.', look: { hue: 55, sat: 60, light: 50, variegation: 'edge', variegationColor: [5, 70, 50] } },
       { id: 'gollum', name: 'Gollum', rarity: 'rare', description: 'Tubular leaves with little red suction cups at the tips. Looks like it wants to shake hands.', look: { leafWidth: 0.5 } },
       { id: 'tricolor', name: 'Tricolor', rarity: 'veryRare', description: 'Green, cream and pink, all on one leaf.', look: { variegation: 'splash', variegationColor: CREAM, accentHue: 340, accentLight: 65 } },
+      { id: 'lapis', name: 'Lapis', rarity: 'unheardOf', sportOnly: true, description: 'Fat leaves of deep lapis blue, each edged in gold.', look: { hue: 225, sat: 60, light: 38, variegation: 'glow', variegationColor: [45, 90, 65] } },
     ],
     growthRate: 0.8,
     spread: 0.35,
@@ -560,6 +588,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'standard', name: 'Standard', rarity: 'common', description: 'Grey-green and faintly freckled.', look: {} },
       { id: 'pinkBlush', name: 'Pink Blush', rarity: 'rare', description: 'Dark leaves covered in raised pink freckles.', look: { hue: 150, sat: 25, light: 30, variegationColor: PINK, spines: [340, 60, 72] } },
       { id: 'crosby', name: 'Crosby’s Prolific', rarity: 'uncommon', description: 'Short, stubby and pupping like mad.', look: { size: 0.8, leafWidth: 1.2, variegation: 'none' } },
+      { id: 'seafire', name: 'Seafire', rarity: 'unheardOf', sportOnly: true, description: 'Translucent teal leaves, speckled with points of light.', look: { hue: 180, sat: 50, light: 50, variegation: 'glow', variegationColor: [170, 100, 85] } },
     ],
     growthRate: 1.0,
     spread: 0.5,
@@ -580,6 +609,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Dark green with pearly bands.', look: {} },
       { id: 'superWhite', name: 'Super White', rarity: 'rare', description: 'Bands so thick and white it’s almost more white than green.', look: { light: 18, leafWidth: 1.3 } },
       { id: 'variegata', name: 'Variegata', rarity: 'veryRare', description: 'Whole leaves turned gold, stripes and all.', look: { hue: 50, sat: 60, light: 52, variegationColor: [40, 30, 92] } },
+      { id: 'constellation', name: 'Constellation', rarity: 'unheardOf', sportOnly: true, description: 'Black leaves banded with stars instead of stripes.', look: { hue: 220, sat: 30, light: 14, variegation: 'glow', variegationColor: [55, 60, 92] } },
     ],
     growthRate: 0.8,
     spread: 0.45,
@@ -600,6 +630,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'standard', name: 'Standard', rarity: 'uncommon', description: 'Frosted blue-green braids.', look: {} },
       { id: 'burrito', name: 'Burrito', rarity: 'rare', description: 'Tighter, rounder, bluer beads.', look: { hue: 185, sat: 28, light: 62, size: 0.85 } },
       { id: 'blushing', name: 'Blushing', rarity: 'veryRare', description: 'Sun-stressed tips gone rosy pink.', look: { variegation: 'splash', variegationColor: PINK } },
+      { id: 'auroraTail', name: 'Aurora Tail', rarity: 'unheardOf', sportOnly: true, description: 'Ropes of leaves that shift green to violet, and light up at dusk.', look: { hue: 290, sat: 35, light: 55, variegation: 'glow', variegationColor: [300, 90, 78] } },
     ],
     growthRate: 0.9,
     spread: 0.5,
@@ -620,6 +651,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'sandstone', name: 'Sandstone', rarity: 'rare', description: 'Sandy tan with a darker, mottled window.', look: {} },
       { id: 'olive', name: 'Olive', rarity: 'rare', description: 'Olive-green stones with spotted tops.', look: { hue: 75, sat: 25, light: 48, accentHue: 70, accentLight: 32 } },
       { id: 'rubra', name: 'Optica Rubra', rarity: 'extremelyRare', description: 'Glowing ruby-red, like a pair of cherry sweets.', look: { hue: 350, sat: 50, light: 48, accentHue: 350, accentSat: 45, accentLight: 62 } },
+      { id: 'meteorite', name: 'Meteorite', rarity: 'unheardOf', sportOnly: true, description: 'Pebbles of iron-black with a seam of molten light.', look: { hue: 20, sat: 15, light: 22, variegation: 'glow', variegationColor: [25, 100, 62] } },
     ],
     growthRate: 0.55,
     spread: 0.2,
@@ -641,6 +673,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'carnosa', name: 'Carnosa', rarity: 'uncommon', description: 'Glossy green leaves, pale pink stars.', look: {} },
       { id: 'krimsonQueen', name: 'Krimson Queen', rarity: 'rare', description: 'Cream-edged leaves with pink new growth.', look: { variegation: 'edge', variegationColor: [345, 60, 85] } },
       { id: 'compacta', name: 'Hindu Rope', rarity: 'veryRare', description: 'Leaves curled and crumpled into thick green ropes.', look: { ruffled: true, leafWidth: 0.7 } },
+      { id: 'starCluster', name: 'Star Cluster', rarity: 'unheardOf', sportOnly: true, description: 'Waxy leaves of midnight blue; the flowers are clusters of small lights.', look: { hue: 230, sat: 45, light: 25, variegation: 'glow', variegationColor: [50, 80, 88], flowers: true } },
     ],
     growthRate: 0.95,
     spread: 0.6,
@@ -660,6 +693,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'maculata', name: 'Maculata', rarity: 'uncommon', description: 'Silver dots on olive angel wings.', look: {} },
       { id: 'wightii', name: 'Wightii', rarity: 'rare', description: 'Bigger, brighter dots — almost more silver than leaf.', look: { variegationColor: WHITE, leafWidth: 0.85 } },
+      { id: 'galaxy', name: 'Galaxy', rarity: 'unheardOf', sportOnly: true, description: 'The dots are lit: a leaf full of stars on a black sky.', look: { hue: 260, sat: 35, light: 14, variegation: 'glow', variegationColor: [55, 60, 92] } },
     ],
     growthRate: 1.05,
     spread: 0.45,
@@ -680,6 +714,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'white', name: 'White Anne', rarity: 'common', description: 'Crisp white veins on dark green.', look: {} },
       { id: 'ruby', name: 'Ruby Red', rarity: 'uncommon', description: 'Hot-pink veins bleeding into the leaf.', look: { variegationColor: [345, 75, 58] } },
       { id: 'frankie', name: 'Frankie', rarity: 'rare', description: 'Almost entirely soft pink, edged in green.', look: { hue: 345, sat: 55, light: 70, variegation: 'edge', variegationColor: [110, 40, 35] } },
+      { id: 'liveWire', name: 'Live Wire', rarity: 'unheardOf', sportOnly: true, description: 'Veins of electric blue that pulse faintly after dark.', look: { hue: 115, sat: 30, light: 20, variegation: 'glow', variegationColor: [200, 100, 70] } },
     ],
     growthRate: 1.2,
     spread: 0.7,
@@ -699,6 +734,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'clarinervium', name: 'Clarinervium', rarity: 'veryRare', description: 'Black-green velvet, chalk-white veins.', look: {} },
       { id: 'crystallinum', name: 'Crystallinum', rarity: 'extremelyRare', description: 'Huge, glittering leaves with crystalline silver veins and blushing new growth.', look: { size: 1.4, light: 24, variegationColor: [180, 30, 92] } },
+      { id: 'phosphor', name: 'Phosphor', rarity: 'unheardOf', sportOnly: true, description: 'Velvet gone the green of deep water, with veins of white fire.', look: { hue: 165, sat: 50, light: 15, variegation: 'glow', variegationColor: [140, 100, 85], size: 1.2 } },
     ],
     growthRate: 0.65,
     spread: 0.25,
@@ -721,6 +757,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'spoonleaf', name: 'Spoon-leaf', rarity: 'common', description: 'Green spoons fringed with red, dew-tipped hairs.', look: {} },
       { id: 'alba', name: 'Alba', rarity: 'uncommon', description: 'Pale hairs and clear dew, like frost that never melts.', look: { hue: 88, light: 50, accentHue: 80, accentSat: 30, accentLight: 82 } },
       { id: 'ruby', name: 'Ruby', rarity: 'rare', description: 'Red to the tips, glittering all over.', look: { hue: 356, sat: 52, light: 36, accentHue: 350, accentLight: 56 } },
+      { id: 'starlight', name: 'Starlight', rarity: 'unheardOf', sportOnly: true, description: 'Each drop of dew a point of cold light.', look: { hue: 95, sat: 30, light: 42, variegation: 'glow', variegationColor: [190, 100, 88] } },
     ],
     growthRate: 1.1,
     spread: 0.55,
@@ -742,6 +779,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'sawtooth', name: 'Sawtooth', rarity: 'rare', description: 'Stubby, jagged teeth like a bread knife.', look: { spineLength: 0.4 } },
       { id: 'b52', name: 'B52', rarity: 'rare', description: 'Huge traps on a hungry-looking plant.', look: { size: 1.1 } },
       { id: 'redDragon', name: 'Red Dragon', rarity: 'veryRare', description: 'Deep burgundy from root to tooth.', look: { hue: 350, sat: 55, light: 26, accentHue: 352, accentLight: 36 } },
+      { id: 'lanternJaw', name: 'Lantern Jaw', rarity: 'unheardOf', sportOnly: true, description: 'The traps glow red from inside, like a coal in a grate.', look: { hue: 100, sat: 45, light: 36, accentHue: 355, variegation: 'glow', variegationColor: [355, 100, 60] } },
     ],
     growthRate: 0.8,
     spread: 0.35,
@@ -762,6 +800,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'flava', name: 'Yellow', rarity: 'uncommon', description: 'Yellow-green trumpets with a faint red throat.', look: {} },
       { id: 'copper', name: 'Copper Top', rarity: 'rare', description: 'Trumpets flushed coppery red from the hood down.', look: { hue: 40, sat: 45, light: 40, accentHue: 12, accentSat: 60, accentLight: 44, variegationColor: [355, 55, 28] } },
       { id: 'whiteTop', name: 'White Top', rarity: 'veryRare', description: 'Frosted white hoods netted with crimson veins.', look: { accentHue: 60, accentSat: 15, accentLight: 92, variegationColor: [350, 70, 42] } },
+      { id: 'candle', name: 'Candle', rarity: 'unheardOf', sportOnly: true, description: 'Pale trumpets lit from within, a flame in each hood.', look: { hue: 55, sat: 35, light: 78, variegation: 'glow', variegationColor: [40, 100, 70] } },
     ],
     growthRate: 0.9,
     spread: 0.45,
@@ -782,6 +821,7 @@ export const PLANTS: Record<string, PlantDef> = {
       { id: 'ventrata', name: 'Ventrata', rarity: 'rare', description: 'Green cups speckled and lipped with red.', look: {} },
       { id: 'bloodyMary', name: 'Bloody Mary', rarity: 'veryRare', description: 'Claret cups with a glossy red lip.', look: { accentHue: 355, accentSat: 58, accentLight: 34, variegationColor: [350, 70, 24] } },
       { id: 'rajah', name: 'Rajah', rarity: 'extremelyRare', description: 'Enormous wine-red cups with a ribbed golden lip, big enough to hold a teacup of rain.', look: { size: 1.45, accentHue: 5, accentSat: 55, accentLight: 36, variegationColor: [40, 75, 55] } },
+      { id: 'abyss', name: 'Abyss', rarity: 'unheardOf', sportOnly: true, description: 'Cups of deep violet-black, each with a light at the bottom like a lure.', look: { hue: 270, sat: 40, light: 18, variegation: 'glow', variegationColor: [180, 100, 70] } },
     ],
     growthRate: 0.75,
     spread: 0.35,
@@ -802,6 +842,7 @@ export const PLANTS: Record<string, PlantDef> = {
     variants: [
       { id: 'ember', name: 'Ember', rarity: 'extremelyRare', description: 'Russet leaves, amber glow.', look: {} },
       { id: 'moonfox', name: 'Moonfox', rarity: 'extremelyRare', description: 'Pale silver leaves with a cold blue glow.', look: { hue: 200, sat: 20, light: 62, accentHue: 190, variegationColor: [190, 90, 70] } },
+      { id: 'sunfox', name: 'Sunfox', rarity: 'unheardOf', sportOnly: true, description: 'Gold leaves that glow even by day. The fox won’t go near it.', look: { hue: 45, sat: 80, light: 55, accentHue: 50, variegationColor: [50, 100, 75] } },
     ],
     growthRate: 0.7,
     spread: 0.3,
@@ -877,7 +918,7 @@ PLANTS.cannabisHybrid = {
 
 export const PLANT_LIST: PlantDef[] = Object.values(PLANTS);
 
-export const RARITY_ORDER: Rarity[] = ['common', 'uncommon', 'rare', 'veryRare', 'extremelyRare', 'mythic'];
+export const RARITY_ORDER: Rarity[] = ['common', 'uncommon', 'rare', 'veryRare', 'extremelyRare', 'unheardOf', 'mythic'];
 
 export const RARITY_LABEL: Record<Rarity, string> = {
   common: 'Common',
@@ -885,6 +926,7 @@ export const RARITY_LABEL: Record<Rarity, string> = {
   rare: 'Rare',
   veryRare: 'Very Rare',
   extremelyRare: 'Extremely Rare',
+  unheardOf: 'Unheard Of',
   mythic: 'Mythic',
 };
 

@@ -17,7 +17,10 @@ grow in patches all over it.
 - **Propagate.** Pot a cutting in a nursery bed; it roots, then grows from
   *cutting → young → established → large → specimen*. Rooted plants give
   cuttings of their own, and every so often a cutting comes out as a *sport*
-  — a different, often rarer variant.
+  — a different, often rarer variant. Every species also has one form that
+  nature never made: it never grows wild and the fox has never seen it; it
+  can only come up as a sport, from a large plant's cutting or a lively
+  bed's seedling, and it glows after dark.
 - **Establish, then choose.** Once you've raised two of a species, it's
   established and you choose what each plant is for: a pot in the
   greenhouse gallery (it stays and keeps growing), or a place out in the wild.
