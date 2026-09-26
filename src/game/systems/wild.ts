@@ -262,6 +262,9 @@ function zonesByTile(): (OutdoorZoneId | null)[] {
 export function computeLushness(state: GameState): LushField {
   const n = GRID_W * GRID_H;
   const lush = new Float32Array(n);
+  // Plants in a garden bed are kept: they count toward how much of a region
+  // is yours, but don't change the soil around the bed.
+  const bedded = new Float32Array(n);
   const charW = new Float32Array(n * CHARACTERS.length);
   const zoneCount = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, 0])) as Record<OutdoorZoneId, number>;
   const zoneCharW: Record<string, number[]> = Object.fromEntries(OUTDOOR_ZONES.map((z) => [z, CHARACTERS.map(() => 0)]));
@@ -277,7 +280,7 @@ export function computeLushness(state: GameState): LushField {
     const ci = CHARACTERS.indexOf(def.landscape);
     zoneCount[p.location.zone]++;
     zoneCharW[p.location.zone][ci] += w;
-    const { x, y } = p.location;
+    const { x, y, bedId } = p.location;
     const x0 = Math.max(0, Math.floor(x - r));
     const x1 = Math.min(GRID_W - 1, Math.floor(x + r));
     const y0 = Math.max(0, Math.floor(y - r));
@@ -288,6 +291,10 @@ export function computeLushness(state: GameState): LushField {
         if (d >= r) continue;
         const v = w * (1 - d / r);
         const i = ty * GRID_W + tx;
+        if (bedId) {
+          bedded[i] += v;
+          continue;
+        }
         lush[i] += v;
         charW[i * CHARACTERS.length + ci] += v;
       }
@@ -323,7 +330,7 @@ export function computeLushness(state: GameState): LushField {
     const z = zones[i];
     if (z) {
       tiles[z]++;
-      coverSum[z] += Math.min(1, lush[i] / 0.9);
+      coverSum[z] += Math.min(1, (lush[i] + bedded[i]) / 0.9);
     }
     if (lush[i] <= 0.02) continue;
     let best = 0;
