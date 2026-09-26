@@ -69,6 +69,7 @@ import {
 } from '../systems/propagation';
 import { sellItem, buyItem } from '../systems/market';
 import { tickCommissions, fillCommission, openCommission } from '../systems/commissions';
+import { tickBedCuriosities } from '../systems/beds';
 import { pickUpDecor, nearestDecor, moveDecor, decorFits, isGardenPlanter } from '../systems/decor';
 import { stallRect } from '../systems/yard';
 
@@ -492,6 +493,10 @@ export class Game {
       }
     }
 
+    // The liveliest beds turn up curiosities of their own now and then.
+    if (tickBedCuriosities(this.state, elapsed / 60, now, Math.random, (gx, gy) => this.isOpenGround(Math.floor(gx), Math.floor(gy))).length && !offline) {
+      this.pushToast('Something has turned up in one of your beds.', 'discovery', 'normal');
+    }
     const sports = result.spreads.filter((s) => this.state.plants[s.childId]?.unnoticed);
     if (!offline) {
       if (result.spreads.length > 0) {
@@ -1202,6 +1207,7 @@ export class Game {
       const inBed = plant.location.bedId ? ' in your garden bed' : '';
       this.pushToast(`Planted ${specimenName(plant.defId, plant.variantId)}${inBed} in ${zoneLabel(zone)}.${native ? ' It’s at home here and will grow fast.' : ''}`, 'growth');
       this.hint('plantedOut', 'It grows on its own now, and spreads once it’s large.', 'important', this.outdoors);
+      if (plant.location.bedId) this.hint('liveliness', 'Tap a bed to see how lively it is, and what it’s missing.', 'important', () => this.outdoors() && this.state.gardenBeds.length > 0);
     } else if (res.kind === 'transplanted') {
       this.lushDirty = true;
       const p = this.state.plants[res.plantId];

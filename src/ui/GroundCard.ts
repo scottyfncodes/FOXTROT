@@ -1,7 +1,8 @@
 import type { Game } from '../game/engine/Game';
 import { Panel } from './Panel';
 import { el } from './dom';
-import { findBed, plantsInBed, bedDiversity, bedCost, routeLength } from '../game/systems/landscape';
+import { findBed, plantsInBed, bedCost, routeLength } from '../game/systems/landscape';
+import { bedLiveliness, ROLE_WANT, ROLE_HAS, LIVELY_TIER } from '../game/systems/beds';
 import { MINUTES_PER_DAY } from '../game/engine/Clock';
 import { button, note } from './common';
 
@@ -40,9 +41,28 @@ export class GroundCard {
       if (!bed) return this.panel.close();
       this.panel.setTitle('Garden Bed');
       const plants = plantsInBed(state, bed.id);
-      const species = bedDiversity(state, bed.id);
-      body.appendChild(note(`Dug ${this.age(bed.createdAt)}. ${plants.length ? `${plants.length} plant${plants.length === 1 ? '' : 's'} of ${species} kind${species === 1 ? '' : 's'}.` : 'Nothing growing in it yet — plant something from your basket.'}`));
-      body.appendChild(note('Whatever grows here spreads only within the bed. A good mix of plants makes for a livelier bed.', 'row-note'));
+      const life = bedLiveliness(state, bed.id);
+      body.appendChild(note(`Dug ${this.age(bed.createdAt)}. ${plants.length ? `${plants.length} plant${plants.length === 1 ? '' : 's'} of ${life.species} kind${life.species === 1 ? '' : 's'}${life.plants < plants.length ? ', some still rooting' : ''}.` : 'Nothing growing in it yet — plant something from your basket.'}`));
+      // How much life is in it, in the same quiet pips as rarity, and what would bring more.
+      const row = el('div', 'liveliness');
+      row.append(el('span', 'rarity-pips', '●'.repeat(life.tier + 1) + '○'.repeat(4 - life.tier)), el('span', 'liveliness-word', life.word));
+      body.appendChild(row);
+      const names = life.roles.map((r) => ROLE_HAS[r]);
+      const has = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] ?? '';
+      const wants = life.missing.slice(0, 2).map((r) => ROLE_WANT[r]);
+      body.appendChild(
+        note(
+          life.tier >= 4
+            ? `Everything a bed could want: ${has}. Birds and insects come and go, and they bring things with them.`
+            : life.tier >= LIVELY_TIER
+              ? `A good mix: ${has}. Lively enough that sports come up more often, and the odd seed arrives with the visitors.${wants.length ? ` Livelier still with ${wants.join(' or ')}.` : ''}`
+              : plants.length
+                ? `It has ${has || 'plants still rooting'}. A mix of kinds draws more life: try ${wants.join(' and ')}.`
+                : 'A mix of kinds — something that trails, something that flowers, a fern, a succulent — makes a bed come alive.',
+          'row-note'
+        )
+      );
+      body.appendChild(note('Whatever grows here spreads only within the bed.', 'row-note'));
       if (!this.confirm) {
         body.appendChild(button('Fill it in…', () => {
           this.confirm = true;
