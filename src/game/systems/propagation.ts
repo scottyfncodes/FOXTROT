@@ -217,6 +217,7 @@ export function liftPlant(state: GameState, plantId: string, now: number): Baske
     origin: 'lifted',
     collectedAt: now,
     countedGrown: plant.countedGrown,
+    potId: plant.location.kind === 'display' ? plant.location.potId : undefined,
   });
   if (!item) return null;
   delete state.plants[plantId];

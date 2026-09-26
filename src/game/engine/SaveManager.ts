@@ -13,7 +13,7 @@ const LEGACY_KEYS = ['foxtrot-save-v3', 'foxtrot-save-v2', 'foxtrot-save-v1'];
 
 // Fields that are small fixed-shape records: a field added to one of these
 // later is filled from the defaults instead of being left undefined.
-const STRUCT_FIELDS = ['stall', 'player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog', 'putting'] as const;
+const STRUCT_FIELDS = ['stall', 'player', 'clock', 'weather', 'tools', 'fox', 'scout', 'scott', 'cat', 'market', 'foxLog', 'putting', 'commissions'] as const;
 const ARRAY_FIELDS = ['basket', 'owned', 'decor', 'hints', 'furniture', 'seededFixtures', 'seenShop', 'gardenBeds', 'paths', 'clearedObstacles', 'foxFinds'] as const;
 const RECORD_FIELDS = ['plants', 'collection', 'spots', 'decorStock', 'furnitureStock', 'curiosities', 'purchases'] as const;
 
@@ -56,6 +56,10 @@ export function migrateSave(raw: unknown): GameState | null {
   if (!Array.isArray(putting.aces)) putting.aces = [];
   if (typeof putting.rounds !== 'number') putting.rounds = 0;
   if (typeof putting.best !== 'number') putting.best = null;
+  const commissions = merged.commissions as Loose;
+  if (typeof commissions.filled !== 'number') commissions.filled = 0;
+  if (!Array.isArray(commissions.notes)) commissions.notes = [];
+  if (merged.commission !== null && !isRecord(merged.commission)) merged.commission = null;
   for (const key of RECORD_FIELDS) {
     if (!isRecord(merged[key])) merged[key] = defaults[key];
   }

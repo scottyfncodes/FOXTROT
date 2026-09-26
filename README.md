@@ -30,6 +30,12 @@ grow in patches all over it.
   worth more; there's a daily "wanted" bonus) and sells pots, shelves,
   hanging hooks, grow lights, a sun-room expansion, garden decor and stall
   upgrades.
+- **Fill a request.** The board by the stall has one request pinned up at a
+  time: someone wants a particular plant grown on to a size, sometimes a
+  named variety, sometimes in a particular pot, sometimes anything big from
+  one part of the valley. It pays three times the going rate, and the buyer
+  leaves a line about where the plant went, which the stall keeps. A new
+  request goes up the day after one is filled, or after two days unanswered.
 - **Collect.** The field journal tracks every species and variant, with
   the rest shown as silhouettes and "???". Finding one isn't enough: it's
   recorded once you've grown it — once a plant of it roots in your care.
