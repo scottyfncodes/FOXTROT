@@ -131,6 +131,9 @@ export function migrateSave(raw: unknown): GameState | null {
   // Spot coordinates are data, not save state: re-seat a settled NPC on
   // its spot's current position in case the layout moved since the save.
   const scottSpot = state.scott.currentSpotId ? findScottSpot(state.scott.currentSpotId) : undefined;
+  // A spot that's since been removed (he no longer naps outdoors): he gets
+  // up and moves on at once instead of staying put somewhere that's gone.
+  if (state.scott.currentSpotId && !scottSpot && state.scott.activity !== 'traveling') state.scott.nextChangeAt = state.clock.totalMinutes;
   if (scottSpot && state.scott.activity !== 'traveling') {
     state.scott.x = scottSpot.x;
     state.scott.y = scottSpot.y;

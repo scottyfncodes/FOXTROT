@@ -6,6 +6,7 @@ import { generateObstacles, buildBlockingSet } from '../src/game/world/Obstacles
 import { zoneAt } from '../src/game/data/worldMap';
 import { roomAt, PARTITION_DOOR_YS } from '../src/game/data/interior';
 import { isCouchSpot } from '../src/game/data/scottSpots';
+import { migrateSave } from '../src/game/engine/SaveManager';
 
 describe('Scott (ambient NPC)', () => {
   it('starts already settled into an activity at his starting spot', () => {
@@ -98,13 +99,13 @@ describe('Scott (ambient NPC)', () => {
     expect(state.scott.facing).toBe('right');
   });
 
-  it('spends some of his time at home: the ball game on the couch, a drink, the putting mat', () => {
+  it('spends some of his time at home: the ball game on the couch, a drink, a nap, the putting mat', () => {
     const living = SCOTT_SPOTS.filter((s) => s.zone === 'greenhouse' && roomAt(s.x) === 'living');
-    expect(living.map((s) => s.kind).sort()).toEqual(['drink', 'putt', 'tv']);
+    expect(living.map((s) => s.kind).sort()).toEqual(['drink', 'nap', 'putt', 'tv']);
     expect(ACTIVITY_FOR_KIND.tv).toBe('watchingTV');
     expect(ACTIVITY_FOR_KIND.drink).toBe('relaxing');
     // …but only occasionally: most of his spots are elsewhere.
-    expect(living.length / SCOTT_SPOTS.length).toBeLessThan(0.3);
+    expect(living.length / SCOTT_SPOTS.length).toBeLessThan(0.35);
   });
 
   it('sits facing the TV, and walks through the doorway to get there', () => {
@@ -224,5 +225,25 @@ describe('Ellen chasing Scott', () => {
     expect(dipAmount(1)).toBe(0);
     expect(dipAmount(0.1)).toBeGreaterThan(0);
     expect(dipAmount(0.1)).toBeLessThan(1);
+  });
+});
+
+describe('where Scott naps', () => {
+  it('only ever in the house, on the living-room couch', () => {
+    const naps = SCOTT_SPOTS.filter((s) => s.kind === 'nap');
+    expect(naps.length).toBeGreaterThan(0);
+    for (const s of naps) {
+      expect(s.zone).toBe('greenhouse');
+      expect(roomAt(s.x)).toBe('living');
+    }
+  });
+
+  it('an old save napping at a spot that no longer exists gets up and moves on', () => {
+    const state = createNewGame();
+    state.scott = { ...state.scott, zone: 'meadow', activity: 'napping', currentSpotId: 'meadow-sun-nap', x: 75, y: 30, nextChangeAt: state.clock.totalMinutes + 80 };
+    const loaded = migrateSave(JSON.parse(JSON.stringify(state)))!;
+    expect(loaded.scott.nextChangeAt).toBe(loaded.clock.totalMinutes);
+    tickScott(loaded.scott, { dtSeconds: 0.1, now: loaded.clock.totalMinutes, rand: () => 0 });
+    expect(loaded.scott.activity).toBe('traveling');
   });
 });
