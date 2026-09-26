@@ -130,3 +130,14 @@ describe('Scott (ambient NPC)', () => {
     expect(isCouchSpot(s.currentSpotId)).toBe(true);
   });
 });
+
+import { CHARACTER_SCALE } from '../src/game/data/character';
+
+describe('Scott and Ellen side by side', () => {
+  it('stand at their real heights: 6\'3" to 5\'3"', () => {
+    // Sole-to-crown heights of the unscaled art, in tiles (hat aside).
+    const scott = 0.682 * CHARACTER_SCALE.scott;
+    const ellen = 0.65 * CHARACTER_SCALE.ellen;
+    expect(scott / ellen).toBeCloseTo(75 / 63, 1);
+  });
+});

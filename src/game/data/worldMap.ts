@@ -40,7 +40,7 @@ export const GREENHOUSE_DOOR = { x: 65, y: 40 };
 export const HOUSE_FOOTPRINT: Rect = { x: 70, y: 32, w: 5, h: 8 };
 export const HOUSE_DOOR = { x: 72, y: 40 };
 export const PLAYER_START = { x: 65, y: 43 };
-/** The farmer's market stall: two tiles wide, just down the path from home. */
+/** The Plant Stand & Supply stall: two tiles wide, just down the path from home. */
 export const MARKET_STALL: Rect = { x: 69, y: 42, w: 2, h: 1 };
 
 export function rectContains(r: Rect, x: number, y: number): boolean {

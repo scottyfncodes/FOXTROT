@@ -6,7 +6,7 @@ import { placeDecor, pickUpDecor } from '../src/game/systems/decor';
 import { STAGE_AT } from '../src/game/systems/growth';
 import { MINUTES_PER_DAY } from '../src/game/engine/Clock';
 
-describe('farmer’s market', () => {
+describe('Plant Stand & Supply', () => {
   it('pays more for rarer plants and for bigger ones', () => {
     const state = createNewGame();
     state.clock.totalMinutes = 0;

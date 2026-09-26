@@ -18,7 +18,7 @@ const CATEGORY_LABEL: Record<ShopCategory, string> = {
 };
 
 export class MarketPanel {
-  panel = new Panel('Farmer’s Market', { tabs: true });
+  panel = new Panel('Plant Stand & Supply', { tabs: true });
   private tab: Tab = 'sell';
   /** Items shown in the Buy tab since it was last left; they stop being NEW once the player moves on. */
   private shown = new Set<string>();
@@ -60,7 +60,7 @@ export class MarketPanel {
   private render() {
     for (const c of Array.from(this.panel.tabsEl.children) as HTMLElement[]) c.classList.toggle('active', c.dataset.tab === this.tab);
     this.panel.clearBody();
-    this.panel.setTitle(`Farmer’s Market · ${this.game.state.coins} coins`);
+    this.panel.setTitle(`Plant Stand & Supply · ${this.game.state.coins} coins`);
     if (this.tab === 'sell') this.renderSell();
     else this.renderShop();
   }

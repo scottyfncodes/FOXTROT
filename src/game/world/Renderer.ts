@@ -766,7 +766,7 @@ export class Renderer {
   }
 
   /**
-   * The farmer's market stall: a trestle table, crates of plants for sale,
+   * The Plant Stand & Supply stall: a trestle table, crates of plants for sale,
    * and a chalkboard advertising what people are asking for today.
    * Upgrades show up on the stall itself.
    */
@@ -1490,6 +1490,53 @@ export class Renderer {
   }
 
   /** Scout: Ellen's scruffy one-eyed field companion. */
+  /**
+   * Four legs for a small animal, drawn before its body so the body covers
+   * the tops. In profile the front pair sits under the head and the hind
+   * pair under the tail; face-on the near pair is lower and wider, the far
+   * pair tucked up behind. They step in diagonal pairs, like a real trot.
+   */
+  private drawQuadrupedLegs(
+    cx: number,
+    cy: number,
+    dir: readonly [number, number] | number[],
+    tile: number,
+    o: { along: number; spread: number; top: number; paw: number; width: number; swing: number; near: string; far: string }
+  ) {
+    const { ctx } = this;
+    const legs: { x: number; top: number; paw: number; dx: number; dy: number; far: boolean }[] = [];
+    const sw = o.swing;
+    if (dir[0] !== 0) {
+      const f = dir[0];
+      const lift = tile * 0.015;
+      const off = f * tile * 0.012;
+      legs.push({ x: cx + f * o.along + off, top: cy + o.top - lift, paw: cy + o.paw - lift, dx: -sw * f, dy: 0, far: true });
+      legs.push({ x: cx - f * o.along + off, top: cy + o.top - lift, paw: cy + o.paw - lift, dx: sw * f, dy: 0, far: true });
+      legs.push({ x: cx + f * o.along, top: cy + o.top, paw: cy + o.paw, dx: sw * f, dy: 0, far: false });
+      legs.push({ x: cx - f * o.along, top: cy + o.top, paw: cy + o.paw, dx: -sw * f, dy: 0, far: false });
+    } else {
+      const tuck = tile * 0.04;
+      legs.push({ x: cx - o.spread * 0.8, top: cy + o.top - tuck, paw: cy + o.paw - tuck, dx: 0, dy: -sw, far: true });
+      legs.push({ x: cx + o.spread * 0.8, top: cy + o.top - tuck, paw: cy + o.paw - tuck, dx: 0, dy: sw, far: true });
+      legs.push({ x: cx - o.spread, top: cy + o.top, paw: cy + o.paw, dx: 0, dy: sw, far: false });
+      legs.push({ x: cx + o.spread, top: cy + o.top, paw: cy + o.paw, dx: 0, dy: -sw, far: false });
+    }
+    ctx.lineCap = 'round';
+    for (const l of legs) {
+      ctx.strokeStyle = l.far ? o.far : o.near;
+      ctx.lineWidth = Math.max(1, o.width);
+      ctx.beginPath();
+      ctx.moveTo(l.x, l.top);
+      ctx.lineTo(l.x + l.dx, l.paw + Math.min(0, l.dy));
+      ctx.stroke();
+      ctx.fillStyle = l.far ? o.far : o.near;
+      ctx.beginPath();
+      ctx.ellipse(l.x + l.dx, l.paw + Math.min(0, l.dy), o.width * 0.6, o.width * 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.lineCap = 'butt';
+  }
+
   private drawScout(camera: Camera, scout: ScoutState, now: number) {
     const { ctx } = this;
     const tile = TILE_SIZE * camera.zoom;
@@ -1531,6 +1578,34 @@ export class Renderer {
     );
     ctx.stroke();
 
+    // four legs: a trot while following, planted when standing; sitting,
+    // just the two front legs straight down under his chest
+    if (sitting) {
+      const fx = cx + dir[0] * tile * 0.08;
+      for (const side of [-1, 1]) {
+        const lx = dir[0] !== 0 ? fx + side * tile * 0.015 : cx + side * tile * 0.05;
+        ctx.strokeStyle = side < 0 && dir[0] !== 0 ? SCOUT_APPEARANCE.furDark : SCOUT_APPEARANCE.furBase;
+        ctx.lineWidth = Math.max(1, tile * 0.04);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(lx, cy);
+        ctx.lineTo(lx, cy + tile * 0.12);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
+    } else {
+      this.drawQuadrupedLegs(cx, cy, dir, tile, {
+        along: tile * 0.09,
+        spread: tile * 0.07,
+        top: tile * 0.0,
+        paw: tile * 0.13,
+        width: tile * 0.038,
+        swing: legSwing,
+        near: SCOUT_APPEARANCE.furBase,
+        far: SCOUT_APPEARANCE.furDark,
+      });
+    }
+
     // body with a scruffy darker patch
     ctx.fillStyle = SCOUT_APPEARANCE.furBase;
     ctx.beginPath();
@@ -1540,16 +1615,6 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(cx - dir[0] * tile * 0.03, cy - tile * 0.05 - dir[1] * tile * 0.02, tile * 0.08, tile * 0.05 * bodyScaleY, 0, 0, Math.PI * 2);
     ctx.fill();
-
-    if (!sitting) {
-      ctx.fillStyle = SCOUT_APPEARANCE.furDark;
-      ctx.beginPath();
-      ctx.ellipse(cx - tile * 0.07, cy + tile * 0.1 + legSwing, tile * 0.03, tile * 0.035, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(cx + tile * 0.07, cy + tile * 0.1 - legSwing, tile * 0.03, tile * 0.035, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
 
     // head
     const headX = cx + dir[0] * tile * 0.14;
@@ -2155,13 +2220,29 @@ export class Renderer {
     ctx.stroke();
 
     if (!sitting && !grooming) {
-      ctx.fillStyle = CAT_APPEARANCE.furDark;
-      ctx.beginPath();
-      ctx.ellipse(cx - tile * 0.05, cy + tile * 0.08 + legSwing, tile * 0.02, tile * 0.025, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(cx + tile * 0.05, cy + tile * 0.08 - legSwing, tile * 0.02, tile * 0.025, 0, 0, Math.PI * 2);
-      ctx.fill();
+      this.drawQuadrupedLegs(cx, cy, dir, tile, {
+        along: tile * 0.065,
+        spread: tile * 0.05,
+        top: tile * 0.0,
+        paw: tile * 0.1,
+        width: tile * 0.026,
+        swing: legSwing,
+        near: CAT_APPEARANCE.furBase,
+        far: CAT_APPEARANCE.furDark,
+      });
+    } else {
+      // sitting upright: front legs straight down, paws together
+      for (const side of [-1, 1]) {
+        const lx = cx + dir[0] * tile * 0.05 + side * tile * (dir[0] !== 0 ? 0.012 : 0.03);
+        ctx.strokeStyle = CAT_APPEARANCE.furLight;
+        ctx.lineWidth = Math.max(1, tile * 0.024);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(lx, cy);
+        ctx.lineTo(lx, cy + tile * 0.085);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
     }
 
     // body, orange tabby

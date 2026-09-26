@@ -134,7 +134,7 @@ export class GreenhousePanel {
       this.render();
     });
     body.appendChild(pots);
-    if (this.ownedPots().length === 1) body.appendChild(note('More pot styles are sold at the market.', 'row-note'));
+    if (this.ownedPots().length === 1) body.appendChild(note('More pot styles are sold at the Plant Stand & Supply.', 'row-note'));
     body.appendChild(el('h4', 'section-head', 'Choose a plant'));
     const list = el('div', 'entry-list');
     for (const item of eligible) {

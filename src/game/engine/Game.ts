@@ -636,7 +636,7 @@ export class Game {
       }
       const mx = MARKET_STALL.x + MARKET_STALL.w / 2;
       const my = MARKET_STALL.y + 1.1;
-      consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Farmer’s Market', available: true }, mx, my, 1.6);
+      consider({ kind: 'market', id: 'market', x: mx, y: my, label: 'Plant Stand & Supply', available: true }, mx, my, 1.6);
       if (Math.hypot(p.x - (GREENHOUSE_DOOR.x + 0.5), p.y - (GREENHOUSE_DOOR.y + 0.5)) < INTERACT_RANGE) {
         best = { kind: 'greenhouseDoor', id: 'door', x: GREENHOUSE_DOOR.x, y: GREENHOUSE_DOOR.y, label: 'Into the Greenhouse', available: true };
       }
@@ -685,7 +685,7 @@ export class Game {
         else this.pushToast(`Took a cutting of ${name}.`, 'info');
         this.flourish(spot.x + 0.5, spot.y + 0.5, rarity, !!(result.newSpecies || result.newVariant));
         this.hint('firstCutting', 'Bring your cutting home to the greenhouse and pot it in a nursery bed.');
-        if (this.state.basket.length >= 3) this.hint('market', 'The market stall down the path buys plants — and sells pots, shelves and more. Rare plants fetch a lot.');
+        if (this.state.basket.length >= 3) this.hint('market', 'The Plant Stand & Supply down the path buys plants — and sells pots, shelves and more. Rare plants fetch a lot.');
         this.lushDirty = true;
       } else if (result.reason === 'basket-full') {
         this.pushToast('Your basket is full.', 'info');
