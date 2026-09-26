@@ -32,6 +32,7 @@ import { createFoxFinds, collectFoxFind, expireFoxFinds } from '../systems/foxFi
 import { findCuriosity } from '../data/curiosities';
 import { discoveryFlourish, discoveryAside, type Flourish } from '../systems/rarity';
 import type { CatInterest } from '../systems/cat';
+import { KIND_SIGNIFICANCE, type Significance, type ToastKind } from '../systems/toasts';
 import { isNight } from './Clock';
 import type { Rarity } from '../types';
 import { DISCOVERY_SPOTS } from '../data/discoveryPoints';
@@ -87,7 +88,9 @@ export interface Interactable {
 export interface ToastEvent {
   id: string;
   text: string;
-  kind: 'info' | 'discovery' | 'growth' | 'hint' | 'coins';
+  kind: ToastKind;
+  /** How much it matters: decides how long it stays and what may interrupt it. */
+  significance: Significance;
 }
 
 const AUTOSAVE_MS = 8000;
@@ -273,15 +276,15 @@ export class Game {
     window.removeEventListener('pagehide', this.saveNow);
   }
 
-  private pushToast(text: string, kind: ToastEvent['kind'] = 'info') {
-    this.onToast?.({ id: makeUid('toast'), text, kind });
+  private pushToast(text: string, kind: ToastKind = 'info', significance: Significance = KIND_SIGNIFICANCE[kind]) {
+    this.onToast?.({ id: makeUid('toast'), text, kind, significance });
   }
 
   /** One-time guidance, shown the first time it's relevant and never again. */
-  hint(id: string, text: string): boolean {
+  hint(id: string, text: string, significance: Significance = 'important'): boolean {
     if (this.state.hints.includes(id)) return false;
     this.state.hints.push(id);
-    this.pushToast(text, 'hint');
+    this.pushToast(text, 'hint', significance);
     return true;
   }
 
@@ -331,9 +334,10 @@ export class Game {
       if (established) {
         const first = this.hint(
           'established',
-          `${def.name} is established! Lift one into your basket, then give it a pot in the greenhouse gallery — or plant it out in the wild, where it will grow and spread on its own.`
+          `${def.name} is established! Lift one into your basket, then give it a pot in the greenhouse gallery — or plant it out in the wild, where it will grow and spread on its own.`,
+          'major'
         );
-        if (!first) this.pushToast(`${def.name} is now established — you know it well enough to display it or plant it out.`, 'discovery');
+        if (!first) this.pushToast(`${def.name} is now established — you know it well enough to display it or plant it out.`, 'discovery', 'major');
       }
       if (offline) continue;
       const name = specimenName(plant.defId, plant.variantId);
@@ -345,7 +349,7 @@ export class Game {
       } else if (up.to === 'large' && !plant.bornWild) {
         this.pushToast(`Your ${name} in ${zoneLabel(plant.location.zone)} has grown large — it may start to spread.`, 'growth');
       } else if (up.to === 'specimen' && !plant.bornWild) {
-        this.pushToast(`Your ${name} in ${zoneLabel(plant.location.zone)} is a magnificent specimen now.`, 'growth');
+        this.pushToast(`Your ${name} in ${zoneLabel(plant.location.zone)} is a magnificent specimen now.`, 'growth', 'important');
       }
     }
 
@@ -354,7 +358,7 @@ export class Game {
       if (result.spreads.length > 0) {
         const child = this.state.plants[result.spreads[0].childId];
         if (child?.location.kind === 'wild') {
-          this.hint('spread', `A ${PLANTS[child.defId].name} seedling has come up by itself in ${zoneLabel(child.location.zone)}. Your plants are spreading.`);
+          this.hint('spread', `A ${PLANTS[child.defId].name} seedling has come up by itself in ${zoneLabel(child.location.zone)}. Your plants are spreading.`, 'major');
         }
       }
       for (const s of sports) {
@@ -369,7 +373,7 @@ export class Game {
       if (grew.size > 0) parts.push(grew.size === 1 ? 'one of your plants grew' : `${grew.size} of your plants grew`);
       if (result.spreads.length > 0) parts.push(`${result.spreads.length} new seedling${result.spreads.length === 1 ? '' : 's'} came up in ${listZones(zones)}`);
       const body = parts.length ? `: ${parts.join(', and ')}` : '';
-      this.pushToast(`Welcome back — ${spanText(elapsed)} passed${body}.`, 'info');
+      this.pushToast(`Welcome back — ${spanText(elapsed)} passed${body}.`, 'info', 'normal');
       if (sports.length > 0) this.pushToast(`And something you’ve never seen before is growing among them. Go and look.`, 'discovery');
     }
   }
@@ -494,7 +498,7 @@ export class Game {
       this.audio.playDiscoveryChime();
       if (found.newSpecies) this.announce(`Something new has come up among your plants: ${fullName(plant.defId, plant.variantId)} (${rarity}).`, r);
       else if (found.newVariant) this.announce(`New variant: ${fullName(plant.defId, plant.variantId)} (${rarity}) — it sprouted by itself among your plants!`, r);
-      else this.pushToast(`A ${specimenName(plant.defId, plant.variantId)} has come up among your plants.`, 'discovery');
+      else this.pushToast(`A ${specimenName(plant.defId, plant.variantId)} has come up among your plants.`, 'discovery', 'normal');
       this.flourish(plant.location.x, plant.location.y, r, found.newSpecies || found.newVariant);
       this.onStateTouched?.();
     }
@@ -928,7 +932,7 @@ export class Game {
       const c = findCuriosity(f.curiosityId ?? '');
       if (c) {
         if (res.newCuriosity) this.announce(`${c.name}. ${c.description}`, c.rarity);
-        else this.pushToast(`${c.name} again.`, 'discovery');
+        else this.pushToast(`${c.name} again.`, 'discovery', 'normal');
         this.flourish(f.x, f.y, c.rarity, !!res.newCuriosity);
       }
     } else if (f.defId && f.variantId) {
@@ -942,10 +946,10 @@ export class Game {
     this.onStateTouched?.();
   }
 
-  /** A discovery toast, with a quiet aside when it's a rare one. */
+  /** A discovery toast, with a quiet aside when it's a rare one. Rare finds are moments. */
   private announce(text: string, rarity: Rarity) {
     const aside = discoveryAside(rarity);
-    this.pushToast(aside ? `${text} ${aside}` : text, 'discovery');
+    this.pushToast(aside ? `${text} ${aside}` : text, 'discovery', rarityRank(rarity) >= 2 ? 'major' : 'important');
   }
 
   /** Somewhere far off and overgrown for the fox to run to, or null. */
@@ -1163,7 +1167,8 @@ export class Game {
             ? `Bought a ${item.name}. Set it down indoors: tap the arrange button at home.`
             : `${item.name} — done. Go and see.`
           : `Bought ${item.name}.`,
-      'coins'
+      'coins',
+      item.category === 'greenhouse' && !item.repeatable ? 'important' : 'minor'
     );
     this.onStateTouched?.();
   }

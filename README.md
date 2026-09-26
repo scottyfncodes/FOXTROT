@@ -1,4 +1,4 @@
-# Foxtrot
+# Foxtail
 
 A cozy houseplant collecting, propagating and world-transforming game for
 the browser. You're **Ellen**, a plant collector, with **Scout** — scruffy,
@@ -10,8 +10,9 @@ grow in patches all over it.
 
 - **Discover.** Every wild patch shows the actual plant growing there, and
   re-rolls what grows in it over time, weighted by rarity (Common → Uncommon →
-  Rare → Very Rare → Extremely Rare). 22 species, 57 variants: variegated,
-  dark-leaved, crested, glowing… Some only appear in the rain, some only by
+  Rare → Very Rare → Extremely Rare). 36 species, over 100 variants: variegated,
+  dark-leaved, crested, glowing… and, down in the creek bogs and the damp
+  forest, carnivores: sundews, flytraps and pitcher plants. Some only appear in the rain, some only by
   lantern light, and a few only where the fox leads you.
 - **Propagate.** Pot a cutting in a nursery bed; it roots, then grows from
   *cutting → young → established → large → specimen*. Rooted plants give
@@ -47,9 +48,12 @@ grow in patches all over it.
   growth that you can walk quickly along while their verges creep back in.
 - **Follow the fox.** Sometimes it runs. Sometimes it's worth following.
 
-Time keeps passing (up to three game days per absence) while the tab is
-closed, and the welcome-back message tells you what grew and what spread.
-Nothing ever dies.
+Sunny daytime is the garden's resting state: the day lingers and the night
+passes quickly (a full cycle is still about twelve real minutes), and cloud
+and rain arrive as occasional spells that always clear back to sun. Time
+keeps passing (up to three game days per absence) while the tab is closed,
+and the welcome-back message tells you what grew and what spread. Nothing
+ever dies.
 
 ## Running it
 
@@ -62,6 +66,7 @@ npm run dev       # http://localhost:5173
 npm run build      # production build + PWA service worker into dist/
 npm run preview     # serve the production build locally
 npm test            # vitest — growth, propagation, spots, spreading, market, save/load, NPCs
+npm run icons       # re-render the app icons from public/icons/foxtail.svg
 ```
 
 Controls: WASD/arrow keys to move, `E` (or the on-screen button on touch
@@ -87,6 +92,9 @@ furniture). Progress autosaves to `localStorage`.
   procedural: `PlantArt.ts` draws every species/variant at any growth stage and
   caches plants as sprites so a region with hundreds of plants stays fast.
 - `src/ui/` — HUD, basket, greenhouse, market and journal panels.
+  Messages go through `src/game/systems/toasts.ts`, which sizes how long each
+  stays up by its significance and length, and keeps milestones from being
+  crowded out by routine feedback.
 - `src/game/engine/Tools.ts` — the touch-first placement state machine
   (plant, arrange, bed, path), driven in world coordinates.
 - `src/game/systems/landscape.ts` (beds, paths, compost, precise planting,

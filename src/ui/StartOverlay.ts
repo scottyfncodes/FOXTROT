@@ -14,7 +14,7 @@ export class StartOverlay {
 
   private render(isNew: boolean) {
     clear(this.root);
-    this.root.appendChild(el('h1', undefined, 'FOXTROT'));
+    this.root.appendChild(el('h1', undefined, 'FOXTAIL'));
     this.root.appendChild(
       el(
         'p',

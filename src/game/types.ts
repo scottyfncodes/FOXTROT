@@ -1,4 +1,4 @@
-// Core shared types for Foxtrot's data-driven systems.
+// Core shared types for Foxtail's data-driven systems.
 // Adding new content (species, variants, shop items, spots) means adding
 // data, not touching these types or the systems that consume them.
 
@@ -41,7 +41,11 @@ export type PlantForm =
   | 'jade' // a little woody tree tipped with fat leaves (jade plant)
   | 'spiky' // fleshy pointed leaves in an upright clump (aloe, haworthia)
   | 'stones' // squat split pebbles (living stones)
-  | 'palmate'; // tall stems of saw-edged leaflets fanned like an open hand
+  | 'palmate' // tall stems of saw-edged leaflets fanned like an open hand
+  | 'trap' // low rosette of hinged, toothed snap-traps (venus flytrap)
+  | 'dew' // spoon leaves bristling with dew-tipped hairs (sundew)
+  | 'pitcher' // upright hooded trumpets (sarracenia)
+  | 'cups'; // a scrambling vine hanging lidded cups from its leaf tips (nepenthes)
 
 /**
  * What kind of landscape a species pushes an area toward once it's
@@ -73,7 +77,7 @@ export interface PlantLook {
   flowers?: boolean;
   /** Cacti and toothed succulents: spine colour as `h s l`. */
   spines?: [number, number, number];
-  /** Multiplies spine length; 0 leaves only the woolly areoles. */
+  /** Multiplies spine length (or a flytrap's teeth); 0 leaves only the woolly areoles. */
   spineLength?: number;
   /** Moon cactus: a bright ball grafted onto a green rootstock. */
   grafted?: boolean;
