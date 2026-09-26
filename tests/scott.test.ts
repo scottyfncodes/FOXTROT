@@ -141,3 +141,64 @@ describe('Scott and Ellen side by side', () => {
     expect(scott / ellen).toBeCloseTo(75 / 63, 1);
   });
 });
+
+import { tickChase, newChase, dipAmount, CHASE_SECONDS, KISS_SECONDS, KISS_COOLDOWN } from '../src/game/systems/scott';
+
+describe('Ellen chasing Scott', () => {
+  const setup = () => {
+    const state = createNewGame();
+    const scott = state.scott;
+    scott.zone = 'meadow';
+    scott.activity = 'traveling';
+    scott.x = 50;
+    scott.y = 30;
+    return { scott, ch: newChase() };
+  };
+  const chase = (ch: ReturnType<typeof newChase>, scott: ReturnType<typeof setup>['scott'], seconds: number, opts: { x?: number; moving?: boolean; indoors?: boolean } = {}) => {
+    let started = false;
+    for (let t = 0; t < seconds; t += 0.1) {
+      if (tickChase(ch, scott, { ellenX: opts.x ?? 49.2, ellenY: 30, ellenIndoors: opts.indoors ?? false, ellenMoving: opts.moving ?? true, dtSeconds: 0.1 })) started = true;
+    }
+    return started;
+  };
+
+  it('ends in a dip and a kiss if she keeps after him long enough', () => {
+    const { scott, ch } = setup();
+    expect(chase(ch, scott, CHASE_SECONDS - 0.5)).toBe(false);
+    expect(chase(ch, scott, 0.7)).toBe(true);
+    expect(ch.kiss).not.toBeNull();
+    // He steps in beside her and turns to face her.
+    expect(scott.x).toBeCloseTo(49.7);
+    expect(scott.facing).toBe('left');
+  });
+
+  it('plays out and then leaves a pause before it can happen again', () => {
+    const { scott, ch } = setup();
+    chase(ch, scott, CHASE_SECONDS + 0.2);
+    chase(ch, scott, KISS_SECONDS + 0.2);
+    expect(ch.kiss).toBeNull();
+    expect(ch.cooldown).toBeGreaterThan(KISS_COOLDOWN - 1);
+    expect(chase(ch, scott, CHASE_SECONDS + 1)).toBe(false);
+  });
+
+  it('does not count standing still, keeping a distance, or being on the other side of a wall', () => {
+    for (const opts of [{ moving: false }, { x: 45 }, { indoors: true }]) {
+      const { scott, ch } = setup();
+      expect(chase(ch, scott, CHASE_SECONDS * 2, opts)).toBe(false);
+    }
+  });
+
+  it('leaves him be while he naps or sits on the couch', () => {
+    const { scott, ch } = setup();
+    scott.activity = 'napping';
+    expect(chase(ch, scott, CHASE_SECONDS * 2)).toBe(false);
+  });
+
+  it('eases into the dip, holds it, and eases out', () => {
+    expect(dipAmount(0)).toBe(0);
+    expect(dipAmount(0.5)).toBe(1);
+    expect(dipAmount(1)).toBe(0);
+    expect(dipAmount(0.1)).toBeGreaterThan(0);
+    expect(dipAmount(0.1)).toBeLessThan(1);
+  });
+});

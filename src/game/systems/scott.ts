@@ -91,3 +91,79 @@ export function tickScott(scott: ScottState, ctx: ScottTickContext): void {
   // the couch he's facing the TV, back to the room.
   scott.facing = spot.kind === 'putt' ? 'right' : spot.kind === 'tv' || spot.kind === 'drink' ? 'up' : 'down';
 }
+
+// ---------------------------------------------------------------- the chase
+// He takes no notice of Ellen — until she chases him. Keep after him long
+// enough and he gives in: turns, dips her, and kisses her.
+
+/** How close counts as on his heels, in tiles. */
+export const CHASE_RANGE = 1.6;
+/** Real seconds of chasing before he stops and turns round. */
+export const CHASE_SECONDS = 4;
+/** How long the dip and kiss last, in real seconds. */
+export const KISS_SECONDS = 3.6;
+/** Real seconds after a kiss before another chase can count. */
+export const KISS_COOLDOWN = 30;
+
+export interface ChaseState {
+  /** Seconds spent chasing so far; drains away when she stops. */
+  chase: number;
+  /** The kiss under way, 0 → 1, or null. */
+  kiss: { t: number; ellenLeft: boolean } | null;
+  cooldown: number;
+}
+
+export function newChase(): ChaseState {
+  return { chase: 0, kiss: null, cooldown: 0 };
+}
+
+/** Busy with something he'd not get up from: asleep, or sat on the couch. */
+function settled(scott: ScottState): boolean {
+  return scott.activity === 'napping' || scott.activity === 'watchingTV' || scott.activity === 'relaxing';
+}
+
+export interface ChaseContext {
+  ellenX: number;
+  ellenY: number;
+  ellenIndoors: boolean;
+  ellenMoving: boolean;
+  dtSeconds: number;
+}
+
+/**
+ * Advances the chase. Returns true on the frame the kiss begins; while it
+ * runs, Scott and Ellen are held in place (the caller skips their usual
+ * updates) and it plays out on its own.
+ */
+export function tickChase(ch: ChaseState, scott: ScottState, ctx: ChaseContext): boolean {
+  if (ch.kiss) {
+    ch.kiss.t += ctx.dtSeconds / KISS_SECONDS;
+    if (ch.kiss.t >= 1) {
+      ch.kiss = null;
+      ch.cooldown = KISS_COOLDOWN;
+    }
+    return false;
+  }
+  ch.cooldown = Math.max(0, ch.cooldown - ctx.dtSeconds);
+  const sameSide = (scott.zone === 'greenhouse') === ctx.ellenIndoors;
+  const near = sameSide && Math.hypot(scott.x - ctx.ellenX, scott.y - ctx.ellenY) < CHASE_RANGE;
+  if (near && ctx.ellenMoving && !settled(scott) && ch.cooldown === 0) ch.chase += ctx.dtSeconds;
+  else ch.chase = Math.max(0, ch.chase - ctx.dtSeconds * 0.5);
+  if (ch.chase < CHASE_SECONDS) return false;
+  ch.chase = 0;
+  const ellenLeft = ctx.ellenX <= scott.x;
+  ch.kiss = { t: 0, ellenLeft };
+  // He steps in beside her, and they face each other.
+  scott.x = ctx.ellenX + (ellenLeft ? 0.5 : -0.5);
+  scott.y = ctx.ellenY;
+  scott.facing = ellenLeft ? 'left' : 'right';
+  return true;
+}
+
+/** How far into the dip they are, 0 (standing) → 1 (fully dipped), easing in and out. */
+export function dipAmount(t: number): number {
+  const ease = (u: number) => u * u * (3 - 2 * u);
+  if (t < 0.25) return ease(t / 0.25);
+  if (t > 0.8) return ease(Math.max(0, (1 - t) / 0.2));
+  return 1;
+}

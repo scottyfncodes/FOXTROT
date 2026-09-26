@@ -43,6 +43,7 @@ import { catLift } from '../systems/cat';
 import { foxFade } from '../systems/fox';
 import { isCouchSpot } from '../data/scottSpots';
 import { PATH_WIDTH } from '../systems/landscape';
+import { dipAmount } from '../systems/scott';
 
 /** Everything the scene needs beyond the game state: what the player is doing with their hands, and passing effects. */
 export interface SceneExtras {
@@ -51,6 +52,8 @@ export interface SceneExtras {
   cleared: Set<string>;
   /** 1 just after stepping through a door, falling to 0. */
   fade: number;
+  /** Scott dipping Ellen into a kiss, if he's been caught. */
+  kiss?: { t: number; ellenLeft: boolean } | null;
 }
 
 const NO_EXTRAS: SceneExtras = { tools: { kind: 'play' }, flourishes: [], cleared: new Set(), fade: 0 };
@@ -258,13 +261,18 @@ export class Renderer {
       });
     }
     drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
-    if (state.scott.zone !== 'greenhouse') {
-      drawables.push({ y: state.scott.y, draw: () => this.atScale(camera, state.scott.x, state.scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, state.scott, now)) });
-    }
     const moving = Math.hypot(state.player.x - this.lastEllenX, state.player.y - this.lastEllenY) > 0.001;
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
-    drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
+    if (extras.kiss && state.scott.zone !== 'greenhouse') {
+      const kiss = extras.kiss;
+      drawables.push({ y: state.player.y, draw: () => this.drawKiss(camera, state, kiss, now) });
+    } else {
+      if (state.scott.zone !== 'greenhouse') {
+        drawables.push({ y: state.scott.y, draw: () => this.atScale(camera, state.scott.x, state.scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, state.scott, now)) });
+      }
+      drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
+    }
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
 
@@ -1010,16 +1018,57 @@ export class Renderer {
   }
 
   /** Draws a character scaled about its feet, so resizing never lifts it off the ground. */
-  private atScale(camera: Camera, x: number, y: number, k: number, draw: () => void) {
+  private atScale(camera: Camera, x: number, y: number, k: number, draw: () => void, tilt = 0) {
     const { ctx } = this;
     const screen = camera.worldToScreen(x * TILE_SIZE, y * TILE_SIZE);
     const footY = screen.y + TILE_SIZE * camera.zoom * 0.25;
     ctx.save();
     ctx.translate(screen.x, footY);
+    // A lean, pivoting on the feet (radians; positive tips the head right).
+    if (tilt) ctx.rotate(tilt);
     ctx.scale(k, k);
     ctx.translate(-screen.x, -footY);
     draw();
     ctx.restore();
+  }
+
+  /**
+   * Caught: Scott turns, sweeps Ellen back into a dip and kisses her. Both
+   * are drawn side-on facing each other; he leans in over her as she tips
+   * back, each pivoting on their feet, and a heart drifts up between them.
+   */
+  private drawKiss(camera: Camera, state: GameState, kiss: { t: number; ellenLeft: boolean }, now: number) {
+    const { ctx } = this;
+    const tile = TILE_SIZE * camera.zoom;
+    const dip = dipAmount(kiss.t);
+    // Toward Scott is +1 when Ellen stands on the left.
+    const toward = kiss.ellenLeft ? 1 : -1;
+    const p = state.player;
+    const ellenFacing: Facing = kiss.ellenLeft ? 'right' : 'left';
+    const scott = { ...state.scott, activity: 'traveling' as const, facing: (kiss.ellenLeft ? 'left' : 'right') as Facing };
+    // She tips back, away from him; he leans in over her.
+    // Angles and the slide of her feet in under him are set so their faces
+    // meet at the bottom of the dip (he's the taller by a head).
+    const ellenTilt = -toward * 0.45 * dip;
+    const scottTilt = -toward * 0.6 * dip;
+    const ex = p.x + toward * 0.15 * dip;
+    this.atScale(camera, scott.x, scott.y, CHARACTER_SCALE.scott, () => this.drawScott(camera, scott, 0), scottTilt);
+    this.atScale(camera, ex, p.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, ex, p.y, ellenFacing, 0, false, false), ellenTilt);
+    if (dip > 0.6) {
+      const mid = camera.worldToScreen(((ex + scott.x) / 2) * TILE_SIZE, p.y * TILE_SIZE);
+      const rise = ((kiss.t - 0.25) / 0.75) * tile * 0.6;
+      const hx = mid.x + Math.sin(now * 0.004) * tile * 0.05;
+      const hy = mid.y - tile * 1.1 - rise;
+      const r = tile * 0.09;
+      ctx.globalAlpha = Math.min(1, (dip - 0.6) * 2.5);
+      ctx.fillStyle = '#d9534f';
+      ctx.beginPath();
+      ctx.moveTo(hx, hy + r * 1.1);
+      ctx.bezierCurveTo(hx - r * 1.6, hy - r * 0.2, hx - r * 0.7, hy - r * 1.4, hx, hy - r * 0.5);
+      ctx.bezierCurveTo(hx + r * 0.7, hy - r * 1.4, hx + r * 1.6, hy - r * 0.2, hx, hy + r * 1.1);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   }
 
   private drawFox(camera: Camera, x: number, y: number, now: number) {
@@ -2535,7 +2584,8 @@ export class Renderer {
     this.lastEllenX = state.player.x;
     this.lastEllenY = state.player.y;
     drawables.push({ y: state.scout.y, draw: () => this.atScale(camera, state.scout.x, state.scout.y, CHARACTER_SCALE.scout, () => this.drawScout(camera, state.scout, now)) });
-    if (scottHome) {
+    const kissing = !!extras.kiss && scottHome;
+    if (scottHome && !kissing) {
       // On the couch he's sitting down, so he sits lower — the couch back hides the rest of him.
       const seated = isCouchSpot(state.scott.currentSpotId) && (state.scott.activity === 'watchingTV' || state.scott.activity === 'relaxing');
       const sy = state.scott.y + (seated ? -0.12 : 0);
@@ -2557,7 +2607,10 @@ export class Renderer {
         ctx.restore();
       },
     });
-    drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
+    if (kissing) {
+      const kiss = extras.kiss!;
+      drawables.push({ y: state.player.y, draw: () => this.drawKiss(camera, state, kiss, now) });
+    } else drawables.push({ y: state.player.y, draw: () => this.atScale(camera, state.player.x, state.player.y, CHARACTER_SCALE.ellen, () => this.drawEllen(camera, state.player.x, state.player.y, state.player.facing, now, moving, crouching)) });
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
     // Hanging pots are overhead, so they draw over everyone.

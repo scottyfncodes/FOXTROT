@@ -44,7 +44,7 @@ import { ZONES } from '../data/zones';
 import type { OutdoorZoneId, ZoneId } from '../types';
 import { tickFox } from '../systems/fox';
 import { tickScout } from '../systems/scout';
-import { tickScott } from '../systems/scott';
+import { tickScott, tickChase, newChase } from '../systems/scott';
 import { tickCat } from '../systems/cat';
 import { spotContent, collectSpot } from '../systems/spots';
 import { advanceWorld, canPlantAt, computeLushness, type LushField } from '../systems/wild';
@@ -161,6 +161,8 @@ export class Game {
   tools: ToolController;
   world: LandscapeWorld;
   obstacleMap = new Map<string, Obstacle>();
+  /** Ellen chasing Scott, and the kiss it ends in. */
+  chase = newChase();
   /** The garden piece Ellen is carrying to somewhere new, if any. */
   carryingDecorId: string | null = null;
   cleared = new Set<string>();
@@ -401,7 +403,8 @@ export class Game {
       this.lushAcc = 0;
     }
 
-    const move = this.input.getMoveVector();
+    // Mid-kiss, she's not going anywhere.
+    const move = this.chase.kiss ? { x: 0, y: 0 } : this.input.getMoveVector();
     if (move.x !== 0 || move.y !== 0) {
       const speed = MOVE_SPEED * this.groundSpeed();
       const dx = move.x * speed * dtSeconds;
@@ -474,7 +477,13 @@ export class Game {
       nearbyUndiscovered: this.state.player.inGreenhouse ? null : this.findNearbyUnseen(),
       rand: Math.random,
     });
-    tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random });
+    const p = this.state.player;
+    const kissing = !!this.chase.kiss;
+    if (tickChase(this.chase, this.state.scott, { ellenX: p.x, ellenY: p.y, ellenIndoors: p.inGreenhouse, ellenMoving: move.x !== 0 || move.y !== 0, dtSeconds })) {
+      p.facing = this.chase.kiss!.ellenLeft ? 'right' : 'left';
+      if (this.tools.active) this.tools.cancel();
+    }
+    if (!kissing && !this.chase.kiss) tickScott(this.state.scott, { dtSeconds, now: this.state.clock.totalMinutes, rand: Math.random });
     this.catInterestAcc += dtMs;
     if (this.catInterestAcc >= CAT_INTEREST_MS) {
       this.catInterestAcc = 0;
@@ -1372,7 +1381,7 @@ export class Game {
   private render(now: number) {
     this.camera.follow(this.state.player.x, this.state.player.y);
     const crouching = this.state.clock.totalMinutes < this.actionAnimUntil;
-    const scene = { tools: this.tools.mode, flourishes: this.flourishes, cleared: this.cleared, fade: Math.max(0, 1 - (now - this.fadeFrom) / FADE_MS) };
+    const scene = { tools: this.tools.mode, flourishes: this.flourishes, cleared: this.cleared, fade: Math.max(0, 1 - (now - this.fadeFrom) / FADE_MS), kiss: this.chase.kiss };
     if (this.state.player.inGreenhouse) {
       this.renderer.renderIndoor(this.sceneCamera(), this.state, now, crouching, scene);
     } else {
