@@ -5,7 +5,7 @@ import { SHOP_ITEMS } from './data/shop';
 
 // Bump SAVE_VERSION when the state shape changes; SaveManager.migrateSave
 // fills new fields from createNewGame(). The storage key stays fixed.
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 // The storage key keeps the game's working title so existing saves carry over.
 export const SAVE_KEY = 'foxtrot-save-v4';
 
@@ -70,6 +70,36 @@ export interface BasketItem {
   origin: 'wild' | 'cutting' | 'lifted';
   collectedAt: number;
   countedGrown?: boolean;
+  /** The pot it was lifted in, if it came off display. */
+  potId?: string;
+}
+
+/** A request pinned on the board by the stall: someone wants a particular plant, grown on. */
+export interface Commission {
+  id: string;
+  /** The species asked for (unless it's "anything from a region"). */
+  defId?: string;
+  /** A named variety, when the buyer is particular. */
+  variantId?: string;
+  /** The smallest it may be. */
+  minStage: GrowthStage;
+  /** In this pot, when the buyer is particular. */
+  potId?: string;
+  /** Anything native to this region, instead of a species. */
+  zone?: OutdoorZoneId;
+  postedAt: number;
+  expiresAt: number;
+  /** The player has read it at the stall. */
+  seen: boolean;
+  filledAt?: number;
+  filledWith?: string;
+  note?: string;
+}
+
+export interface CommissionLog {
+  filled: number;
+  /** What buyers said, newest first. */
+  notes: { text: string; what: string; at: number }[];
 }
 
 export interface SpeciesRecord {
@@ -289,6 +319,9 @@ export interface GameState {
   cat: CatState;
   /** Today's sales by species, so repeat sales of one plant fetch less. */
   market: { day: number; sold: Record<string, number> };
+  /** The request pinned on the board by the stall, if any. */
+  commission: Commission | null;
+  commissions: CommissionLog;
 }
 
 let uidCounter = 0;
@@ -359,6 +392,8 @@ export function createNewGame(): GameState {
       nextChangeAt: 8 * 60 + 20,
     },
     market: { day: 0, sold: {} },
+    commission: null,
+    commissions: { filled: 0, notes: [] },
     cat: {
       x: 21.95,
       y: 3.5,

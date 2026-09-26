@@ -6,8 +6,16 @@ import { SHOP_ITEMS, PURPOSE_INFO, PURPOSE_ORDER, type ShopCategory, type ShopIt
 import { STAGE_LABEL, stageFloat, stageOf } from '../game/systems/growth';
 import { basketPrices, demandSpecies, buyBlockReason, DEMAND_BONUS, soldToday, canSell, itemPrice, shopItemVisible, isShopItemNew, markShopSeen } from '../game/systems/market';
 import { button, note, portrait, rarityBadge } from './common';
+import { commissionPay, commissionPortrait, describeCommission, fitBlock, fittingItem, openCommission, COMMISSION_MULT, dayOf } from '../game/systems/commissions';
+import { findPotStyle } from '../game/data/shop';
+import { ZONES } from '../game/data/zones';
 
 type Tab = 'sell' | 'shop';
+
+/** Nearer misses first: a plant that only needs growing on is closer than the wrong species. */
+function rank(block: ReturnType<typeof fitBlock>): number {
+  return block === null ? 0 : block === 'stage' ? 1 : block === 'pot' ? 2 : block === 'variant' ? 3 : 4;
+}
 
 const CATEGORY_LABEL: Record<ShopCategory, string> = {
   greenhouse: 'Greenhouse',
@@ -41,6 +49,12 @@ export class MarketPanel {
   }
 
   open() {
+    // Reading the board: the request stops being news.
+    const c = this.game.state.commission;
+    if (c && !c.seen) {
+      c.seen = true;
+      this.game.onStateTouched?.();
+    }
     this.render();
     this.panel.open();
   }
@@ -68,9 +82,10 @@ export class MarketPanel {
   private renderSell() {
     const state = this.game.state;
     const body = this.panel.body;
+    this.renderBoard();
     const want = demandSpecies(state);
     const wanted = el('div', 'wanted');
-    wanted.append(portrait(want, PLANTS[want].variants[0].id, 2.5, 3, 48), el('div', undefined, `Wanted today: ${PLANTS[want].name}. People are paying ${Math.round((DEMAND_BONUS - 1) * 100)}% extra.`));
+    wanted.append(portrait(want, PLANTS[want].variants[0].id, 2.5, 3, 48), el('div', undefined, `People are also asking for ${PLANTS[want].name} today: ${Math.round((DEMAND_BONUS - 1) * 100)}% extra on any sale.`));
     body.appendChild(wanted);
     if (state.basket.length === 0) {
       body.appendChild(el('div', 'empty-state', 'Nothing in your basket to sell. Bigger plants fetch far more than cuttings.'));
@@ -109,6 +124,64 @@ export class MarketPanel {
       list.appendChild(row);
     });
     body.appendChild(list);
+  }
+
+  /** The board: the request pinned up, or the note the last buyer left, and the notes the stall keeps. */
+  private renderBoard() {
+    const state = this.game.state;
+    const body = this.panel.body;
+    const c = state.commission;
+    if (!c) return;
+    const board = el('div', 'board');
+    const head = el('div', 'board-head');
+    const pic = commissionPortrait(c);
+    if (pic) head.appendChild(portrait(pic.defId, pic.variantId, 3, 5, 56));
+    const text = el('div', 'entry-info');
+    const open = openCommission(state);
+    if (open) {
+      text.append(el('div', 'entry-name', 'Pinned on the board'), el('div', undefined, `Someone wants ${describeCommission(c)}. They’ll pay ${COMMISSION_MULT}× the usual.`));
+      const daysLeft = Math.max(0, Math.ceil((c.expiresAt - state.clock.totalMinutes) / 1440));
+      text.appendChild(el('div', 'entry-sub dim', daysLeft <= 1 ? 'Coming down tomorrow.' : `Up for another ${daysLeft} days.`));
+      head.appendChild(text);
+      board.appendChild(head);
+      const fit = fittingItem(state, c);
+      if (fit) {
+        const pay = commissionPay(state, fit);
+        const row = el('div', 'action-row');
+        row.appendChild(button(`Hand over the ${specimenName(fit.defId, fit.variantId)} · ${pay}`, () => {
+          this.game.fillCommission(fit.uid);
+          this.render();
+        }, 'primary-btn'));
+        board.appendChild(row);
+      } else if (state.basket.length) {
+        // The nearest miss, in a few words.
+        const closest = [...state.basket].sort((a, b) => rank(fitBlock(c, a)) - rank(fitBlock(c, b)))[0];
+        const why = fitBlock(c, closest);
+        const line =
+          why === 'stage'
+            ? `Your ${specimenName(closest.defId, closest.variantId)} isn’t big enough yet: grow it on to ${STAGE_LABEL[c.minStage].toLowerCase()}.`
+            : why === 'pot'
+              ? `It wants to be in a ${findPotStyle(c.potId!).name.toLowerCase()} pot: put it on display in one, then lift it.`
+              : why === 'variant'
+                ? `They’re after the ‘${PLANTS[c.defId!].variants.find((v) => v.id === c.variantId)?.name}’ form in particular.`
+                : why === 'zone'
+                  ? `Something that grows wild in ${ZONES[c.zone!].name.replace(/^The /, 'the ')}.`
+                  : 'Nothing in your basket is what they’re after.';
+        board.appendChild(note(line, 'row-note'));
+      }
+    } else {
+      text.append(el('div', 'entry-name', `Filled: the ${c.filledWith ?? 'plant'}`), el('div', 'board-note', `“${c.note}”`), el('div', 'entry-sub dim', dayOf(state.clock.totalMinutes) > dayOf(c.filledAt!) ? 'A new request will be up soon.' : 'Another request will go up tomorrow.'));
+      head.appendChild(text);
+      board.appendChild(head);
+    }
+    const past = state.commissions.notes.filter((n) => n.text !== c.note || open);
+    if (past.length) {
+      const list = el('div', 'board-past');
+      list.appendChild(el('div', 'entry-sub dim', 'Notes the stall has kept:'));
+      for (const n of past.slice(0, 4)) list.appendChild(el('div', 'board-past-note', `“${n.text}” — the ${n.what}`));
+      board.appendChild(list);
+    }
+    body.appendChild(board);
   }
 
   private renderShop() {

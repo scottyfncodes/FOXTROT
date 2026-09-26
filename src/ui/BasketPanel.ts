@@ -2,7 +2,7 @@ import type { Game } from '../game/engine/Game';
 import { Panel } from './Panel';
 import { el } from './dom';
 import { PLANTS, specimenName, specimenRarity } from '../game/data/plants';
-import { SHOP_ITEMS, DECOR_IDS, FURNITURE_IDS } from '../game/data/shop';
+import { SHOP_ITEMS, DECOR_IDS, FURNITURE_IDS, findPotStyle } from '../game/data/shop';
 import { basketCapacity } from '../game/systems/basket';
 import { ESTABLISH_THRESHOLD } from '../game/systems/collection';
 import { placementBlockReason } from '../game/systems/propagation';
@@ -41,7 +41,7 @@ export class BasketPanel {
         const stage = stageOf(item.growth);
         info.append(
           el('div', 'entry-name', specimenName(item.defId, item.variantId)),
-          el('div', 'entry-sub', stage === 'cutting' ? 'Fresh cutting' : `${STAGE_LABEL[stage]} plant, potted`)
+          el('div', 'entry-sub', stage === 'cutting' ? 'Fresh cutting' : `${STAGE_LABEL[stage]} plant, potted${item.potId && item.potId !== 'terracotta' ? ` (${findPotStyle(item.potId).name.toLowerCase()})` : ''}`)
         );
         info.appendChild(rarityBadge(specimenRarity(item.defId, item.variantId)));
         const block = placementBlockReason(state, item);

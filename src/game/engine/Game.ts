@@ -51,7 +51,7 @@ import { tickScott, tickChase, newChase } from '../systems/scott';
 import { tickCat } from '../systems/cat';
 import { spotContent, collectSpot } from '../systems/spots';
 import { advanceWorld, canPlantAt, computeLushness, type LushField } from '../systems/wild';
-import { STAGE_LABEL, stageIndexOf } from '../systems/growth';
+import { STAGE_LABEL, stageIndexOf, stageOf } from '../systems/growth';
 import { hasFound, recordFound, isEstablished, recordGrown } from '../systems/collection';
 import {
   takeCutting,
@@ -68,6 +68,7 @@ import {
   crossOf,
 } from '../systems/propagation';
 import { sellItem, buyItem } from '../systems/market';
+import { tickCommissions, fillCommission, openCommission } from '../systems/commissions';
 import { pickUpDecor, nearestDecor, moveDecor, decorFits, isGardenPlanter } from '../systems/decor';
 import { stallRect } from '../systems/yard';
 
@@ -522,6 +523,11 @@ export class Game {
     // every page load, so it can't measure how long the player was away.
     const clockResult = advanceClock(this.state, Date.now());
     if (clockResult.elapsedMinutes > 0) this.simulate(clockResult.elapsedMinutes, clockResult.wasOffline);
+    if (tickCommissions(this.state, this.state.clock.totalMinutes)) {
+      this.onStateTouched?.();
+      // The board is the way to find out what's wanted; only the very first request is pointed at.
+      this.hint('commission', 'Someone has pinned a request on the board by the stall.', 'important', () => this.outdoors() && !!openCommission(this.state) && !openCommission(this.state)!.seen);
+    }
 
     this.lushAcc += dtMs;
     if (this.lushDirty && this.lushAcc > LUSH_REFRESH_MS) {
@@ -1586,6 +1592,16 @@ export class Game {
     if (price === null || !item) return;
     this.audio.playToolChime();
     this.pushToast(`Sold ${specimenName(item.defId, item.variantId)} for ${price} coins.`, 'coins');
+    this.onStateTouched?.();
+  }
+
+  /** Hands over the plant a request asked for. */
+  fillCommission(uid: string) {
+    const c = this.state.commission;
+    const res = fillCommission(this.state, uid, this.state.clock.totalMinutes);
+    if (!res || !c) return;
+    this.audio.playDiscoveryChime();
+    this.pushToast(`${res.pay} coins for the ${STAGE_LABEL[stageOf(res.item.growth)].toLowerCase()} ${specimenName(res.item.defId, res.item.variantId)}. “${res.note}”`, 'coins', 'important');
     this.onStateTouched?.();
   }
 

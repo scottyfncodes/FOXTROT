@@ -850,6 +850,44 @@ button {
   display: inline-block;
 }
 
+/* The board by the stall: a request pinned up, and what buyers said. */
+.board {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: rgba(120, 150, 90, 0.16);
+  border: 1px dashed rgba(90, 63, 40, 0.35);
+  font-size: 13px;
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.board .action-row {
+  margin-top: 8px;
+}
+
+.board-note {
+  font-style: italic;
+  margin: 3px 0;
+}
+
+.board-past {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(90, 63, 40, 0.18);
+}
+
+.board-past-note {
+  font-style: italic;
+  font-size: 12px;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
 .wanted {
   display: flex;
   align-items: center;

@@ -17,7 +17,7 @@ import { daylightFactor, isNight } from '../engine/Clock';
 import { spotContent } from '../systems/spots';
 import { hasFound } from '../systems/collection';
 import { stageFloat, stageIndexOf } from '../systems/growth';
-import { demandSpecies } from '../systems/market';
+import { commissionPortrait, openCommission } from '../systems/commissions';
 import type { LushField } from '../systems/wild';
 import { CHARACTERS } from '../systems/wild';
 import { PlantSpriteCache, type PlantMode } from './PlantArt';
@@ -983,7 +983,9 @@ export class Renderer {
       ctx.fillRect(tl.x - tile * 0.35, ground - tile * 0.35, tile * 0.4, tile * 0.35);
       ctx.fillRect(tl.x + w - tile * 0.05, ground - tile * 0.35, tile * 0.4, tile * 0.35);
     }
-    // chalkboard: today's demand, shown as a little picture of the plant
+    // The board: the request pinned up, shown as a picture of the plant
+    // (or a blank card for "anything from…"); a glint while it's unread,
+    // and a pinned note once it's been filled.
     const bx = tl.x + w + tile * 0.1;
     const by = tl.y - tile * 0.35;
     ctx.fillStyle = '#5a3f28';
@@ -993,12 +995,22 @@ export class Renderer {
     ctx.strokeStyle = '#8a6a44';
     ctx.lineWidth = Math.max(1, tile * 0.03);
     ctx.strokeRect(bx, by, tile * 0.42, tile * 0.52);
-    const want = demandSpecies(state);
-    this.drawPlantSprite(bx + tile * 0.21, by + tile * 0.42, tile * 0.5, want, PLANTS[want].variants[0].id, 2, 5, 'ground', now);
+    const c = state.commission;
+    const open = openCommission(state);
+    if (open && !open.seen) this.glowMarker(bx + tile * 0.21, by + tile * 0.26, tile, '#f0d27a', now);
+    const pic = open ? commissionPortrait(open) : null;
+    if (pic) this.drawPlantSprite(bx + tile * 0.21, by + tile * 0.42, tile * 0.5, pic.defId, pic.variantId, 2, 5, 'ground', now);
+    else {
+      // A note card: "anything from…", or the buyer's thanks once it's filled.
+      ctx.fillStyle = c && !open ? '#efe6cf' : '#d9d2bb';
+      ctx.fillRect(bx + tile * 0.09, by + tile * 0.2, tile * 0.24, tile * 0.22);
+      ctx.fillStyle = 'rgba(60,40,20,0.55)';
+      for (let i = 0; i < 3; i++) ctx.fillRect(bx + tile * 0.12, by + tile * (0.25 + i * 0.05), tile * (0.18 - i * 0.04), Math.max(1, tile * 0.015));
+    }
     ctx.fillStyle = '#e8e2c8';
     ctx.font = `bold ${Math.max(8, Math.round(tile * 0.13))}px Georgia`;
     ctx.textAlign = 'center';
-    ctx.fillText('WANTED', bx + tile * 0.21, by + tile * 0.12);
+    ctx.fillText(open ? 'WANTED' : 'THANKS', bx + tile * 0.21, by + tile * 0.12);
   }
 
   private drawDecor(camera: Camera, d: PlacedDecor, state: GameState, now: number) {
