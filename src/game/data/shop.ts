@@ -31,7 +31,7 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: 'ironPedestal', name: 'Iron Pedestal', category: 'greenhouse', price: 80, repeatable: true, description: 'A tall wrought-iron pedestal that lifts one plant up into the light.' },
   { id: 'ceilingHook', name: 'Ceiling Hook', category: 'greenhouse', price: 40, repeatable: true, description: 'Hang one more pot from the roof, above anything you like.' },
   { id: 'wallTrellis', name: 'Wall Trellis', category: 'greenhouse', price: 95, repeatable: true, description: 'A tall cedar lattice. Vines and trailers planted at its foot climb it instead of trailing — best along a wall.' },
-  { id: 'propagationTray', name: 'Propagation Tray', category: 'greenhouse', price: 70, repeatable: true, description: 'A shallow tray of damp grit with a clear lid. One more place for a cutting to root — put it anywhere.' },
+  { id: 'propagationTray', name: 'Propagation Tray', category: 'greenhouse', price: 70, repeatable: true, description: 'A shallow tray of damp grit with a clear lid. One more place for a cutting to root — put it anywhere. It grows a cutting as far as Young; after that it wants a nursery bed or a pot.' },
   { id: 'pottingTable', name: 'Potting Table', category: 'greenhouse', price: 85, repeatable: true, description: 'A long, scrubbed table. Sets one plant at a comfortable height. Turns to fit along any wall.' },
   { id: 'floorPlanter', name: 'Floor Planter', category: 'greenhouse', price: 110, repeatable: true, description: 'A deep glazed planter that sits on the floor. Big plants love the extra root room.' },
   { id: 'growLamp', name: 'Grow Lamp', category: 'greenhouse', price: 150, repeatable: true, description: 'A standing lamp with a warm, pinkish glow. Plants close to it grow a third faster.' },

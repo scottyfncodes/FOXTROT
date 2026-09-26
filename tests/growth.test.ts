@@ -67,3 +67,42 @@ describe('growth stages', () => {
     expect(minutesToNextStage(state, p)).toBeGreaterThan(0);
   });
 });
+
+describe('propagation trays', () => {
+  it('grow a cutting to Young and no further, while a nursery bed keeps going', async () => {
+    const { createNewGame } = await import('../src/game/state');
+    const { placeFurniture } = await import('../src/game/systems/furniture');
+    const { tickGrowth, stageOf, minutesToNextStage, outgrownTray, TRAY_MAX_GROWTH } = await import('../src/game/systems/growth');
+    const state = createNewGame();
+    state.furnitureStock = { propagationTray: 1 };
+    const tray = placeFurniture(state, 'propagationTray', 3, 8)!;
+    const base = { seed: 1, plantedAt: 0, lastCuttingAt: null, generation: 1, bornWild: false };
+    state.plants.t = { ...base, id: 't', defId: 'pothos', variantId: 'golden', growth: 0, location: { kind: 'nursery', bedId: tray.id } };
+    state.plants.b = { ...base, id: 'b', defId: 'pothos', variantId: 'golden', growth: 0, location: { kind: 'nursery', bedId: 'bed1' } };
+    const ups = tickGrowth(state, 100_000);
+    expect(stageOf(state.plants.t.growth)).toBe('young');
+    expect(state.plants.t.growth).toBe(TRAY_MAX_GROWTH);
+    expect(stageOf(state.plants.b.growth)).toBe('specimen');
+    expect(ups.filter((u) => u.plantId === 't').map((u) => u.to)).toEqual(['young']);
+    expect(minutesToNextStage(state, state.plants.t)).toBeNull();
+    expect(outgrownTray(state, state.plants.t)).toBe(true);
+
+    // Moved into a nursery bed, it takes off again.
+    state.plants.t.location = { kind: 'nursery', bedId: 'bed2' };
+    expect(minutesToNextStage(state, state.plants.t)).not.toBeNull();
+    tickGrowth(state, 1000);
+    expect(stageOf(state.plants.t.growth)).not.toBe('young');
+  });
+
+  it("never shrinks a plant that was already bigger when the limit arrived", async () => {
+    const { createNewGame } = await import('../src/game/state');
+    const { placeFurniture } = await import('../src/game/systems/furniture');
+    const { tickGrowth, STAGE_AT } = await import('../src/game/systems/growth');
+    const state = createNewGame();
+    state.furnitureStock = { propagationTray: 1 };
+    const tray = placeFurniture(state, 'propagationTray', 3, 8)!;
+    state.plants.old = { id: 'old', defId: 'pothos', variantId: 'golden', seed: 1, growth: STAGE_AT.large, location: { kind: 'nursery', bedId: tray.id }, plantedAt: 0, lastCuttingAt: null, generation: 1, bornWild: false };
+    tickGrowth(state, 5000);
+    expect(state.plants.old.growth).toBe(STAGE_AT.large);
+  });
+});
