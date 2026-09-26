@@ -1275,6 +1275,354 @@ function drawPalmate(p: Paint) {
   }
 }
 
+// ------------------------------------------------------------ carnivores
+
+/** Point and tangent on a cubic Bézier from (0,0) through c1, c2 to e. */
+function cubicAt(t: number, c1x: number, c1y: number, c2x: number, c2y: number, ex: number, ey: number) {
+  const u = 1 - t;
+  return {
+    x: 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * ex,
+    y: 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * ey,
+    tx: 3 * u * u * c1x + 6 * u * t * (c2x - c1x) + 3 * t * t * (ex - c2x),
+    ty: 3 * u * u * c1y + 6 * u * t * (c2y - c1y) + 3 * t * t * (ey - c2y),
+  };
+}
+
+/** One flytrap at the current transform: two toothed lobes hinged at the base, open or snapped shut. */
+function flytrap(p: Paint, size: number, shut: boolean) {
+  const { ctx, look } = p;
+  const teeth = size * 0.3 * (look.spineLength ?? 1);
+  const spread = shut ? 0.06 : 0.5;
+  for (const side of [-1, 1]) {
+    withTransform(ctx, 0, 0, side * spread, () => {
+      const c1x = side * size * 0.55;
+      const c2x = side * size * 0.62;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.bezierCurveTo(c1x, -size * 0.05, c2x, -size * 0.85, 0, -size);
+      ctx.closePath();
+      ctx.fillStyle = leafFill(p, size);
+      ctx.fill();
+      if (!shut) {
+        // The red inner face, showing because the trap is open.
+        ctx.beginPath();
+        ctx.moveTo(side * size * 0.05, -size * 0.1);
+        ctx.bezierCurveTo(side * size * 0.42, -size * 0.14, side * size * 0.48, -size * 0.8, side * size * 0.05, -size * 0.9);
+        ctx.closePath();
+        ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 68, look.accentLight ?? 44);
+        ctx.fill();
+      }
+      ctx.strokeStyle = hsl(look.hue, look.sat, look.light + 14, 0.95);
+      ctx.lineWidth = Math.max(0.4, size * 0.035);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let i = 2; i < 12; i++) {
+        const q = cubicAt(i / 12, c1x, -size * 0.05, c2x, -size * 0.85, 0, -size);
+        const len = Math.hypot(q.tx, q.ty) || 1;
+        // Outward normal: the side of the tangent that points away from the midrib.
+        let nx = -q.ty / len;
+        let ny = q.tx / len;
+        if (nx * side < 0) {
+          nx = -nx;
+          ny = -ny;
+        }
+        ctx.moveTo(q.x, q.y);
+        ctx.lineTo(q.x + nx * teeth, q.y + ny * teeth - teeth * 0.3);
+      }
+      ctx.stroke();
+    });
+  }
+}
+
+/** Venus flytrap: a low rosette of leaves, each ending in a hinged, toothed trap. */
+function drawTrap(p: Paint) {
+  const { ctx, rand, S, sf } = p;
+  const n = Math.min(10, Math.round(2 + sf * 1.8));
+  const traps = Array.from({ length: n }, (_, i) => ({
+    a: (n === 1 ? 0 : -1.25 + (2.5 * i) / (n - 1)) + (rand() - 0.5) * 0.3,
+    L: S * (0.3 + rand() * 0.14),
+    shut: rand() < 0.2,
+  })).sort((a, b) => Math.abs(b.a) - Math.abs(a.a));
+  for (const t of traps) {
+    withTransform(ctx, 0, 0, t.a, () => {
+      leaf(p, { shape: 'lance', L: t.L, W: t.L * 0.15, dim: Math.abs(t.a) > 0.7 ? 5 : 0 });
+      withTransform(ctx, 0, -t.L * 0.92, 0, () => flytrap(p, S * 0.22, t.shut));
+    });
+  }
+}
+
+/** A sundew blade: a spoon of leaf covered in red hairs, each holding a bead of glue. */
+function sundewBlade(p: Paint, L: number) {
+  const { ctx, look, rand } = p;
+  const W = L * 0.34;
+  leaf(p, { shape: 'oval', L, W, midrib: false });
+  const hair = hsl(look.accentHue, look.accentSat ?? 70, look.accentLight ?? 46);
+  const hl = L * 0.2;
+  const tips: [number, number][] = [];
+  ctx.strokeStyle = hair;
+  ctx.lineWidth = Math.max(0.35, L * 0.025);
+  ctx.beginPath();
+  for (let t = 0.12; t < 1.0; t += 0.1) {
+    for (const s of [-1, 1]) {
+      const bx = Math.sin(Math.PI * Math.pow(t, 0.8)) * W * 1.1 * s;
+      const by = -L * t;
+      const a = Math.atan2(by + L * 0.45, bx) + (rand() - 0.5) * 0.3;
+      const ex = bx + Math.cos(a) * hl;
+      const ey = by + Math.sin(a) * hl;
+      ctx.moveTo(bx, by);
+      ctx.lineTo(ex, ey);
+      tips.push([ex, ey]);
+    }
+  }
+  ctx.moveTo(0, -L);
+  ctx.lineTo(0, -L - hl);
+  tips.push([0, -L - hl]);
+  ctx.stroke();
+  // Shorter hairs over the face of the leaf.
+  for (let i = 0; i < 6; i++) tips.push([(rand() - 0.5) * W, -L * (0.3 + rand() * 0.55)]);
+  const r = Math.max(0.45, L * 0.034);
+  for (const [x, y] of tips) {
+    ctx.fillStyle = hsl(look.accentHue, 35, 88, 0.7);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** Sundew: a low rosette of glittering spoons, with a wiry flower stalk once it's grown. */
+function drawDew(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  const n = Math.min(16, Math.round(4 + sf * 2.6));
+  const leaves = Array.from({ length: n }, (_, i) => ({
+    a: (n === 1 ? 0 : -1.45 + (2.9 * i) / (n - 1)) + (rand() - 0.5) * 0.25,
+    L: S * (0.32 + rand() * 0.2),
+  })).sort((a, b) => Math.abs(b.a) - Math.abs(a.a));
+  for (const lf of leaves) {
+    withTransform(ctx, 0, 0, lf.a, () => {
+      stroke(ctx, stemColor(look, 4), Math.max(0.5, S * 0.018), () => {
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -lf.L * 0.45);
+      });
+      withTransform(ctx, 0, -lf.L * 0.42, 0, () => sundewBlade(p, lf.L * 0.62));
+    });
+  }
+  if (!look.flowers || sf < 2) return;
+  const stalks = sf >= 3.2 ? 2 : 1;
+  for (let k = 0; k < stalks; k++) {
+    const x = (k === 0 ? 1 : -1) * S * (0.1 + rand() * 0.1);
+    const h = S * (1.05 + rand() * 0.25);
+    stroke(ctx, stemColor(look, -2), Math.max(0.5, S * 0.014), () => {
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(x * 1.5, -h * 0.5, x, -h);
+    });
+    for (let i = 0; i < 3; i++) {
+      const fx = x + (i - 1) * S * 0.06;
+      const fy = -h + Math.abs(i - 1) * S * 0.06;
+      ctx.fillStyle = hsl(328, 55, 84);
+      for (let j = 0; j < 5; j++) {
+        const a = (j / 5) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(fx + Math.cos(a) * S * 0.028, fy + Math.sin(a) * S * 0.028, S * 0.024, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = hsl(50, 80, 62);
+      ctx.beginPath();
+      ctx.arc(fx, fy, S * 0.018, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function veinColor(look: PlantLook, a = 1): string {
+  const [h, s, l] = look.variegationColor ?? [look.accentHue, 50, 30];
+  return hsl(h, s, l, a);
+}
+
+/** One hooded trumpet, base at the origin. */
+function trumpet(p: Paint, h: number, dim: number) {
+  const { ctx, look, rand, S } = p;
+  const w0 = S * 0.026;
+  const w1 = S * 0.085;
+  const tube = () => {
+    ctx.beginPath();
+    ctx.moveTo(-w0, 0);
+    ctx.quadraticCurveTo(-w0 * 1.3, -h * 0.55, -w1, -h);
+    ctx.lineTo(w1, -h);
+    ctx.quadraticCurveTo(w0 * 1.3, -h * 0.55, w0, 0);
+    ctx.closePath();
+  };
+  const g = ctx.createLinearGradient(0, 0, 0, -h);
+  g.addColorStop(0, hsl(look.hue, look.sat - 6, look.light - 12 - dim));
+  g.addColorStop(0.5, hsl(look.hue, look.sat, look.light - dim));
+  g.addColorStop(1, hsl(look.accentHue, look.accentSat ?? 60, (look.accentLight ?? 55) - dim * 0.5));
+  tube();
+  ctx.fillStyle = g;
+  ctx.fill();
+  // Veins netting the throat.
+  ctx.save();
+  tube();
+  ctx.clip();
+  ctx.strokeStyle = veinColor(look, 0.55);
+  ctx.lineWidth = Math.max(0.4, S * 0.008);
+  ctx.beginPath();
+  for (let i = -2; i <= 2; i++) {
+    const x = (i / 2.5) * w1;
+    ctx.moveTo(x * 0.45, -h * 0.45);
+    ctx.lineTo(x, -h);
+  }
+  ctx.stroke();
+  ctx.restore();
+  tube();
+  ctx.strokeStyle = hsl(look.hue, look.sat, look.light - 24, 0.5);
+  ctx.lineWidth = Math.max(0.5, S * 0.01);
+  ctx.stroke();
+  // The open mouth, and the hood leaning over it.
+  ctx.fillStyle = hsl(look.hue, look.sat, 12, 0.85);
+  ctx.beginPath();
+  ctx.ellipse(0, -h, w1, w1 * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  withTransform(ctx, w1 * 0.2, -h - w1 * 0.15, (rand() - 0.3) * 0.5, () => {
+    leafPath(ctx, 'heart', w1 * 2.1, w1 * 0.95, 0);
+    ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 60, (look.accentLight ?? 55) + 4 - dim * 0.5);
+    ctx.fill();
+    ctx.save();
+    leafPath(ctx, 'heart', w1 * 2.1, w1 * 0.95, 0);
+    ctx.clip();
+    ctx.strokeStyle = veinColor(look, 0.7);
+    ctx.lineWidth = Math.max(0.4, S * 0.009);
+    ctx.beginPath();
+    for (let i = -2; i <= 2; i++) {
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(i * w1 * 0.3, -w1, i * w1 * 0.45, -w1 * 2);
+    }
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
+/** Trumpet pitcher: a stand of hooded tubes, and nodding flowers on older plants. */
+function drawPitcher(p: Paint) {
+  const { ctx, look, rand, S, sf } = p;
+  const n = Math.min(10, Math.round(2 + sf * 1.7));
+  const tubes = Array.from({ length: n }, (_, i) => ({
+    x: (rand() - 0.5) * S * 0.32,
+    a: (rand() - 0.5) * 0.5,
+    h: S * (0.75 + rand() * 0.55) * (i === 0 ? 1.1 : 1),
+  })).sort((a, b) => Math.abs(b.a) - Math.abs(a.a));
+  for (const t of tubes) withTransform(ctx, t.x, 0, t.a, () => trumpet(p, t.h, Math.abs(t.a) > 0.18 ? 6 : 0));
+  if (!look.flowers || sf < 2.5) return;
+  const x = S * (0.28 + rand() * 0.1) * (rand() < 0.5 ? -1 : 1);
+  const h = S * 0.8;
+  stroke(ctx, stemColor(look, -4), Math.max(0.6, S * 0.016), () => {
+    ctx.moveTo(x * 0.3, 0);
+    ctx.quadraticCurveTo(x, -h * 0.7, x * 1.1, -h);
+  });
+  // A nodding flower: an umbrella of drooping petals.
+  ctx.fillStyle = hsl(look.accentHue, look.accentSat ?? 70, (look.accentLight ?? 60) - 4);
+  for (let i = 0; i < 5; i++) {
+    withTransform(ctx, x * 1.1, -h + S * 0.02, Math.PI + (i / 4 - 0.5) * 1.6, () => {
+      leafPath(ctx, 'lance', S * 0.13, S * 0.035, 0);
+      ctx.fill();
+    });
+  }
+}
+
+/** A hanging monkey cup with its rim at (0,0): bulbous body, a ribbed lip and a lid. */
+function monkeyCup(p: Paint, s: number) {
+  const { ctx, look, rand } = p;
+  const w = s * 0.5;
+  const body = () => {
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.55, 0);
+    ctx.bezierCurveTo(-w * 0.72, s * 0.3, -w * 1.1, s * 0.72, -w * 0.5, s * 0.98);
+    ctx.quadraticCurveTo(0, s * 1.08, w * 0.5, s * 0.98);
+    ctx.bezierCurveTo(w * 1.1, s * 0.72, w * 0.72, s * 0.3, w * 0.55, 0);
+    ctx.closePath();
+  };
+  const ah = look.accentHue;
+  const as = look.accentSat ?? 45;
+  const al = look.accentLight ?? 46;
+  const g = ctx.createLinearGradient(0, 0, 0, s);
+  g.addColorStop(0, hsl(ah, as, al + 8));
+  g.addColorStop(0.6, hsl(ah, as, al));
+  g.addColorStop(1, hsl(ah, as, al - 10));
+  body();
+  ctx.fillStyle = g;
+  ctx.fill();
+  if (look.variegationColor) {
+    ctx.save();
+    body();
+    ctx.clip();
+    ctx.fillStyle = veinColor(look, 0.55);
+    for (let i = 0; i < 12; i++) {
+      ctx.beginPath();
+      ctx.arc((rand() - 0.5) * w * 1.6, s * (0.2 + rand() * 0.8), Math.max(0.4, s * 0.03), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  body();
+  ctx.strokeStyle = hsl(ah, as, al - 22, 0.6);
+  ctx.lineWidth = Math.max(0.5, s * 0.03);
+  ctx.stroke();
+  // Lid, tilted up and back.
+  withTransform(ctx, w * 0.15, -s * 0.02, 0.5, () => {
+    leafPath(ctx, 'oval', s * 0.38, s * 0.2, 0);
+    ctx.fillStyle = hsl(ah, as, al + 4);
+    ctx.fill();
+  });
+  // The dark mouth and the glossy peristome lip around it.
+  ctx.fillStyle = hsl(ah, as, 10, 0.9);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.55, w * 0.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = veinColor(look, 1);
+  ctx.lineWidth = Math.max(0.6, s * 0.07);
+  ctx.stroke();
+}
+
+/** Tropical pitcher plant: leaves up a scrambling stem, tendrils ending in hanging cups. */
+function drawCups(p: Paint) {
+  const { ctx, look, rand, S, sf, mode } = p;
+  const stemH = S * (0.35 + Math.min(4, sf) * 0.15);
+  const topX = (rand() - 0.5) * S * 0.12;
+  const n = Math.min(9, Math.round(2 + sf * 1.6));
+  const hang = mode === 'ground' ? 0.3 : 0.85;
+  const cups: { x: number; y: number; s: number; tx: number; ty: number; side: number }[] = [];
+  const leaves: { y: number; a: number; L: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 1 : i / (n - 1);
+    const y = -stemH * (0.12 + 0.88 * t);
+    const side = i % 2 ? 1 : -1;
+    const a = side * (0.95 + rand() * 0.35);
+    const L = S * (0.32 + rand() * 0.1);
+    leaves.push({ y, a, L });
+    // Not every leaf has managed a cup yet.
+    if (i === n - 1 && n > 2) continue;
+    const tx = Math.sin(a) * L;
+    const ty = y - Math.cos(a) * L;
+    const s = S * (0.2 + rand() * 0.06);
+    const cy = Math.min(ty + S * hang * (0.7 + rand() * 0.5), mode === 'ground' ? -s * 0.9 : Infinity);
+    cups.push({ x: tx + side * S * 0.1, y: cy, s, tx, ty, side });
+  }
+  stroke(ctx, stemColor(look, -6), Math.max(1, S * 0.03), () => {
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(S * 0.08, -stemH * 0.5, topX, -stemH);
+  });
+  for (const lf of leaves) withTransform(ctx, 0, lf.y, lf.a, () => leaf(p, { shape: 'lance', L: lf.L, W: lf.L * 0.22, dim: 3 }));
+  for (const c of cups) {
+    stroke(ctx, stemColor(look, 2), Math.max(0.5, S * 0.012), () => {
+      ctx.moveTo(c.tx, c.ty);
+      ctx.quadraticCurveTo(c.tx + c.side * S * 0.14, c.ty, c.x + c.side * c.s * 0.2, c.y - c.s * 0.1);
+    });
+    withTransform(ctx, c.x, c.y, c.side * 0.12, () => monkeyCup(p, c.s));
+  }
+}
+
 const FORM_DRAW: Record<PlantForm, (p: Paint) => void> = {
   fern: drawFern,
   splitleaf: drawSplitleaf,
@@ -1294,6 +1642,10 @@ const FORM_DRAW: Record<PlantForm, (p: Paint) => void> = {
   spiky: drawSpiky,
   stones: drawStones,
   palmate: drawPalmate,
+  trap: drawTrap,
+  dew: drawDew,
+  pitcher: drawPitcher,
+  cups: drawCups,
 };
 
 /**
@@ -1322,6 +1674,10 @@ function extent(form: PlantForm, mode: PlantMode): { w: number; up: number; down
   if (form === 'paddle' || form === 'jade' || form === 'spiky') return { w: 1.6, up: 1.6, down: 0.4 };
   if (form === 'stones') return { w: 1.0, up: 0.9, down: 0.4 };
   if (form === 'palmate') return { w: 1.5, up: 2.35, down: 0.4 };
+  if (form === 'trap') return { w: 1.3, up: 1.0, down: 0.4 };
+  if (form === 'dew') return { w: 1.3, up: 1.6, down: 0.4 };
+  if (form === 'pitcher') return { w: 1.2, up: 2.1, down: 0.4 };
+  if (form === 'cups') return { w: 1.7, up: 1.6, down: mode === 'ground' ? 0.5 : 1.4 };
   return { w: 1.35, up: 1.6, down: 0.5 };
 }
 

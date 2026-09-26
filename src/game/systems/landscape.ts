@@ -55,6 +55,10 @@ const FORM_RADIUS: Record<string, number> = {
   spiky: 0.46,
   stones: 0.3,
   palmate: 0.62,
+  trap: 0.34,
+  dew: 0.3,
+  pitcher: 0.45,
+  cups: 0.62,
 };
 
 export function matureRadius(defId: string, variantId?: string): number {
